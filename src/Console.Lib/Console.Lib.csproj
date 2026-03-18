@@ -14,6 +14,8 @@
     <RepositoryType>git</RepositoryType>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <DebugType>embedded</DebugType>
+    <!-- Transitive prerelease dep: DIR.Lib → FreeType.Native 2.14.1-r6 (win-arm64) -->
+    <NoWarn>$(NoWarn);NU5104</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
