@@ -1,3 +1,4 @@
+using System.Text;
 using DIR.Lib;
 
 namespace Console.Lib;
@@ -171,7 +172,7 @@ public sealed class RgbaImageRenderer : SixelRenderer<RgbaImage>
             return space;
         }
 
-        var bitmap = _rasterizer.RasterizeGlyph(fontPath, fontSize, character);
+        var bitmap = _rasterizer.RasterizeGlyph(fontPath, fontSize, new Rune(character));
         _glyphCache[key] = bitmap;
         return bitmap;
     }
