@@ -65,6 +65,8 @@ public static class SgrColorExtensions
 /// </summary>
 public enum ColorMode : byte
 {
+    /// <summary>No color escapes emitted.</summary>
+    None,
     /// <summary>16-color SGR codes (works everywhere).</summary>
     Sgr16,
     /// <summary>24-bit truecolor via <c>\e[38;2;R;G;Bm</c> / <c>\e[48;2;R;G;Bm</c>.</summary>
@@ -90,8 +92,19 @@ public readonly record struct VtStyle(RGBAColor32 Foreground, RGBAColor32 Backgr
     /// </summary>
     public string Apply(ColorMode colorMode) => colorMode switch
     {
+        ColorMode.None => "",
         ColorMode.TrueColor => $"\e[38;2;{Foreground.Red};{Foreground.Green};{Foreground.Blue};48;2;{Background.Red};{Background.Green};{Background.Blue}m",
         _ => $"\e[{FgCode(SgrColorExtensions.NearestSgrColor(Foreground))};{BgCode(SgrColorExtensions.NearestSgrColor(Background))}m",
+    };
+
+    /// <summary>
+    /// Returns the VT escape sequence for the foreground color only.
+    /// </summary>
+    public string ApplyFg(ColorMode colorMode) => colorMode switch
+    {
+        ColorMode.None => "",
+        ColorMode.TrueColor => $"\e[38;2;{Foreground.Red};{Foreground.Green};{Foreground.Blue}m",
+        _ => $"\e[{FgCode(SgrColorExtensions.NearestSgrColor(Foreground))}m",
     };
 
     /// <summary>

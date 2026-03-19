@@ -308,7 +308,7 @@ Performance vs ImageMagick's built-in Sixel writer:
 `VtStyle` stores foreground/background as `RGBAColor32` (from DIR.Lib) and produces escape sequences via `Apply(ColorMode)`:
 
 ```csharp
-public enum ColorMode : byte { Sgr16, TrueColor }
+public enum ColorMode : byte { None, Sgr16, TrueColor }
 
 public readonly record struct VtStyle(RGBAColor32 Foreground, RGBAColor32 Background)
 {
@@ -331,7 +331,21 @@ var custom = new VtStyle(new RGBAColor32(0x1a, 0x1a, 0x2e, 0xff), new RGBAColor3
 terminal.Write($"{style.Apply(terminal.ColorMode)}Highlighted text{VtStyle.Reset}");
 ```
 
-`ColorMode` flows through the viewport chain: `VirtualTerminal` returns `TrueColor` when `HasColorSupport` is true (DA capability code 22), `TerminalViewport` delegates to its parent, and `ITerminalViewport` defaults to `Sgr16`.
+`ColorMode` flows through the viewport chain: `VirtualTerminal` returns `TrueColor` when `HasColorSupport` is true (DA capability code 22), `TerminalViewport` delegates to its parent, and `ITerminalViewport` defaults to `Sgr16`. `ColorMode.None` suppresses all escape sequences for plain-text output.
+
+## Markdown rendering
+
+`MarkdownRenderer` converts Markdown to VT-styled terminal output using Markdig. Supports headings, bold, italic, links, tables, lists, horizontal rules, and inline colored text.
+
+Colors can be applied to individual words using `[text]{color}` syntax, where `color` is either a named `SgrColor` (e.g. `red`, `BrightCyan`) or a `#RRGGBB` hex literal:
+
+```markdown
+This has a [warning]{red} and a [custom tint]{#FF8800}.
+```
+
+Colors are resolved at render time based on the active `ColorMode` — in `None` mode, no escape sequences are emitted. Structural element colors (headings, links, bullets) are configurable via `MarkdownTheme`.
+
+`MarkdownWidget` wraps the renderer as a scrollable viewport widget with automatic re-rendering on resize.
 
 ## Input handling
 

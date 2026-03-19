@@ -1,6 +1,3 @@
-using Markdig;
-using Markdig.Syntax;
-
 namespace Console.Lib;
 
 /// <summary>
@@ -14,24 +11,23 @@ namespace Console.Lib;
 /// </summary>
 public class MarkdownWidget(ITerminalViewport viewport) : Widget(viewport)
 {
-    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
-        .UsePipeTables()
-        .Build();
-
     private string _markdown = "";
-    private MarkdownDocument? _document;
     private List<string>? _renderedLines;
     private int _renderedWidth;
     private int _scrollOffset;
 
     /// <summary>
+    /// The color theme used for rendering. Defaults to <see cref="MarkdownTheme.Default"/>.
+    /// </summary>
+    public MarkdownTheme Theme { get; set; } = MarkdownTheme.Default;
+
+    /// <summary>
     /// Sets the Markdown content to render.
-    /// Parses the AST immediately; VT output is deferred until <see cref="Render"/>.
+    /// VT output is deferred until <see cref="Render"/>.
     /// </summary>
     public MarkdownWidget Markdown(string markdown)
     {
         _markdown = markdown;
-        _document = Markdig.Markdown.Parse(markdown, Pipeline);
         _renderedLines = null;
         return this;
     }
@@ -81,7 +77,7 @@ public class MarkdownWidget(ITerminalViewport viewport) : Widget(viewport)
         if (_renderedLines is not null && _renderedWidth == currentWidth)
             return _renderedLines;
 
-        _renderedLines = MarkdownRenderer.RenderLines(_markdown, currentWidth, Viewport.ColorMode);
+        _renderedLines = MarkdownRenderer.RenderLines(_markdown, currentWidth, Viewport.ColorMode, Theme);
         _renderedWidth = currentWidth;
         return _renderedLines;
     }

@@ -23,3 +23,4 @@ When bumping the version, update both files to keep them in sync.
 - **Windows VT I/O** (`WindowsConsoleInput.EnableVirtualTerminalIO`) is only activated when entering alternate screen mode, not during `InitAsync()`. This keeps `Console.ReadKey` working correctly in normal (non-alternate) mode for ASCII/text-based UIs.
 - **`TryReadInput`** uses `intercept: true` in normal mode — keystrokes are never echoed. Callers control display feedback (e.g., via `WriteInPlace`).
 - **`MenuBase<T>`** in normal mode shows a `> ` prompt and echoes the selected item on confirmation.
+- **`ColorMode` enum** now has a `None` value (ordinal 0) before `Sgr16` and `TrueColor`. Code that persisted or compared `ColorMode` by integer value may need updating.

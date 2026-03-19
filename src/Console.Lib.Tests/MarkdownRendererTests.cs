@@ -1,4 +1,5 @@
 using Console.Lib;
+using DIR.Lib;
 using Shouldly;
 using Xunit;
 
@@ -8,13 +9,15 @@ public sealed class MarkdownRendererTests
 {
     private const string Reset = "\e[0m";
     private const string Bold = "\e[1m";
-    private const string Dim = "\e[2m";
     private const string Italic = "\e[3m";
     private const string Underline = "\e[4m";
-    private const string Cyan = "\e[36m";
-    private const string BoldBlue = "\e[1;34m";
-    private const string BoldCyan = "\e[1;36m";
-    private const string BoldWhite = "\e[1;97m";
+
+    // Resolved color escapes (SGR-16 mode via VtStyle.ApplyFg)
+    private static readonly string Cyan = new VtStyle(SgrColor.Cyan, default).ApplyFg(ColorMode.Sgr16);
+    private static readonly string Dim = new VtStyle(SgrColor.BrightBlack, default).ApplyFg(ColorMode.Sgr16);
+    private static readonly string BoldBlue = Bold + new VtStyle(SgrColor.Blue, default).ApplyFg(ColorMode.Sgr16);
+    private static readonly string BoldCyan = Bold + new VtStyle(SgrColor.Cyan, default).ApplyFg(ColorMode.Sgr16);
+    private static readonly string BoldWhite = Bold + new VtStyle(SgrColor.BrightWhite, default).ApplyFg(ColorMode.Sgr16);
 
     // ── VisibleLength ─────────────────────────────────────────────────
 
@@ -42,21 +45,21 @@ public sealed class MarkdownRendererTests
     [Fact]
     public void FormatInline_Bold()
     {
-        var result = MarkdownRenderer.FormatInline("**hello**", ColorMode.TrueColor);
+        var result = MarkdownRenderer.FormatInline("**hello**", ColorMode.Sgr16);
         result.ShouldBe($"{Reset}{Bold}hello{Reset}");
     }
 
     [Fact]
     public void FormatInline_Italic()
     {
-        var result = MarkdownRenderer.FormatInline("*hello*", ColorMode.TrueColor);
+        var result = MarkdownRenderer.FormatInline("*hello*", ColorMode.Sgr16);
         result.ShouldBe($"{Reset}{Italic}hello{Reset}");
     }
 
     [Fact]
     public void FormatInline_BoldItalic()
     {
-        var result = MarkdownRenderer.FormatInline("***hello***", ColorMode.TrueColor);
+        var result = MarkdownRenderer.FormatInline("***hello***", ColorMode.Sgr16);
         // Markdig nests emphasis: <em><strong>hello</strong></em>
         // Visually identical — bold+italic "hello" then reset
         result.ShouldContain(Bold);
@@ -69,21 +72,21 @@ public sealed class MarkdownRendererTests
     [Fact]
     public void FormatInline_Link()
     {
-        var result = MarkdownRenderer.FormatInline("[click](http://example.com)", ColorMode.TrueColor);
+        var result = MarkdownRenderer.FormatInline("[click](http://example.com)", ColorMode.Sgr16);
         result.ShouldBe($"{Underline}{Cyan}click{Reset}{Dim} (http://example.com){Reset}");
     }
 
     [Fact]
     public void FormatInline_BackslashEscape()
     {
-        var result = MarkdownRenderer.FormatInline("\\*not italic\\*", ColorMode.TrueColor);
+        var result = MarkdownRenderer.FormatInline("\\*not italic\\*", ColorMode.Sgr16);
         result.ShouldBe("*not italic*");
     }
 
     [Fact]
     public void FormatInline_PlainText_Unchanged()
     {
-        var result = MarkdownRenderer.FormatInline("no formatting here", ColorMode.TrueColor);
+        var result = MarkdownRenderer.FormatInline("no formatting here", ColorMode.Sgr16);
         result.ShouldBe("no formatting here");
     }
 
@@ -91,7 +94,7 @@ public sealed class MarkdownRendererTests
     public void FormatInline_NestedBoldInItalic()
     {
         // *italic **bold** italic*
-        var result = MarkdownRenderer.FormatInline("*italic **bold** italic*", ColorMode.TrueColor);
+        var result = MarkdownRenderer.FormatInline("*italic **bold** italic*", ColorMode.Sgr16);
         // After first *: italic=true → Reset+Italic
         // "italic " literal
         // After **: bold=true → Reset+Bold+Italic
@@ -107,7 +110,7 @@ public sealed class MarkdownRendererTests
     [Fact]
     public void RenderLines_H1_BoldBlue()
     {
-        var lines = MarkdownRenderer.RenderLines("# Title", 80, ColorMode.TrueColor);
+        var lines = MarkdownRenderer.RenderLines("# Title", 80, ColorMode.Sgr16);
         lines.Count.ShouldBe(1);
         lines[0].ShouldBe($"{BoldBlue}Title{Reset}");
     }
@@ -115,7 +118,7 @@ public sealed class MarkdownRendererTests
     [Fact]
     public void RenderLines_H2_BoldCyan()
     {
-        var lines = MarkdownRenderer.RenderLines("## Subtitle", 80, ColorMode.TrueColor);
+        var lines = MarkdownRenderer.RenderLines("## Subtitle", 80, ColorMode.Sgr16);
         lines.Count.ShouldBe(1);
         lines[0].ShouldBe($"{BoldCyan}Subtitle{Reset}");
     }
@@ -123,7 +126,7 @@ public sealed class MarkdownRendererTests
     [Fact]
     public void RenderLines_H3_BoldWhite()
     {
-        var lines = MarkdownRenderer.RenderLines("### Section", 80, ColorMode.TrueColor);
+        var lines = MarkdownRenderer.RenderLines("### Section", 80, ColorMode.Sgr16);
         lines.Count.ShouldBe(1);
         lines[0].ShouldBe($"{BoldWhite}Section{Reset}");
     }
@@ -131,7 +134,7 @@ public sealed class MarkdownRendererTests
     [Fact]
     public void RenderLines_HeaderWithTrailingHashes()
     {
-        var lines = MarkdownRenderer.RenderLines("## Title ##", 80, ColorMode.TrueColor);
+        var lines = MarkdownRenderer.RenderLines("## Title ##", 80, ColorMode.Sgr16);
         lines[0].ShouldBe($"{BoldCyan}Title{Reset}");
     }
 
@@ -140,7 +143,7 @@ public sealed class MarkdownRendererTests
     [Fact]
     public void RenderLines_HorizontalRule_Dashes()
     {
-        var lines = MarkdownRenderer.RenderLines("---", 40, ColorMode.TrueColor);
+        var lines = MarkdownRenderer.RenderLines("---", 40, ColorMode.Sgr16);
         lines.Count.ShouldBe(1);
         lines[0].ShouldBe($"{Dim}{new string('─', 40)}{Reset}");
     }
@@ -148,7 +151,7 @@ public sealed class MarkdownRendererTests
     [Fact]
     public void RenderLines_HorizontalRule_Asterisks()
     {
-        var lines = MarkdownRenderer.RenderLines("***", 20, ColorMode.TrueColor);
+        var lines = MarkdownRenderer.RenderLines("***", 20, ColorMode.Sgr16);
         lines[0].ShouldBe($"{Dim}{new string('─', 20)}{Reset}");
     }
 
@@ -158,7 +161,7 @@ public sealed class MarkdownRendererTests
     public void RenderLines_UnorderedList()
     {
         var md = "- First\n- Second\n- Third";
-        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.TrueColor);
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.Sgr16);
         lines.Count.ShouldBe(3);
         lines[0].ShouldContain("•");
         lines[0].ShouldContain("First");
@@ -169,7 +172,7 @@ public sealed class MarkdownRendererTests
     public void RenderLines_NestedUnorderedList()
     {
         var md = "- Outer\n  - Inner";
-        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.TrueColor);
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.Sgr16);
         lines.Count.ShouldBe(2);
         lines[0].ShouldContain("•");
         lines[1].ShouldContain("◦");
@@ -181,7 +184,7 @@ public sealed class MarkdownRendererTests
     public void RenderLines_OrderedList()
     {
         var md = "1. First\n2. Second";
-        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.TrueColor);
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.Sgr16);
         lines.Count.ShouldBe(2);
         lines[0].ShouldContain("1.");
         lines[0].ShouldContain("First");
@@ -194,7 +197,7 @@ public sealed class MarkdownRendererTests
     public void RenderLines_SimpleTable()
     {
         var md = "| Name | Age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 25 |";
-        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.TrueColor);
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.Sgr16);
 
         // Top border, header, separator, 2 data rows, bottom border = 6 lines
         lines.Count.ShouldBe(6);
@@ -223,7 +226,7 @@ public sealed class MarkdownRendererTests
     public void RenderLines_TableWithAlignment()
     {
         var md = "| Left | Center | Right |\n| :--- | :---: | ---: |\n| a | b | c |";
-        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.TrueColor);
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.Sgr16);
         lines.Count.ShouldBe(5); // top + header + sep + 1 row + bottom
     }
 
@@ -273,14 +276,14 @@ public sealed class MarkdownRendererTests
     public void RenderLines_MixedContent()
     {
         var md = "# Hello\n\nSome **bold** text.\n\n---\n\n- Item 1\n- Item 2";
-        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.TrueColor);
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.Sgr16);
         lines.Count.ShouldBeGreaterThan(5);
     }
 
     [Fact]
     public void RenderLines_EmptyInput()
     {
-        var lines = MarkdownRenderer.RenderLines("", 80, ColorMode.TrueColor);
+        var lines = MarkdownRenderer.RenderLines("", 80, ColorMode.Sgr16);
         lines.Count.ShouldBe(0);
     }
 
@@ -304,5 +307,109 @@ public sealed class MarkdownRendererTests
         var widget = new MarkdownWidget(terminal);
         widget.Markdown("# Test").ScrollTo(-5);
         widget.ScrollOffset.ShouldBe(0);
+    }
+
+    // ── Color inlines ─────────────────────────────────────────────────
+
+    [Fact]
+    public void FormatInline_ColorByName()
+    {
+        var result = MarkdownRenderer.FormatInline("[warning]{red}", ColorMode.Sgr16);
+        var red = new VtStyle(SgrColor.Red, default).ApplyFg(ColorMode.Sgr16);
+        result.ShouldBe($"{Reset}{red}warning{Reset}");
+    }
+
+    [Fact]
+    public void FormatInline_ColorByHex()
+    {
+        var result = MarkdownRenderer.FormatInline("[custom]{#FF8800}", ColorMode.Sgr16);
+        var color = MarkdownTheme.ParseColor("#FF8800");
+        var fg = new VtStyle(color, default).ApplyFg(ColorMode.Sgr16);
+        result.ShouldBe($"{Reset}{fg}custom{Reset}");
+    }
+
+    [Fact]
+    public void FormatInline_ColorByHex_TrueColor()
+    {
+        var result = MarkdownRenderer.FormatInline("[custom]{#FF8800}", ColorMode.TrueColor);
+        result.ShouldContain("\e[38;2;255;136;0m");
+        result.ShouldContain("custom");
+    }
+
+    [Fact]
+    public void FormatInline_InvalidColor_NotParsed()
+    {
+        // Invalid color name should fall through — treated as literal text
+        var result = MarkdownRenderer.FormatInline("[text]{notacolor}", ColorMode.Sgr16);
+        result.ShouldContain("[text]");
+        result.ShouldContain("{notacolor}");
+    }
+
+    [Fact]
+    public void RenderLines_ColorInline_InParagraph()
+    {
+        var lines = MarkdownRenderer.RenderLines("This has a [warning]{red} word.", 80, ColorMode.Sgr16);
+        lines.Count.ShouldBe(1);
+        lines[0].ShouldContain("warning");
+        var red = new VtStyle(SgrColor.Red, default).ApplyFg(ColorMode.Sgr16);
+        lines[0].ShouldContain(red);
+    }
+
+    // ── No-color mode ─────────────────────────────────────────────────
+
+    [Fact]
+    public void RenderLines_NoColor_NoEscapes()
+    {
+        var lines = MarkdownRenderer.RenderLines("# Hello\n\n**bold** and [link](http://x.com)", 80, ColorMode.None);
+        foreach (var line in lines)
+            line.ShouldNotContain("\e[");
+    }
+
+    [Fact]
+    public void FormatInline_NoColor_PlainText()
+    {
+        var result = MarkdownRenderer.FormatInline("[colored]{red}", ColorMode.None);
+        result.ShouldNotContain("\e[");
+        result.ShouldContain("colored");
+    }
+
+    // ── Theme customization ───────────────────────────────────────────
+
+    [Fact]
+    public void RenderLines_CustomTheme_UsesCustomColors()
+    {
+        var theme = MarkdownTheme.Default with { Heading1 = SgrColor.Green.ToRgba() };
+        var lines = MarkdownRenderer.RenderLines("# Title", 80, ColorMode.Sgr16, theme);
+        var green = new VtStyle(SgrColor.Green, default).ApplyFg(ColorMode.Sgr16);
+        lines[0].ShouldContain(green);
+        lines[0].ShouldContain("Title");
+    }
+
+    // ── ParseColor ────────────────────────────────────────────────────
+
+    [Fact]
+    public void ParseColor_NamedColor()
+    {
+        MarkdownTheme.ParseColor("red").ShouldBe(SgrColor.Red.ToRgba());
+        MarkdownTheme.ParseColor("BrightCyan").ShouldBe(SgrColor.BrightCyan.ToRgba());
+    }
+
+    [Fact]
+    public void ParseColor_HexColor()
+    {
+        MarkdownTheme.ParseColor("#FF0000").ShouldBe(new RGBAColor32(0xFF, 0x00, 0x00, 0xFF));
+        MarkdownTheme.ParseColor("#1A2B3C").ShouldBe(new RGBAColor32(0x1A, 0x2B, 0x3C, 0xFF));
+    }
+
+    [Fact]
+    public void ParseColor_Invalid_Throws()
+    {
+        Should.Throw<ArgumentException>(() => MarkdownTheme.ParseColor("notacolor"));
+    }
+
+    [Fact]
+    public void TryParseColor_Invalid_ReturnsFalse()
+    {
+        MarkdownTheme.TryParseColor("nope", out _).ShouldBeFalse();
     }
 }

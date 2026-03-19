@@ -8,55 +8,50 @@ namespace Console.Lib;
 
 /// <summary>
 /// Renders Markdown text to VT-styled terminal output using Markdig for parsing.
-/// Supports headers, bold, italic, links, tables, lists, and horizontal rules.
+/// Supports headers, bold, italic, links, tables, lists, horizontal rules,
+/// and colored text via <c>[text]{color}</c> syntax.
+/// <para>
+/// All colors are resolved at render time through <see cref="MarkdownTheme"/> to respect
+/// the active <see cref="ColorMode"/>. Use <see cref="ColorMode.None"/> to suppress all escapes.
+/// </para>
 /// </summary>
 public static class MarkdownRenderer
 {
-    // ── VT escape constants ───────────────────────────────────────────
+    // ── VT attribute constants (mode-independent) ─────────────────────
 
     private const string Bold = "\e[1m";
-    private const string Dim = "\e[2m";
     private const string ItalicCode = "\e[3m";
     private const string Underline = "\e[4m";
     private const string Reset = "\e[0m";
-    private const string BoldBlue = "\e[1;34m";
-    private const string BoldCyan = "\e[1;36m";
-    private const string BoldWhite = "\e[1;97m";
-    private const string CyanFg = "\e[36m";
 
     /// <summary>
-    /// Markdig pipeline with pipe-table support enabled.
+    /// Markdig pipeline with pipe-table and color-inline support enabled.
     /// </summary>
     private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
         .UsePipeTables()
+        .UseColorInlines()
         .Build();
 
     /// <summary>
     /// Renders Markdown to the given <see cref="TextWriter"/>.
     /// </summary>
-    /// <param name="markdown">The Markdown source text.</param>
-    /// <param name="output">Target writer for the styled output.</param>
-    /// <param name="width">Available terminal width in columns.</param>
-    /// <param name="colorMode">Terminal color mode (SGR-16 or TrueColor).</param>
-    public static void Render(string markdown, TextWriter output, int width, ColorMode colorMode = ColorMode.TrueColor)
+    public static void Render(string markdown, TextWriter output, int width,
+        ColorMode colorMode = ColorMode.TrueColor, MarkdownTheme? theme = null)
     {
-        foreach (var line in RenderLines(markdown, width, colorMode))
+        foreach (var line in RenderLines(markdown, width, colorMode, theme))
             output.WriteLine(line);
     }
 
     /// <summary>
     /// Renders Markdown to a list of pre-formatted VT lines suitable for widget rendering.
-    /// Each string may contain VT escape sequences for styling.
     /// </summary>
-    /// <param name="markdown">The Markdown source text.</param>
-    /// <param name="width">Available terminal width in columns.</param>
-    /// <param name="colorMode">Terminal color mode (SGR-16 or TrueColor).</param>
-    /// <returns>A list of styled output lines ready for terminal display.</returns>
-    public static List<string> RenderLines(string markdown, int width, ColorMode colorMode = ColorMode.TrueColor)
+    public static List<string> RenderLines(string markdown, int width,
+        ColorMode colorMode = ColorMode.TrueColor, MarkdownTheme? theme = null)
     {
         if (string.IsNullOrWhiteSpace(markdown))
             return [];
 
+        theme ??= MarkdownTheme.Default;
         var doc = Markdown.Parse(markdown, Pipeline);
         var result = new List<string>();
         var first = true;
@@ -64,7 +59,7 @@ public static class MarkdownRenderer
         foreach (var block in doc)
         {
             if (!first) result.Add("");
-            RenderBlock(block, width, colorMode, result, nestLevel: 0);
+            RenderBlock(block, width, colorMode, theme, result, nestLevel: 0);
             first = false;
         }
 
@@ -73,49 +68,54 @@ public static class MarkdownRenderer
 
     // ── Block rendering ───────────────────────────────────────────────
 
-    private static void RenderBlock(Block block, int width, ColorMode colorMode, List<string> result, int nestLevel)
+    private static void RenderBlock(Block block, int width, ColorMode colorMode,
+        MarkdownTheme theme, List<string> result, int nestLevel)
     {
         switch (block)
         {
             case HeadingBlock heading:
-                RenderHeading(heading, width, colorMode, result);
+                RenderHeading(heading, width, colorMode, theme, result);
                 break;
 
             case ThematicBreakBlock:
-                result.Add($"{Dim}{new string('─', width)}{Reset}");
+                var dimColor = Resolve(theme.Dim, colorMode);
+                result.Add($"{dimColor}{new string('─', width)}{Rst(colorMode)}");
                 break;
 
             case ListBlock list:
-                RenderList(list, width, colorMode, result, nestLevel);
+                RenderList(list, width, colorMode, theme, result, nestLevel);
                 break;
 
             case Table table:
-                RenderTable(table, width, colorMode, result);
+                RenderTable(table, width, colorMode, theme, result);
                 break;
 
             case ParagraphBlock paragraph when paragraph.Inline is not null:
-                var text = FormatInlinesFromAst(paragraph.Inline, bold: false, italic: false);
+                var text = FormatInlinesFromAst(paragraph.Inline, bold: false, italic: false, colorMode, theme);
                 result.AddRange(WordWrap(text, width));
                 break;
         }
     }
 
-    private static void RenderHeading(HeadingBlock heading, int width, ColorMode colorMode, List<string> result)
+    private static void RenderHeading(HeadingBlock heading, int width, ColorMode colorMode,
+        MarkdownTheme theme, List<string> result)
     {
         if (heading.Inline is null) return;
 
-        var style = heading.Level switch
+        var headingColor = heading.Level switch
         {
-            1 => BoldBlue,
-            2 => BoldCyan,
-            _ => BoldWhite,
+            1 => theme.Heading1,
+            2 => theme.Heading2,
+            _ => theme.Heading3,
         };
 
-        var text = FormatInlinesFromAst(heading.Inline, bold: false, italic: false);
-        result.AddRange(WordWrap($"{style}{text}{Reset}", width));
+        var style = BoldAttr(colorMode) + Resolve(headingColor, colorMode);
+        var text = FormatInlinesFromAst(heading.Inline, bold: false, italic: false, colorMode, theme);
+        result.AddRange(WordWrap($"{style}{text}{Rst(colorMode)}", width));
     }
 
-    private static void RenderList(ListBlock list, int width, ColorMode colorMode, List<string> result, int nestLevel)
+    private static void RenderList(ListBlock list, int width, ColorMode colorMode,
+        MarkdownTheme theme, List<string> result, int nestLevel)
     {
         var orderedNumber = list.IsOrdered
             ? (int.TryParse(list.OrderedStart, out var start) ? start : 1)
@@ -130,11 +130,14 @@ public static class MarkdownRenderer
             {
                 if (isFirstChild && child is ParagraphBlock para && para.Inline is not null)
                 {
-                    var text = FormatInlinesFromAst(para.Inline, bold: false, italic: false);
+                    var text = FormatInlinesFromAst(para.Inline, bold: false, italic: false, colorMode, theme);
+                    var dimColor = Resolve(theme.Dim, colorMode);
+                    var bulletColor = Resolve(theme.Bullet, colorMode);
+                    var rst = Rst(colorMode);
 
                     if (list.IsOrdered)
                     {
-                        var prefix = $"  {Dim}{orderedNumber}.{Reset} ";
+                        var prefix = $"  {dimColor}{orderedNumber}.{rst} ";
                         result.AddRange(WordWrap($"{prefix}{text}", width, "     "));
                         orderedNumber++;
                     }
@@ -142,7 +145,7 @@ public static class MarkdownRenderer
                     {
                         var bulletChar = nestLevel switch { 0 => "•", 1 => "◦", _ => "▪" };
                         var pad = new string(' ', 2 + nestLevel * 2);
-                        var bullet = $"{pad}{CyanFg}{bulletChar}{Reset} ";
+                        var bullet = $"{pad}{bulletColor}{bulletChar}{rst} ";
                         var wrapIndent = new string(' ', pad.Length + 2);
                         result.AddRange(WordWrap($"{bullet}{text}", width, wrapIndent));
                     }
@@ -151,11 +154,11 @@ public static class MarkdownRenderer
                 }
                 else if (child is ListBlock nestedList)
                 {
-                    RenderList(nestedList, width, colorMode, result, nestLevel + 1);
+                    RenderList(nestedList, width, colorMode, theme, result, nestLevel + 1);
                 }
                 else
                 {
-                    RenderBlock(child, width, colorMode, result, nestLevel);
+                    RenderBlock(child, width, colorMode, theme, result, nestLevel);
                     isFirstChild = false;
                 }
             }
@@ -164,9 +167,9 @@ public static class MarkdownRenderer
 
     // ── Table rendering ───────────────────────────────────────────────
 
-    private static void RenderTable(Table table, int width, ColorMode colorMode, List<string> result)
+    private static void RenderTable(Table table, int width, ColorMode colorMode,
+        MarkdownTheme theme, List<string> result)
     {
-        // Collect rows and cell text
         var headerCells = new List<string>();
         var dataRows = new List<List<string>>();
 
@@ -189,7 +192,6 @@ public static class MarkdownRenderer
 
         if (headerCells.Count == 0 && dataRows.Count == 0) return;
 
-        // Column count and widths
         var colCount = headerCells.Count;
         foreach (var row in dataRows)
             colCount = Math.Max(colCount, row.Count);
@@ -205,7 +207,6 @@ public static class MarkdownRenderer
             colWidths[col] = Math.Max(1, colWidths[col]);
         }
 
-        // Column alignments from Markdig
         var alignments = new Alignment[colCount];
         for (var col = 0; col < colCount; col++)
         {
@@ -220,22 +221,21 @@ public static class MarkdownRenderer
             }
         }
 
-        // Top border
-        result.Add($"{Dim}{TableBorder('┌', '┬', '┐', colWidths)}{Reset}");
+        var dimColor = Resolve(theme.Dim, colorMode);
+        var rst = Rst(colorMode);
 
-        // Header
+        result.Add($"{dimColor}{TableBorder('┌', '┬', '┐', colWidths)}{rst}");
+
         if (headerCells.Count > 0)
         {
-            result.Add(FormatTableRow(headerCells, colWidths, alignments, colorMode, isHeader: true));
-            result.Add($"{Dim}{TableBorder('├', '┼', '┤', colWidths)}{Reset}");
+            result.Add(FormatTableRow(headerCells, colWidths, alignments, colorMode, theme, isHeader: true));
+            result.Add($"{dimColor}{TableBorder('├', '┼', '┤', colWidths)}{rst}");
         }
 
-        // Data rows
         foreach (var row in dataRows)
-            result.Add(FormatTableRow(row, colWidths, alignments, colorMode, isHeader: false));
+            result.Add(FormatTableRow(row, colWidths, alignments, colorMode, theme, isHeader: false));
 
-        // Bottom border
-        result.Add($"{Dim}{TableBorder('└', '┴', '┘', colWidths)}{Reset}");
+        result.Add($"{dimColor}{TableBorder('└', '┴', '┘', colWidths)}{rst}");
     }
 
     private static string GetCellText(TableCell cell)
@@ -264,19 +264,24 @@ public static class MarkdownRenderer
         }
     }
 
-    private static string FormatTableRow(List<string> cells, int[] colWidths, Alignment[] alignments, ColorMode colorMode, bool isHeader)
+    private static string FormatTableRow(List<string> cells, int[] colWidths,
+        Alignment[] alignments, ColorMode colorMode, MarkdownTheme theme, bool isHeader)
     {
         var sb = new StringBuilder();
-        sb.Append($"{Dim}│{Reset}");
+        var dimColor = Resolve(theme.Dim, colorMode);
+        var rst = Rst(colorMode);
+        var boldAttr = BoldAttr(colorMode);
+
+        sb.Append($"{dimColor}│{rst}");
         for (var col = 0; col < colWidths.Length; col++)
         {
             var rawText = col < cells.Count ? cells[col] : "";
-            var formatted = FormatInline(rawText, colorMode);
-            if (isHeader) formatted = $"{Bold}{formatted}{Reset}";
+            var formatted = FormatInline(rawText, colorMode, theme);
+            if (isHeader) formatted = $"{boldAttr}{formatted}{rst}";
 
             var aligned = AlignCell(formatted, rawText.Length, colWidths[col],
                 col < alignments.Length ? alignments[col] : Alignment.Left);
-            sb.Append($" {aligned} {Dim}│{Reset}");
+            sb.Append($" {aligned} {dimColor}│{rst}");
         }
         return sb.ToString();
     }
@@ -312,32 +317,31 @@ public static class MarkdownRenderer
 
     /// <summary>
     /// Formats a string containing inline Markdown (bold, italic, links) into VT-styled text.
-    /// Uses Markdig to parse the inline elements.
     /// </summary>
-    /// <param name="text">Raw Markdown text with inline formatting.</param>
-    /// <param name="colorMode">Terminal color mode.</param>
-    /// <returns>A string with VT escape sequences for styled terminal output.</returns>
-    internal static string FormatInline(string text, ColorMode colorMode)
+    internal static string FormatInline(string text, ColorMode colorMode, MarkdownTheme? theme = null)
     {
+        theme ??= MarkdownTheme.Default;
         var doc = Markdown.Parse(text, Pipeline);
         if (doc.FirstOrDefault() is ParagraphBlock para && para.Inline is not null)
-            return FormatInlinesFromAst(para.Inline, bold: false, italic: false);
+            return FormatInlinesFromAst(para.Inline, bold: false, italic: false, colorMode, theme);
         return text;
     }
 
-    /// <summary>
-    /// Walks a Markdig inline AST and emits VT-styled text, correctly handling
-    /// nested emphasis by tracking the bold/italic state through the recursion.
-    /// </summary>
-    private static string FormatInlinesFromAst(ContainerInline container, bool bold, bool italic)
+    private static string FormatInlinesFromAst(ContainerInline container, bool bold, bool italic,
+        ColorMode colorMode, MarkdownTheme theme)
     {
         var sb = new StringBuilder();
-        RenderInlines(container, sb, bold, italic);
+        RenderInlines(container, sb, bold, italic, colorMode, theme);
         return sb.ToString();
     }
 
-    private static void RenderInlines(ContainerInline container, StringBuilder sb, bool bold, bool italic)
+    private static void RenderInlines(ContainerInline container, StringBuilder sb,
+        bool bold, bool italic, ColorMode colorMode, MarkdownTheme theme)
     {
+        var rst = Rst(colorMode);
+        var boldAttr = BoldAttr(colorMode);
+        var italicAttr = ItalicAttr(colorMode);
+
         foreach (var inline in container)
         {
             switch (inline)
@@ -346,34 +350,46 @@ public static class MarkdownRenderer
                     sb.Append(literal.Content);
                     break;
 
+                case ColorInline colorInline:
+                {
+                    var fg = Resolve(colorInline.Color, colorMode);
+                    sb.Append(rst);
+                    sb.Append(fg);
+                    RenderInlines(colorInline, sb, false, false, colorMode, theme);
+                    sb.Append(rst);
+                    // Restore parent style
+                    if (bold) sb.Append(boldAttr);
+                    if (italic) sb.Append(italicAttr);
+                    break;
+                }
+
                 case EmphasisInline emphasis:
                 {
                     var newBold = bold || emphasis.DelimiterCount >= 2;
                     var newItalic = italic || emphasis.DelimiterCount == 1 || emphasis.DelimiterCount >= 3;
 
-                    // Apply combined style
-                    sb.Append(Reset);
-                    if (newBold) sb.Append(Bold);
-                    if (newItalic) sb.Append(ItalicCode);
+                    sb.Append(rst);
+                    if (newBold) sb.Append(boldAttr);
+                    if (newItalic) sb.Append(italicAttr);
 
-                    RenderInlines(emphasis, sb, newBold, newItalic);
+                    RenderInlines(emphasis, sb, newBold, newItalic, colorMode, theme);
 
-                    // Restore parent style
-                    sb.Append(Reset);
-                    if (bold) sb.Append(Bold);
-                    if (italic) sb.Append(ItalicCode);
+                    sb.Append(rst);
+                    if (bold) sb.Append(boldAttr);
+                    if (italic) sb.Append(italicAttr);
                     break;
                 }
 
                 case LinkInline link:
-                    sb.Append($"{Underline}{CyanFg}");
-                    RenderInlines(link, sb, false, false);
-                    sb.Append(Reset);
+                    var linkColor = Resolve(theme.Link, colorMode);
+                    var dimColor = Resolve(theme.Dim, colorMode);
+                    sb.Append($"{UnderlineAttr(colorMode)}{linkColor}");
+                    RenderInlines(link, sb, false, false, colorMode, theme);
+                    sb.Append(rst);
                     if (!string.IsNullOrEmpty(link.Url))
-                        sb.Append($"{Dim} ({link.Url}){Reset}");
-                    // Restore parent style
-                    if (bold) sb.Append(Bold);
-                    if (italic) sb.Append(ItalicCode);
+                        sb.Append($"{dimColor} ({link.Url}){rst}");
+                    if (bold) sb.Append(boldAttr);
+                    if (italic) sb.Append(italicAttr);
                     break;
 
                 case LineBreakInline:
@@ -383,12 +399,20 @@ public static class MarkdownRenderer
         }
     }
 
+    // ── Mode-aware attribute helpers ──────────────────────────────────
+
+    private static string Resolve(DIR.Lib.RGBAColor32 color, ColorMode mode) =>
+        MarkdownTheme.Resolve(color, mode);
+
+    private static string Rst(ColorMode mode) => mode == ColorMode.None ? "" : Reset;
+    private static string BoldAttr(ColorMode mode) => mode == ColorMode.None ? "" : Bold;
+    private static string ItalicAttr(ColorMode mode) => mode == ColorMode.None ? "" : ItalicCode;
+    private static string UnderlineAttr(ColorMode mode) => mode == ColorMode.None ? "" : Underline;
+
     // ── Word wrapping (ANSI-aware) ────────────────────────────────────
 
     /// <summary>
     /// Wraps text containing VT escape sequences at word boundaries.
-    /// Continuation lines are prefixed with <paramref name="continuationIndent"/>
-    /// and any active ANSI styles are carried over.
     /// </summary>
     internal static List<string> WordWrap(string text, int maxWidth, string continuationIndent = "")
     {
@@ -439,10 +463,6 @@ public static class MarkdownRenderer
         return result;
     }
 
-    /// <summary>
-    /// Splits a VT-styled string into words, keeping ANSI escape sequences
-    /// attached to the adjacent word rather than treating them as separate tokens.
-    /// </summary>
     private static List<string> SplitWords(string text)
     {
         var words = new List<string>();
@@ -483,11 +503,6 @@ public static class MarkdownRenderer
         return words;
     }
 
-    /// <summary>
-    /// Tracks active ANSI style codes within a text fragment.
-    /// <see cref="Reset"/> (<c>\e[0m</c>) clears all tracked styles;
-    /// any other ANSI sequence is appended.
-    /// </summary>
     private static void UpdateStyles(string text, StringBuilder styles)
     {
         var i = 0;
