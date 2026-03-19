@@ -118,6 +118,16 @@ public interface ITerminalViewport
 
 `TermCell` holds the pixel dimensions of a single terminal character cell, queried from the terminal during initialization via the `\e[16t` control sequence.
 
+### TerminalViewportExtensions
+
+Extension methods for `ITerminalViewport`:
+
+```csharp
+// Overwrite the current line in-place using \r, padding with spaces to erase stale content.
+// Does not advance to the next line — ideal for status prompts and progress indicators.
+terminal.WriteInPlace("> waiting...");
+```
+
 ### IVirtualTerminal
 
 Extends `ITerminalViewport` with full terminal lifecycle: initialization, input reading, alternate screen buffer, and Sixel capability detection.
@@ -141,9 +151,10 @@ public interface IVirtualTerminal : ITerminalViewport, IAsyncDisposable
 1. Sets UTF-8 encoding for stdin/stdout
 2. Sends a Device Attributes request (`\e[0c`) to detect terminal capabilities (including Sixel support)
 3. Sends a cell size query (`\e[16t`) to determine pixel dimensions per character cell
-4. On Windows, enables virtual terminal I/O and mouse input via `WindowsConsoleInput`
 
-When entering the alternate screen, it enables VT200 mouse tracking with SGR extended coordinates (`\e[?1000h`, `\e[?1006h`), parses SGR mouse events from raw stdin, and normalizes cell coordinates to pixel coordinates using the cell size.
+When entering the alternate screen, it enables virtual terminal I/O and mouse input via `WindowsConsoleInput` (Windows only), then enables VT200 mouse tracking with SGR extended coordinates (`\e[?1000h`, `\e[?1006h`), parses SGR mouse events from raw stdin, and normalizes cell coordinates to pixel coordinates using the cell size.
+
+In normal (non-alternate) screen mode, `TryReadInput()` uses `Console.ReadKey(intercept: true)` — keystrokes are not echoed, giving the caller full control over display feedback.
 
 ### TerminalViewport
 

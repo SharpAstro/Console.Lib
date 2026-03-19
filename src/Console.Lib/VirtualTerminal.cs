@@ -46,11 +46,6 @@ public sealed class VirtualTerminal : IVirtualTerminal
             }
         }
 
-        if (OperatingSystem.IsWindows())
-        {
-            WindowsConsoleInput.EnableVirtualTerminalIO();
-        }
-
         _initialized = true;
     }
 
@@ -82,6 +77,11 @@ public sealed class VirtualTerminal : IVirtualTerminal
     /// </summary>
     public void EnterAlternateScreen()
     {
+        if (OperatingSystem.IsWindows())
+        {
+            WindowsConsoleInput.EnableVirtualTerminalIO();
+        }
+
         System.Console.Write("\e[?1049h"); // Enter alternate buffer
         System.Console.Write("\e[?25l");   // Hide cursor
         System.Console.Write("\e[?1000h"); // VT200 mouse tracking (basic button press/release and wheel)
@@ -138,7 +138,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
         }
         else
         {
-            var first = System.Console.ReadKey(intercept: false);
+            var first = System.Console.ReadKey(intercept: true);
 
             if (first.Key == ConsoleKey.F1)
             {

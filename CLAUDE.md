@@ -17,3 +17,9 @@ The version is defined in two places — both must be updated together:
 The CI workflow composes the full package version from `VERSION_PREFIX`, `VERSION_REV`, and `VERSION_HASH`.
 
 When bumping the version, update both files to keep them in sync.
+
+## Key design notes
+
+- **Windows VT I/O** (`WindowsConsoleInput.EnableVirtualTerminalIO`) is only activated when entering alternate screen mode, not during `InitAsync()`. This keeps `Console.ReadKey` working correctly in normal (non-alternate) mode for ASCII/text-based UIs.
+- **`TryReadInput`** uses `intercept: true` in normal mode — keystrokes are never echoed. Callers control display feedback (e.g., via `WriteInPlace`).
+- **`MenuBase<T>`** in normal mode shows a `> ` prompt and echoes the selected item on confirmation.

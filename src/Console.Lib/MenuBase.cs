@@ -36,6 +36,8 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
             terminal.WriteLine($"  {i + 1}) {items[i]}");
         }
 
+        terminal.Write("> ");
+
         while (!cancellationToken.IsCancellationRequested)
         {
             if (!terminal.HasInput())
@@ -49,7 +51,7 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
             var digit = input.Key - ConsoleKey.D1;
             if (digit >= 0 && digit < items.Length)
             {
-                terminal.WriteLine(items[digit]);
+                terminal.WriteLine($"{digit + 1}) {items[digit]}");
                 return digit;
             }
         }

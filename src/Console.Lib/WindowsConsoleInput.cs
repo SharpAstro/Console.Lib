@@ -41,13 +41,20 @@ internal static class WindowsConsoleInput
     private static nint _outputHandle;
     private static ConsoleMode _originalInputMode;
     private static ConsoleMode _originalOutputMode;
+    private static bool _enabled;
 
     /// <summary>
     /// Enables virtual terminal input and output processing.
+    /// Only takes effect on the first call; subsequent calls are no-ops.
     /// </summary>
     /// <returns>True if virtual terminal input and output processing was enabled successfully.</returns>
     public static bool EnableVirtualTerminalIO()
     {
+        if (_enabled)
+        {
+            return true;
+        }
+
         _inputHandle = GetStdHandle(STD_INPUT_HANDLE);
         if (_inputHandle == nint.Zero || _inputHandle == new nint(-1))
         {
@@ -73,8 +80,9 @@ internal static class WindowsConsoleInput
             | ConsoleMode.ExtendedFlags
         ) & ~ConsoleMode.QuickEditMode;
 
-        return SetConsoleMode(_inputHandle, newInputMode)
+        _enabled = SetConsoleMode(_inputHandle, newInputMode)
             && SetConsoleMode(_outputHandle, _originalOutputMode | ConsoleMode.Processed | ConsoleMode.VirtualTerminalProcessing);
+        return _enabled;
     }
 
     /// <summary>
