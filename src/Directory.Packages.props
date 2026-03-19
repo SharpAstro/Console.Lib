@@ -6,7 +6,7 @@
 
   <ItemGroup>
     <PackageVersion Include="coverlet.collector" Version="8.0.0" />
-    <PackageVersion Include="DIR.Lib" Version="1.1.41" />
+    <PackageVersion Include="DIR.Lib" Version="1.1.51" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.201" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
