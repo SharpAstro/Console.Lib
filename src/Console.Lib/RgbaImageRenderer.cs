@@ -246,6 +246,22 @@ public sealed class RgbaImageRenderer : SixelRenderer<RgbaImage>
         SixelEncoder.Encode(region, w, h, 4, output);
     }
 
+    public override (float Width, float Height) MeasureText(ReadOnlySpan<char> text, string fontFamily, float fontSize)
+    {
+        var width = 0f;
+        var maxAscent = 0;
+        var maxDescent = 0;
+        foreach (var ch in text)
+        {
+            var glyph = GetGlyph(fontFamily, fontSize, ch);
+            width += glyph.AdvanceX;
+            if (glyph.BearingY > maxAscent) maxAscent = glyph.BearingY;
+            var descent = glyph.Height - glyph.BearingY;
+            if (descent > maxDescent) maxDescent = descent;
+        }
+        return (width, maxAscent + maxDescent);
+    }
+
     public override void Dispose()
     {
         _rasterizer.Dispose();
