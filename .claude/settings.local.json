@@ -1,7 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dotnet package:*)"
+      "Bash(dotnet package:*)",
+      "Bash(dotnet build:*)",
+      "WebSearch",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.nuget.org)",
+      "Bash(dotnet test:*)",
+      "Bash(gh run:*)"
     ]
   }
 }
