@@ -1,3 +1,4 @@
+using DIR.Lib;
 namespace Console.Lib;
 
 /// <summary>

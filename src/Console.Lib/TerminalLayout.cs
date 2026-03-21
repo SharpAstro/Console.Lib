@@ -1,3 +1,4 @@
+using DIR.Lib;
 namespace Console.Lib;
 
 public sealed class TerminalLayout
