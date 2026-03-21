@@ -1,9 +1,12 @@
+using DIR.Lib;
+
 namespace Console.Lib;
 
 /// <summary>
 /// Base class for terminal widgets that render content to a viewport.
+/// Implements <see cref="IWidget"/> for shared input handling.
 /// </summary>
-public abstract class Widget(ITerminalViewport viewport)
+public abstract class Widget(ITerminalViewport viewport) : IWidget
 {
     /// <summary>
     /// The viewport this widget renders to.
