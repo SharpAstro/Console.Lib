@@ -56,5 +56,53 @@ public static class ConsoleInputMapping
         /// Converts the console input event's key and modifiers to platform-agnostic types.
         /// </summary>
         public (InputKey Key, InputModifier Modifiers) ToInput => (evt.Key.ToInputKey, evt.Modifiers.ToInputModifier);
+
+        /// <summary>
+        /// Converts the console input event to a platform-agnostic <see cref="InputEvent"/>.
+        /// Mouse events take precedence; falls back to keyboard if no mouse data.
+        /// </summary>
+        public InputEvent? ToInputEvent
+        {
+            get
+            {
+                var modifiers = evt.Modifiers.ToInputModifier;
+
+                if (evt.Mouse is { } mouse)
+                {
+                    // Scroll wheel: button 64 = up, 65 = down
+                    if (mouse.Button is 64 or 65)
+                    {
+                        return new InputEvent.Scroll(
+                            Delta: mouse.Button == 64 ? 1f : -1f,
+                            X: mouse.X,
+                            Y: mouse.Y,
+                            Modifiers: modifiers);
+                    }
+
+                    var button = mouse.Button switch
+                    {
+                        0 => MouseButton.Left,
+                        1 => MouseButton.Middle,
+                        2 => MouseButton.Right,
+                        _ => MouseButton.Left
+                    };
+
+                    return mouse.IsRelease
+                        ? new InputEvent.MouseUp(mouse.X, mouse.Y, button)
+                        : new InputEvent.MouseDown(mouse.X, mouse.Y, button, modifiers);
+                }
+
+                if (evt.Key is not ConsoleKey.None)
+                {
+                    var inputKey = evt.Key.ToInputKey;
+                    if (inputKey != InputKey.None)
+                    {
+                        return new InputEvent.KeyDown(inputKey, modifiers);
+                    }
+                }
+
+                return null;
+            }
+        }
     }
 }
