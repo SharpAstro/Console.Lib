@@ -57,13 +57,22 @@ public class MarkdownWidget(ITerminalViewport viewport) : Widget(viewport)
 
         for (var row = 0; row < height; row++)
         {
-            if (!TrySetCursorPosition(Viewport, 0, row)) return;
+            if (!TrySetCursorPosition(Viewport, 0, row))
+            {
+                return;
+            }
 
             var lineIdx = _scrollOffset + row;
             if (lineIdx >= 0 && lineIdx < lines.Count)
-                Viewport.Write(lines[lineIdx]);
+            {
+                var line = lines[lineIdx];
+                var visLen = MarkdownRenderer.VisibleLength(line);
+                Viewport.Write(visLen >= width ? line : $"{line}{new string(' ', width - visLen)}");
+            }
             else
+            {
                 Viewport.Write(new string(' ', width));
+            }
         }
     }
 

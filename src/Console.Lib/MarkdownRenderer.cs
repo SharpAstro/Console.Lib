@@ -531,7 +531,7 @@ public static class MarkdownRenderer
     /// <summary>
     /// Returns the visible character count of a string, ignoring any embedded ANSI escape sequences.
     /// </summary>
-    internal static int VisibleLength(string text)
+    public static int VisibleLength(string text)
     {
         var len = 0;
         var inEscape = false;
