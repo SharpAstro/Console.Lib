@@ -13,6 +13,12 @@ public sealed class VirtualTerminal : IVirtualTerminal
     private TermCell? _cellSize;
     private bool _alternateScreen;
     private Stream? _stdIn;
+    private static readonly bool s_isInputRedirected = System.Console.IsInputRedirected;
+    private static readonly bool s_isOutputRedirected = System.Console.IsOutputRedirected;
+    private static readonly bool s_noColor = Environment.GetEnvironmentVariable("NO_COLOR") is not null;
+
+    public bool IsInputRedirected => s_isInputRedirected;
+    public bool IsOutputRedirected => s_isOutputRedirected;
 
     public async Task InitAsync()
     {
@@ -54,7 +60,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
         get
         {
             if (!_initialized) throw new InvalidOperationException("Call InitAsync() first.");
-            return _deviceCapabilities.Contains(TerminalCapability.Sixel);
+            return ResolveSixelSupport(s_noColor, _deviceCapabilities.Contains(TerminalCapability.Sixel));
         }
     }
 
@@ -67,7 +73,15 @@ public sealed class VirtualTerminal : IVirtualTerminal
         }
     }
 
-    public ColorMode ColorMode => HasColorSupport ? ColorMode.TrueColor : ColorMode.Sgr16;
+    public ColorMode ColorMode => ResolveColorMode(s_isOutputRedirected, s_noColor,
+        _initialized && _deviceCapabilities.Contains(TerminalCapability.Color));
+
+    internal static ColorMode ResolveColorMode(bool isOutputRedirected, bool noColor, bool hasColorCapability)
+        => isOutputRedirected || noColor ? ColorMode.None
+           : hasColorCapability ? ColorMode.TrueColor : ColorMode.Sgr16;
+
+    internal static bool ResolveSixelSupport(bool noColor, bool hasSixelCapability)
+        => !noColor && hasSixelCapability;
 
     public TermCell CellSize =>
         _cellSize ?? throw new InvalidOperationException("Call InitAsync() first.");
@@ -77,6 +91,8 @@ public sealed class VirtualTerminal : IVirtualTerminal
     /// </summary>
     public void EnterAlternateScreen()
     {
+        if (s_isInputRedirected) return; // No alternate screen when stdin is redirected
+
         if (OperatingSystem.IsWindows())
         {
             WindowsConsoleInput.EnableVirtualTerminalIO();
@@ -114,7 +130,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
 
     public Stream OutputStream { get; } = System.Console.OpenStandardOutput();
 
-    public bool HasInput() => System.Console.KeyAvailable;
+    public bool HasInput() => s_isInputRedirected ? System.Console.In.Peek() != -1 : System.Console.KeyAvailable;
 
     /// <summary>
     /// Attempts to read input from the terminal.
@@ -135,6 +151,14 @@ public sealed class VirtualTerminal : IVirtualTerminal
 
             // Normalize cell coordinates to pixels
             return new(new MouseEvent(r.Button, r.X * (int)cw, r.Y * (int)ch, r.IsRelease), ConsoleKey.None, result.Modifiers);
+        }
+        else if (s_isInputRedirected)
+        {
+            var b = System.Console.In.Read();
+            if (b == -1) return default;
+
+            var (key, modifiers) = ByteToConsoleKey(b);
+            return new(null, key, modifiers);
         }
         else
         {
@@ -182,6 +206,8 @@ public sealed class VirtualTerminal : IVirtualTerminal
 
     private static async Task<string> GetControlSequenceResponseAsync(string sequence, char terminator)
     {
+        if (s_isInputRedirected) return string.Empty;
+
         const int maxTries = 10;
 
         System.Console.Write(sequence);
@@ -241,7 +267,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
             return new(null, key, modifiers);
         }
 
-        while (System.Console.KeyAvailable)
+        while (s_isInputRedirected ? System.Console.In.Peek() != -1 : System.Console.KeyAvailable)
         {
             var ch = _stdIn.ReadByte();
             if (ch == -1)

@@ -36,6 +36,8 @@ internal sealed class FakeTerminal : IVirtualTerminal
     public Task InitAsync() => Task.CompletedTask;
     public bool HasSixelSupport => false;
     public bool HasColorSupport => false;
+    public bool IsInputRedirected => false;
+    public bool IsOutputRedirected => false;
     public TermCell CellSize => new(10, 20);
 
     public void EnterAlternateScreen()

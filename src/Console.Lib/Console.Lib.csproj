@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <IsAotCompatible>true</IsAotCompatible>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <VersionPrefix>1.4.96</VersionPrefix>
+    <VersionPrefix>1.4.97</VersionPrefix>
     <AssemblyVersion>1.4.0.0</AssemblyVersion>
     <PackageID>Console.Lib</PackageID>
     <PackageReadmeFile>README.md</PackageReadmeFile>

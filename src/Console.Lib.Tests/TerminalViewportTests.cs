@@ -267,6 +267,7 @@ public sealed class TerminalViewportTests
         public override void FillRectangle(in RectInt rect, RGBAColor32 fillColor) { }
         public override void FillEllipse(in RectInt rect, RGBAColor32 fillColor) { }
         public override void DrawText(ReadOnlySpan<char> text, string fontFamily, float fontSize, RGBAColor32 fontColor, in RectInt layout, TextAlign horizAlignment = TextAlign.Center, TextAlign vertAlignment = TextAlign.Near) { }
+        public override (float Width, float Height) MeasureText(ReadOnlySpan<char> text, string fontFamily, float fontSize) => (text.Length * fontSize * 0.6f, fontSize);
         public override void Dispose() { }
 
         public override void EncodeSixel(Stream output) => FullEncodes++;

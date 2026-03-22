@@ -6,6 +6,13 @@ public interface IVirtualTerminal
     Task InitAsync();
     bool HasSixelSupport { get; }
     bool HasColorSupport { get; }
+
+    /// <summary>Whether stdin is redirected (piped) rather than a real terminal.</summary>
+    bool IsInputRedirected { get; }
+
+    /// <summary>Whether stdout is redirected (piped) rather than a real terminal.</summary>
+    bool IsOutputRedirected { get; }
+
     void EnterAlternateScreen();
     bool IsAlternateScreen { get; }
     void Clear();
