@@ -80,6 +80,8 @@ public enum ColorMode : byte
 public readonly record struct VtStyle(RGBAColor32 Foreground, RGBAColor32 Background)
 {
     public const string Reset = "\e[0m";
+    public const string ReverseOn = "\e[7m";
+    public const string ReverseOff = "\e[27m";
 
     public VtStyle(SgrColor foreground, SgrColor background)
         : this(foreground.ToRgba(), background.ToRgba()) { }

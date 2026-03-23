@@ -31,6 +31,15 @@ public static class ConsoleInputMapping
             >= ConsoleKey.F1 and <= ConsoleKey.F12 => (InputKey)((int)InputKey.F1 + (key - ConsoleKey.F1)),
             ConsoleKey.OemPlus or ConsoleKey.Add => InputKey.Plus,
             ConsoleKey.OemMinus or ConsoleKey.Subtract => InputKey.Minus,
+            ConsoleKey.OemPeriod or ConsoleKey.Decimal => InputKey.Period,
+            ConsoleKey.OemComma => InputKey.Comma,
+            ConsoleKey.Oem2 => InputKey.Slash,         // /
+            ConsoleKey.Oem5 => InputKey.Backslash,     // \
+            ConsoleKey.Oem1 => InputKey.Semicolon,     // ;
+            ConsoleKey.Oem7 => InputKey.Quote,         // '
+            ConsoleKey.Oem4 => InputKey.BracketLeft,   // [
+            ConsoleKey.Oem6 => InputKey.BracketRight,  // ]
+            ConsoleKey.Oem3 => InputKey.Grave,         // `
             _ => InputKey.None,
         };
     }
