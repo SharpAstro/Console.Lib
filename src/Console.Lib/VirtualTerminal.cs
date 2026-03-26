@@ -112,21 +112,21 @@ public sealed class VirtualTerminal : IVirtualTerminal
 
     public (int Column, int Row) Offset => (0, 0);
 
+    private (int Width, int Height) _lastSize = (120, 30);
+
     public (int Width, int Height) Size
     {
         get
         {
             try
             {
-                return (System.Console.WindowWidth, System.Console.WindowHeight);
+                _lastSize = (System.Console.WindowWidth, System.Console.WindowHeight);
             }
             catch (System.IO.IOException)
             {
-                // Console handle can become temporarily invalid during alternate screen transitions;
-                // retry once after a brief yield
-                Thread.Sleep(10);
-                return (System.Console.WindowWidth, System.Console.WindowHeight);
+                // Console handle can become temporarily invalid — return last known good size
             }
+            return _lastSize;
         }
     }
 
