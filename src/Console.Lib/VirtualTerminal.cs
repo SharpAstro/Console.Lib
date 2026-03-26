@@ -27,6 +27,9 @@ public sealed class VirtualTerminal : IVirtualTerminal
         System.Console.InputEncoding = Encoding.UTF8;
         System.Console.OutputEncoding = Encoding.UTF8;
 
+        // Seed terminal size before alternate screen (handle is reliable here)
+        _lastSize = (System.Console.WindowWidth, System.Console.WindowHeight);
+
         var daResponse = await GetControlSequenceResponseAsync("\e[0c", 'c');
         _deviceCapabilities = [.. daResponse
                 .TrimStart('\e', '[', '?')
@@ -112,7 +115,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
 
     public (int Column, int Row) Offset => (0, 0);
 
-    private (int Width, int Height) _lastSize = (120, 30);
+    private (int Width, int Height) _lastSize;
 
     public (int Width, int Height) Size
     {
