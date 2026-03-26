@@ -112,7 +112,23 @@ public sealed class VirtualTerminal : IVirtualTerminal
 
     public (int Column, int Row) Offset => (0, 0);
 
-    public (int Width, int Height) Size => (System.Console.WindowWidth, System.Console.WindowHeight);
+    public (int Width, int Height) Size
+    {
+        get
+        {
+            try
+            {
+                return (System.Console.WindowWidth, System.Console.WindowHeight);
+            }
+            catch (System.IO.IOException)
+            {
+                // Console handle can become temporarily invalid during alternate screen transitions;
+                // retry once after a brief yield
+                Thread.Sleep(10);
+                return (System.Console.WindowWidth, System.Console.WindowHeight);
+            }
+        }
+    }
 
     public void Clear() => System.Console.Clear();
 
