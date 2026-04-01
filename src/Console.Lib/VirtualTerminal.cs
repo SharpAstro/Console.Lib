@@ -9,6 +9,7 @@ namespace Console.Lib;
 public sealed class VirtualTerminal : IVirtualTerminal
 {
     private bool _initialized;
+    private bool _noConsole;
     private HashSet<TerminalCapability> _deviceCapabilities = [];
     private TermCell? _cellSize;
     private bool _alternateScreen;
@@ -17,8 +18,8 @@ public sealed class VirtualTerminal : IVirtualTerminal
     private static readonly bool s_isOutputRedirected = System.Console.IsOutputRedirected;
     private static readonly bool s_noColor = Environment.GetEnvironmentVariable("NO_COLOR") is not null;
 
-    public bool IsInputRedirected => s_isInputRedirected;
-    public bool IsOutputRedirected => s_isOutputRedirected;
+    public bool IsInputRedirected => s_isInputRedirected || _noConsole;
+    public bool IsOutputRedirected => s_isOutputRedirected || _noConsole;
 
     public async Task InitAsync()
     {
@@ -27,8 +28,25 @@ public sealed class VirtualTerminal : IVirtualTerminal
         System.Console.InputEncoding = Encoding.UTF8;
         System.Console.OutputEncoding = Encoding.UTF8;
 
-        // Seed terminal size before alternate screen (handle is reliable here)
-        _lastSize = (System.Console.WindowWidth, System.Console.WindowHeight);
+        // Seed terminal size before alternate screen
+        try
+        {
+            _lastSize = (System.Console.WindowWidth, System.Console.WindowHeight);
+        }
+        catch (System.IO.IOException)
+        {
+            // Console handle is invalid (e.g. no TTY attached) — degrade gracefully
+            _noConsole = true;
+            _lastSize = (80, 24);
+        }
+
+        _cellSize = new TermCell(10, 20);
+
+        if (_noConsole)
+        {
+            _initialized = true;
+            return;
+        }
 
         var daResponse = await GetControlSequenceResponseAsync("\e[0c", 'c');
         _deviceCapabilities = [.. daResponse
@@ -40,7 +58,6 @@ public sealed class VirtualTerminal : IVirtualTerminal
                 .Select(cap => cap!.Value)
         ];
 
-        _cellSize = new TermCell(10, 20);
         var csResponse = await GetControlSequenceResponseAsync("\e[16t", 't');
         var tIndex = csResponse.IndexOf('t');
         if (tIndex >= 0)
@@ -76,7 +93,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
         }
     }
 
-    public ColorMode ColorMode => ResolveColorMode(s_isOutputRedirected, s_noColor,
+    public ColorMode ColorMode => ResolveColorMode(s_isOutputRedirected || _noConsole, s_noColor,
         _initialized && _deviceCapabilities.Contains(TerminalCapability.Color));
 
     internal static ColorMode ResolveColorMode(bool isOutputRedirected, bool noColor, bool hasColorCapability)
