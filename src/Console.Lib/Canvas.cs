@@ -3,17 +3,17 @@ using DIR.Lib;
 namespace Console.Lib;
 
 /// <summary>
-/// A widget that renders a <see cref="SixelRenderer{TSurface}"/> to a viewport.
+/// A widget that renders an <see cref="ISixelEncoder"/> to a viewport.
 /// <see cref="Widget.Render()"/> performs a full Sixel blit;
 /// <see cref="Render(RectInt)"/> renders only the dirty region.
 /// </summary>
-public class Canvas<TSurface>(ITerminalViewport viewport, SixelRenderer<TSurface> renderer) : Widget(viewport)
+public class Canvas(ITerminalViewport viewport, ISixelEncoder encoder) : Widget(viewport)
 {
     /// <summary>Viewport size in pixels.</summary>
     public (uint Width, uint Height) PixelSize => Viewport.PixelSize;
 
-    /// <summary>The renderer that owns the drawing surface.</summary>
-    public SixelRenderer<TSurface> Renderer => renderer;
+    /// <summary>The Sixel encoder that owns the drawing surface.</summary>
+    public ISixelEncoder Encoder => encoder;
 
     /// <summary>Position the cursor within the canvas.</summary>
     public void SetCursorPosition(int col, int row) => Viewport.SetCursorPosition(col, row);
@@ -31,13 +31,13 @@ public class Canvas<TSurface>(ITerminalViewport viewport, SixelRenderer<TSurface
         var endRow = (clip.LowerRight.Y + cellHeight - 1) / cellHeight;
 
         var pixelStartY = startRow * cellHeight;
-        var pixelEndY = (int)Math.Min(renderer.Height, (uint)(endRow * cellHeight));
+        var pixelEndY = (int)Math.Min(encoder.Height, (uint)(endRow * cellHeight));
         var cropHeight = pixelEndY - pixelStartY;
 
         if (cropHeight > 0)
         {
             SetCursorPosition(0, startRow);
-            renderer.EncodeSixel(pixelStartY, (uint)cropHeight, Viewport.OutputStream);
+            encoder.EncodeSixel(pixelStartY, (uint)cropHeight, Viewport.OutputStream);
         }
     }
 
@@ -45,6 +45,6 @@ public class Canvas<TSurface>(ITerminalViewport viewport, SixelRenderer<TSurface
     public override void Render()
     {
         SetCursorPosition(0, 0);
-        renderer.EncodeSixel(Viewport.OutputStream);
+        encoder.EncodeSixel(Viewport.OutputStream);
     }
 }

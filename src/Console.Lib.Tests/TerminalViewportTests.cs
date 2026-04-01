@@ -207,13 +207,13 @@ public sealed class TerminalViewportTests
     {
         var terminal = new FakeTerminal(new Queue<ConsoleInputEvent>(), 80, 24);
         var viewport = new TerminalViewport(terminal, 0, 0, 56, 23);
-        var renderer = new FakeSixelRenderer(460);
-        var canvas = new Canvas<object>(viewport, renderer);
+        var encoder = new FakeSixelEncoder(460);
+        var canvas = new Canvas(viewport, encoder);
 
         canvas.Render();
 
-        renderer.FullEncodes.ShouldBe(1);
-        renderer.PartialEncodes.ShouldBe(0);
+        encoder.FullEncodes.ShouldBe(1);
+        encoder.PartialEncodes.ShouldBe(0);
         terminal.LastCursorPosition.ShouldBe((0, 0));
     }
 
@@ -223,16 +223,16 @@ public sealed class TerminalViewportTests
         var terminal = new FakeTerminal(new Queue<ConsoleInputEvent>(), 80, 24);
         // CellSize is (10, 20) from FakeTerminal
         var viewport = new TerminalViewport(terminal, 0, 0, 56, 23);
-        var renderer = new FakeSixelRenderer(460);
-        var canvas = new Canvas<object>(viewport, renderer);
+        var encoder = new FakeSixelEncoder(460);
+        var canvas = new Canvas(viewport, encoder);
 
         // Clip from pixel (0,25) to (560,95) — Y bounds align to cell rows: startRow=1 (y=20), endRow=5 (y=100)
         canvas.Render(new RectInt(new PointInt(560, 95), new PointInt(0, 25)));
 
-        renderer.FullEncodes.ShouldBe(0);
-        renderer.PartialEncodes.ShouldBe(1);
-        renderer.LastStartY.ShouldBe(20);    // row 1 * cellHeight 20
-        renderer.LastHeight.ShouldBe(80u);   // rows 1-4 * 20 = 80
+        encoder.FullEncodes.ShouldBe(0);
+        encoder.PartialEncodes.ShouldBe(1);
+        encoder.LastStartY.ShouldBe(20);    // row 1 * cellHeight 20
+        encoder.LastHeight.ShouldBe(80u);   // rows 1-4 * 20 = 80
         // Cursor should be at column 0, row 1 (startRow)
         terminal.LastCursorPosition.ShouldBe((0, 1));
     }
@@ -242,36 +242,28 @@ public sealed class TerminalViewportTests
     {
         var terminal = new FakeTerminal(new Queue<ConsoleInputEvent>(), 80, 24);
         var viewport = new TerminalViewport(terminal, 0, 0, 56, 23);
-        var renderer = new FakeSixelRenderer(450);
-        var canvas = new Canvas<object>(viewport, renderer);
+        var encoder = new FakeSixelEncoder(450);
+        var canvas = new Canvas(viewport, encoder);
 
         // Clip near bottom: Y 440 to 460, renderHeight=450
         // startRow = 440/20 = 22, endRow = (460+19)/20 = 23
         // pixelStartY = 440, pixelEndY = min(450, 460) = 450, cropHeight = 10
         canvas.Render(new RectInt(new PointInt(560, 460), new PointInt(0, 440)));
 
-        renderer.LastHeight.ShouldBe(10u);
+        encoder.LastHeight.ShouldBe(10u);
     }
 
-    private sealed class FakeSixelRenderer(uint height) : SixelRenderer<object>(new())
+    private sealed class FakeSixelEncoder(uint height) : ISixelEncoder
     {
         public int FullEncodes { get; private set; }
         public int PartialEncodes { get; private set; }
         public int LastStartY { get; private set; }
         public uint LastHeight { get; private set; }
 
-        public override uint Width => 560;
-        public override uint Height => height;
-        public override void Resize(uint width, uint height) { }
-        public override void DrawRectangle(in RectInt rect, RGBAColor32 strokeColor, int strokeWidth) { }
-        public override void FillRectangle(in RectInt rect, RGBAColor32 fillColor) { }
-        public override void FillEllipse(in RectInt rect, RGBAColor32 fillColor) { }
-        public override void DrawText(ReadOnlySpan<char> text, string fontFamily, float fontSize, RGBAColor32 fontColor, in RectInt layout, TextAlign horizAlignment = TextAlign.Center, TextAlign vertAlignment = TextAlign.Near) { }
-        public override (float Width, float Height) MeasureText(ReadOnlySpan<char> text, string fontFamily, float fontSize) => (text.Length * fontSize * 0.6f, fontSize);
-        public override void Dispose() { }
+        public uint Height => height;
 
-        public override void EncodeSixel(Stream output) => FullEncodes++;
-        public override void EncodeSixel(int startY, uint height1, Stream output)
+        public void EncodeSixel(Stream output) => FullEncodes++;
+        public void EncodeSixel(int startY, uint height1, Stream output)
         {
             PartialEncodes++;
             LastStartY = startY;
