@@ -34,6 +34,7 @@ internal sealed class FakeTerminal : IVirtualTerminal
     public bool HasInput() => _inputs.Count > 0;
     public ConsoleInputEvent TryReadInput() => _inputs.Dequeue();
     public Task InitAsync() => Task.CompletedTask;
+    public ImageDisplayCapability ImageDisplayCapability => ImageDisplayCapability.NoColor;
     public bool HasSixelSupport => false;
     public bool HasColorSupport => false;
     public bool IsInputRedirected => false;

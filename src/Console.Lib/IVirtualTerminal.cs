@@ -4,6 +4,7 @@ public interface IVirtualTerminal
     : ITerminalViewport, IAsyncDisposable
 {
     Task InitAsync();
+    ImageDisplayCapability ImageDisplayCapability { get; }
     bool HasSixelSupport { get; }
     bool HasColorSupport { get; }
 

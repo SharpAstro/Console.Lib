@@ -75,12 +75,23 @@ public sealed class VirtualTerminal : IVirtualTerminal
         _initialized = true;
     }
 
+    public ImageDisplayCapability ImageDisplayCapability
+    {
+        get
+        {
+            if (!_initialized) throw new InvalidOperationException("Call InitAsync() first.");
+            return ResolveImageDisplayCapability(s_noColor,
+                _deviceCapabilities.Contains(TerminalCapability.Color),
+                _deviceCapabilities.Contains(TerminalCapability.Sixel));
+        }
+    }
+
     public bool HasSixelSupport
     {
         get
         {
             if (!_initialized) throw new InvalidOperationException("Call InitAsync() first.");
-            return ResolveSixelSupport(s_noColor, _deviceCapabilities.Contains(TerminalCapability.Sixel));
+            return !IsOutputRedirected && ImageDisplayCapability == ImageDisplayCapability.Sixel;
         }
     }
 
@@ -100,8 +111,11 @@ public sealed class VirtualTerminal : IVirtualTerminal
         => isOutputRedirected || noColor ? ColorMode.None
            : hasColorCapability ? ColorMode.TrueColor : ColorMode.Sgr16;
 
-    internal static bool ResolveSixelSupport(bool noColor, bool hasSixelCapability)
-        => !noColor && hasSixelCapability;
+    internal static ImageDisplayCapability ResolveImageDisplayCapability(
+        bool noColor, bool hasColorCapability, bool hasSixelCapability)
+        => noColor || !hasColorCapability ? ImageDisplayCapability.NoColor
+           : hasSixelCapability ? ImageDisplayCapability.Sixel
+           : ImageDisplayCapability.AsciiBlock;
 
     public TermCell CellSize =>
         _cellSize ?? throw new InvalidOperationException("Call InitAsync() first.");

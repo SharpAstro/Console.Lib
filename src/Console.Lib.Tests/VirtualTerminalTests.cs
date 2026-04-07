@@ -46,27 +46,34 @@ public sealed class VirtualTerminalTests
     }
 
     // -----------------------------------------------------------------------
-    // ResolveSixelSupport
+    // ResolveImageDisplayCapability
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void ResolveSixelSupport_NoColor_ReturnsFalse()
+    public void ResolveImageDisplayCapability_NoColor_ReturnsNoColor()
     {
-        VirtualTerminal.ResolveSixelSupport(noColor: true, hasSixelCapability: true)
-            .ShouldBeFalse();
+        VirtualTerminal.ResolveImageDisplayCapability(noColor: true, hasColorCapability: true, hasSixelCapability: true)
+            .ShouldBe(ImageDisplayCapability.NoColor);
     }
 
     [Fact]
-    public void ResolveSixelSupport_WithCapability_ReturnsTrue()
+    public void ResolveImageDisplayCapability_NoColorCapability_ReturnsNoColor()
     {
-        VirtualTerminal.ResolveSixelSupport(noColor: false, hasSixelCapability: true)
-            .ShouldBeTrue();
+        VirtualTerminal.ResolveImageDisplayCapability(noColor: false, hasColorCapability: false, hasSixelCapability: true)
+            .ShouldBe(ImageDisplayCapability.NoColor);
     }
 
     [Fact]
-    public void ResolveSixelSupport_WithoutCapability_ReturnsFalse()
+    public void ResolveImageDisplayCapability_ColorButNoSixel_ReturnsAsciiBlock()
     {
-        VirtualTerminal.ResolveSixelSupport(noColor: false, hasSixelCapability: false)
-            .ShouldBeFalse();
+        VirtualTerminal.ResolveImageDisplayCapability(noColor: false, hasColorCapability: true, hasSixelCapability: false)
+            .ShouldBe(ImageDisplayCapability.AsciiBlock);
+    }
+
+    [Fact]
+    public void ResolveImageDisplayCapability_WithSixel_ReturnsSixel()
+    {
+        VirtualTerminal.ResolveImageDisplayCapability(noColor: false, hasColorCapability: true, hasSixelCapability: true)
+            .ShouldBe(ImageDisplayCapability.Sixel);
     }
 }
