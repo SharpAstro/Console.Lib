@@ -9,14 +9,33 @@ dotnet test src/Console.Lib.Tests
 
 ## Versioning
 
-The version is defined in two places — both must be updated together:
+The project uses **SemVer** (`Major.Minor.Patch`) with CI-generated patch numbers. The major/minor part is maintained manually; the patch and metadata are injected by CI.
 
-1. **`src/Console.Lib/Console.Lib.csproj`** — `<AssemblyVersion>` (format: `X.Y.0.0`)
-2. **`.github/workflows/dotnet.yml`** — `VERSION_PREFIX` env var (format: `X.Y.${{ github.run_number }}`)
+### How CI composes the NuGet version
 
-The CI workflow composes the full package version from `VERSION_PREFIX`, `VERSION_REV`, and `VERSION_HASH`.
+The workflow (`.github/workflows/dotnet.yml`) defines:
 
-When bumping the version, update both files to keep them in sync.
+```
+VERSION_PREFIX  = X.Y.<run_number>        # e.g. 2.0.47
+VERSION_REV    = <run_attempt>            # e.g. 1
+VERSION_HASH   = +<sha>                   # e.g. +a1b2c3d
+```
+
+These are passed to `dotnet build` as:
+- **Package version** (`-p:Version`): `X.Y.<run>.<attempt>+<sha>` — the full SemVer+metadata string that appears on NuGet.
+- **File version** (`-p:FileVersion`): `X.Y.<run>.<attempt>` — the Windows file version (no hash).
+
+### Files to update when bumping the version
+
+Three values across two files must stay in sync:
+
+| File | Property | Format | Example |
+|---|---|---|---|
+| `src/Console.Lib/Console.Lib.csproj` | `<VersionPrefix>` | `X.Y.Z` | `2.0.0` |
+| `src/Console.Lib/Console.Lib.csproj` | `<AssemblyVersion>` | `X.Y.0.0` | `2.0.0.0` |
+| `.github/workflows/dotnet.yml` | `VERSION_PREFIX` | `X.Y.${{ github.run_number }}` | `2.0.${{ github.run_number }}` |
+
+`VersionPrefix` is the local/debug package version. `AssemblyVersion` governs .NET assembly binding. `VERSION_PREFIX` drives the CI-published NuGet version. All three must share the same `X.Y` major/minor.
 
 ## DIR.Lib local-project reference
 
