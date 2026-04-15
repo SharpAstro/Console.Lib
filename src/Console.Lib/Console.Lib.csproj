@@ -7,7 +7,7 @@
     <IsAotCompatible>true</IsAotCompatible>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <VersionPrefix>2.0.0</VersionPrefix>
-    <AssemblyVersion>1.6.0.0</AssemblyVersion>
+    <AssemblyVersion>2.0.0.0</AssemblyVersion>
     <PackageID>Console.Lib</PackageID>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
@@ -26,8 +26,23 @@
     <None Include="../../LICENSE" Pack="true" PackagePath="/" />
   </ItemGroup>
 
-  <ItemGroup>
+  <!--
+    DIR.Lib (rendering primitives + font rasterization) is referenced via
+    ProjectReference when a sibling working copy exists, so iteration can
+    happen in-tree. CI / package builds without the sibling fall through
+    to PackageReference automatically.
+  -->
+  <PropertyGroup>
+    <UseLocalDirLib Condition="'$(UseLocalDirLib)' == '' AND Exists('..\..\..\DIR.Lib\src\DIR.Lib\DIR.Lib.csproj')">true</UseLocalDirLib>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(UseLocalDirLib)' == 'true'">
+    <ProjectReference Include="..\..\..\DIR.Lib\src\DIR.Lib\DIR.Lib.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalDirLib)' != 'true'">
     <PackageReference Include="DIR.Lib" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Markdig" />
     <PackageReference Include="Microsoft.SourceLink.GitHub">
       <PrivateAssets>all</PrivateAssets>
