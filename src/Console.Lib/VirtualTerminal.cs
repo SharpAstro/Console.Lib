@@ -135,6 +135,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
         System.Console.Write("\e[?1049h"); // Enter alternate buffer
         System.Console.Write("\e[?25l");   // Hide cursor
         System.Console.Write("\e[?1000h"); // VT200 mouse tracking (basic button press/release and wheel)
+        System.Console.Write("\e[?1002h"); // Button-motion tracking (drag reports while a button is held)
         System.Console.Write("\e[?1006h"); // SGR extended tracking
         Flush();
 
@@ -199,8 +200,8 @@ public sealed class VirtualTerminal : IVirtualTerminal
                 return result;
             }
 
-            // Normalize cell coordinates to pixels
-            return new(new MouseEvent(r.Button, r.X * (int)cw, r.Y * (int)ch, r.IsRelease), ConsoleKey.None, result.Modifiers);
+            // Normalize cell coordinates to pixels (preserve IsMotion — parsed from the xterm drag bit)
+            return new(new MouseEvent(r.Button, r.X * (int)cw, r.Y * (int)ch, r.IsRelease) { IsMotion = r.IsMotion }, ConsoleKey.None, result.Modifiers);
         }
         else if (s_isInputRedirected)
         {
@@ -234,6 +235,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
         if (_alternateScreen)
         {
             System.Console.Write("\e[?1000l"); // Disable VT200 mouse tracking
+            System.Console.Write("\e[?1002l"); // Disable button-motion tracking
             System.Console.Write("\e[?1006l"); // Disable SGR extended tracking
 
             System.Console.Write("\e[?25h");   // Show cursor
@@ -335,14 +337,15 @@ public sealed class VirtualTerminal : IVirtualTerminal
                     int.TryParse(parts[1], out var x) &&
                     int.TryParse(parts[2], out var y))
                 {
-                    // Pb encodes button in bits 0-1, modifiers in bits 2-4, bit 6 = scroll wheel
+                    // Pb encodes button in bits 0-1, modifiers in bits 2-4, bit 5 = motion (drag), bit 6 = scroll wheel
                     var button = pb & 0x43;
+                    var isMotion = (pb & 0x20) != 0;
                     var modifiers = (ConsoleModifiers)0;
                     if ((pb & 0x04) != 0) modifiers |= ConsoleModifiers.Shift;
                     if ((pb & 0x08) != 0) modifiers |= ConsoleModifiers.Alt;
                     if ((pb & 0x10) != 0) modifiers |= ConsoleModifiers.Control;
                     // SGR coordinates are 1-based
-                    return new(new MouseEvent(button, x - 1, y - 1, isRelease), ConsoleKey.None, modifiers);
+                    return new(new MouseEvent(button, x - 1, y - 1, isRelease) { IsMotion = isMotion }, ConsoleKey.None, modifiers);
                 }
                 return default;
             }
