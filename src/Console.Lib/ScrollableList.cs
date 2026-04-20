@@ -82,6 +82,20 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     /// release ends the drag. Wheel (button 64/65) is intentionally not handled
     /// here — callers already have wheel hooks tied to their own semantics.
     /// </summary>
+    /// <summary>
+    /// Scrolls the list by <paramref name="delta"/> rows. Positive <paramref name="delta"/>
+    /// scrolls up (toward the list start). Returns <c>true</c> when the offset actually
+    /// changed, <c>false</c> at either end or when the list fits in the viewport.
+    /// </summary>
+    public bool HandleWheel(int delta)
+    {
+        if (!HasScrollBar) return false;
+        var before = _scrollOffset;
+        _scrollOffset -= delta;
+        ClampOffset();
+        return _scrollOffset != before;
+    }
+
     public bool HandleMouse(MouseEvent mouse)
     {
         // End-of-drag on any release, even outside the track, so a fast flick
