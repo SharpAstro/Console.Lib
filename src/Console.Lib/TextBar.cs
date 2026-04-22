@@ -20,7 +20,18 @@ public class TextBar(ITerminalViewport viewport) : Widget(viewport)
 
         if (!TrySetCursorPosition(Viewport, 0, 0)) return;
 
-        var padWidth = Math.Max(0, width - _rightText.Length);
-        Viewport.Write($"{_style.Apply(Viewport.ColorMode)}{_text.PadRight(padWidth)}{_rightText}{VtStyle.Reset}");
+        // Right text wins priority; ellipsize it if it alone exceeds the row.
+        var right = _rightText.Length <= width
+            ? _rightText
+            : width > 1 ? _rightText[..(width - 1)] + '\u2026' : _rightText[..width];
+
+        var padWidth = Math.Max(0, width - right.Length);
+
+        // Truncate left with ellipsis when it would collide with right.
+        var left = _text.Length <= padWidth
+            ? _text
+            : padWidth > 1 ? _text[..(padWidth - 1)] + '\u2026' : "";
+
+        Viewport.Write($"{_style.Apply(Viewport.ColorMode)}{left.PadRight(padWidth)}{right}{VtStyle.Reset}");
     }
 }
