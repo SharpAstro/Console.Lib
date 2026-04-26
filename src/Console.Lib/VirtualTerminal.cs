@@ -428,6 +428,15 @@ public sealed class VirtualTerminal : IVirtualTerminal
             return true;
         }
 
+        // CSI Z final byte: back-tab (Shift+Tab). Standard: \e[Z.
+        // Some terminals also emit \e[1;2Z explicitly with the Shift modifier param.
+        if (final == 'Z')
+        {
+            key = ConsoleKey.Tab;
+            modifiers |= ConsoleModifiers.Shift;
+            return true;
+        }
+
         // Tilde final byte: ESC [ n ~ or ESC [ n;mod ~
         if (final == '~' && int.TryParse(param, out var n))
         {
