@@ -125,6 +125,14 @@ public sealed class TreeView<TItem> : Widget where TItem : class, ITreeNode<TIte
 
     public bool IsExpanded(TItem item) => _expanded.Contains(item);
 
+    /// <summary>
+    /// Marks the cached visible-row list stale so the next <see cref="Render"/>
+    /// re-flattens the tree. Call this after structurally mutating any node's
+    /// <see cref="ITreeNode{TSelf}.Children"/> outside the widget (e.g. a deep
+    /// rescan that splices in a new subtree). Cheap — just flips a flag.
+    /// </summary>
+    public void Invalidate() => _visibleStale = true;
+
     // ---- cursor movement ---------------------------------------------------
 
     public bool MoveCursor(int delta)
@@ -375,6 +383,8 @@ public sealed class TreeView<TItem> : Widget where TItem : class, ITreeNode<TIte
 
     // Paint exactly contentWidth visible cells: indent + twirl + content.
     // The formatter is responsible for padding/truncating its content slice.
+    // Composes one string and emits it via a single Viewport.Write — multiple
+    // Writes per row visibly slowed rendering on Windows console hosts.
     private void PaintRow(TItem item, int depth, bool isSelected, int contentWidth, ColorMode mode)
     {
         if (contentWidth <= 0) return;
@@ -383,30 +393,30 @@ public sealed class TreeView<TItem> : Widget where TItem : class, ITreeNode<TIte
         // content off-screen — leave at least 8 cells for content + twirl.
         int maxIndent = Math.Max(0, contentWidth - 8);
         int indent = Math.Min(depth * 2, maxIndent);
-        if (indent > 0) Viewport.Write(new string(' ', indent));
-
         int remaining = contentWidth - indent;
-        if (remaining <= 0) return;
+
+        var sb = new System.Text.StringBuilder(contentWidth + 64);
+        if (indent > 0) sb.Append(' ', indent);
+        if (remaining <= 0) { Viewport.Write(sb.ToString()); return; }
 
         // Twirl glyph: ▶ collapsed, ▼ expanded, · leaf. Always followed by a space.
         if (remaining >= 2)
         {
             var glyph = !item.HasChildren ? '·' : (_expanded.Contains(item) ? '\u25BC' /*▼*/ : '\u25B6' /*▶*/);
             var style = isSelected ? _twirlSelStyle : _twirlStyle;
-            Viewport.Write($"{style.Apply(mode)}{glyph} {VtStyle.Reset}");
+            sb.Append(style.Apply(mode)).Append(glyph).Append(' ').Append(VtStyle.Reset);
             remaining -= 2;
+            if (remaining > 0)
+            {
+                sb.Append(item.FormatNodeContent(remaining, mode, isSelected));
+            }
         }
         else
         {
-            Viewport.Write(new string(' ', remaining));
-            return;
+            sb.Append(' ', remaining);
         }
 
-        if (remaining > 0)
-        {
-            var content = item.FormatNodeContent(remaining, mode, isSelected);
-            Viewport.Write(content);
-        }
+        Viewport.Write(sb.ToString());
     }
 
     // ---- internals ---------------------------------------------------------
