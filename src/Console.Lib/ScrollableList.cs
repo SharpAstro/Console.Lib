@@ -15,6 +15,7 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
 {
     private IReadOnlyList<TItem> _items = [];
     private int _scrollOffset;
+    private int _cursor;                // -1 when the list is empty; index into _items otherwise.
     private string _header = "";
     private VtStyle _headerStyle = new(SgrColor.BrightWhite, SgrColor.BrightBlack);
     private VtStyle _emptyStyle = new(SgrColor.White, SgrColor.Black);
@@ -35,11 +36,27 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     /// <summary>Total item count (read-only snapshot).</summary>
     public int ItemCount => _items.Count;
 
+    /// <summary>
+    /// Index of the cursor row, or <c>-1</c> when the list is empty. The cursor
+    /// is always within <c>[0, ItemCount)</c> when there is at least one item;
+    /// changing <see cref="Items"/> clamps it. Mirrors <see cref="TreeView{T}.CursorIndex"/>.
+    /// </summary>
+    public int CursorIndex => _items.Count == 0 ? -1 : _cursor;
+
+    /// <summary>
+    /// Currently-selected item, or <c>default</c> when the list is empty.
+    /// </summary>
+    public TItem? Selected => _items.Count > 0 && _cursor >= 0 && _cursor < _items.Count
+        ? _items[_cursor]
+        : default;
+
     private int HeaderRows => _header.Length > 0 ? 1 : 0;
 
     public ScrollableList<TItem> Items(IReadOnlyList<TItem> items)
     {
         _items = items;
+        if (_cursor >= _items.Count) _cursor = Math.Max(0, _items.Count - 1);
+        if (_cursor < 0) _cursor = 0;
         ClampOffset();
         return this;
     }
@@ -49,6 +66,61 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
         _scrollOffset = offset;
         ClampOffset();
         return this;
+    }
+
+    /// <summary>
+    /// Move the cursor by <paramref name="delta"/> rows, clamping at the list
+    /// boundaries. The scroll offset follows so the cursor row stays visible.
+    /// Returns <c>true</c> when the cursor actually moved.
+    /// </summary>
+    public bool MoveCursor(int delta)
+    {
+        if (_items.Count == 0) return false;
+        var next = Math.Clamp(_cursor + delta, 0, _items.Count - 1);
+        if (next == _cursor) return false;
+        _cursor = next;
+        EnsureCursorVisible();
+        return true;
+    }
+
+    /// <summary>
+    /// Move the cursor to <paramref name="idx"/> (clamped to the list bounds).
+    /// Pass <c>int.MaxValue</c> to jump to the last item. Returns <c>true</c>
+    /// when the cursor actually moved.
+    /// </summary>
+    public bool MoveTo(int idx)
+    {
+        if (_items.Count == 0) return false;
+        idx = Math.Clamp(idx, 0, _items.Count - 1);
+        if (idx == _cursor) return false;
+        _cursor = idx;
+        EnsureCursorVisible();
+        return true;
+    }
+
+    /// <summary>
+    /// Handles a key for this list. Returns <c>true</c> when the event changed
+    /// state (cursor / scroll) and a re-render is needed. Mirrors the key map
+    /// used by <see cref="TreeView{T}.HandleKey"/>: ↑/↓, PageUp/PageDown, Home,
+    /// End. Unknown keys return <c>false</c> so the caller can fall through.
+    /// </summary>
+    public bool HandleKey(ConsoleKey key, ConsoleModifiers _ = 0) => key switch
+    {
+        ConsoleKey.UpArrow   => MoveCursor(-1),
+        ConsoleKey.DownArrow => MoveCursor(+1),
+        ConsoleKey.PageUp    => MoveCursor(-Math.Max(1, VisibleRows - 1)),
+        ConsoleKey.PageDown  => MoveCursor(+Math.Max(1, VisibleRows - 1)),
+        ConsoleKey.Home      => MoveTo(0),
+        ConsoleKey.End       => MoveTo(int.MaxValue),
+        _                    => false,
+    };
+
+    private void EnsureCursorVisible()
+    {
+        if (_cursor < 0 || VisibleRows <= 0) return;
+        if (_cursor < _scrollOffset) _scrollOffset = _cursor;
+        else if (_cursor >= _scrollOffset + VisibleRows) _scrollOffset = _cursor - VisibleRows + 1;
+        ClampOffset();
     }
 
     /// <summary>
@@ -142,7 +214,20 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
         if (HitTest(mouse.X, mouse.Y) is not (var col, var row)) return false;
 
         var lastCol = Viewport.Size.Width - 1;
-        if (col != lastCol) return false; // click outside the track column
+        if (col != lastCol)
+        {
+            // Click on a content row → move the cursor there. Header row click
+            // is consumed but ignored (no sort behavior yet). Motion without a
+            // drag is dropped.
+            if (mouse.IsMotion) return false;
+            if (row < HeaderRows) return false;
+            var clickedIdx = _scrollOffset + (row - HeaderRows);
+            if (clickedIdx < 0 || clickedIdx >= _items.Count) return false;
+            if (clickedIdx == _cursor) return false;
+            _cursor = clickedIdx;
+            EnsureCursorVisible();
+            return true;
+        }
 
         var clickDataRow = row - HeaderRows;
         if (clickDataRow < 0) return false;
@@ -199,7 +284,10 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
             var itemIdx = _scrollOffset + dataRow;
             if (itemIdx >= 0 && itemIdx < _items.Count)
             {
-                Viewport.Write(_items[itemIdx].FormatRow(contentWidth, colorMode));
+                // Pass selection state so formatters can paint a cursor highlight.
+                // Default IRowFormatter implementation falls back to the legacy
+                // overload, so existing rows still work without any changes.
+                Viewport.Write(_items[itemIdx].FormatRow(contentWidth, colorMode, itemIdx == _cursor));
             }
             else
             {
