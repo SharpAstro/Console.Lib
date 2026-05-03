@@ -1,3 +1,4 @@
+using System.Text;
 using Console.Lib;
 using Shouldly;
 using Xunit;
@@ -144,5 +145,27 @@ public sealed class TextAreaStateTests
         s.LineCount.ShouldBe(3);
         s.GetText().ShouldBe("ab\ncd\nef");
         s.CursorLineColumn.ShouldBe((2, 2));
+    }
+
+    [Fact]
+    public void InsertRune_BmpCodepoint()
+    {
+        var s = new TextAreaState();
+        s.InsertRune(new Rune('a')).ShouldBeTrue();
+        s.InsertRune(new Rune('é')).ShouldBeTrue();   // 2-byte UTF-8
+        s.GetText().ShouldBe("aé");
+        // Cursor advanced by total UTF-8 bytes: 1 + 2 = 3
+        s.CursorPos.ShouldBe(3);
+    }
+
+    [Fact]
+    public void InsertRune_NonBmpCodepoint()
+    {
+        // Surrogate-pair codepoint (4-byte UTF-8) — the InsertChar path can't handle these;
+        // InsertRune is the API for them.
+        var s = new TextAreaState();
+        s.InsertRune(Rune.GetRuneAt("🙂", 0)).ShouldBeTrue();
+        s.GetText().ShouldBe("🙂");
+        s.CursorPos.ShouldBe(4);
     }
 }

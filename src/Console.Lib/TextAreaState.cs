@@ -94,6 +94,19 @@ public sealed class TextAreaState
         return true;
     }
 
+    /// <summary>Inserts a single Unicode codepoint at the cursor and advances the cursor past it.
+    /// Handles non-BMP codepoints (4-byte UTF-8 sequences) that <see cref="InsertChar"/> cannot.</summary>
+    public bool InsertRune(System.Text.Rune rune)
+    {
+        Span<byte> tmp = stackalloc byte[4];
+        var n = rune.EncodeToUtf8(tmp);
+        _buf.Insert(_cursorPos, tmp[..n]);
+        _cursorPos += n;
+        _indexValid = false;
+        _desiredColumn = -1;
+        return true;
+    }
+
     /// <summary>Inserts a span of UTF-16 code units (surrogates handled by the underlying encoder).</summary>
     public bool InsertText(ReadOnlySpan<char> s)
     {

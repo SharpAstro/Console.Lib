@@ -59,31 +59,49 @@ public class TextInputBar(ITerminalViewport viewport) : Widget(viewport)
     }
 
     /// <summary>
-    /// Routes an <see cref="InputKey"/> to the active <see cref="TextInputState"/>.
-    /// Returns <c>true</c> if the key was consumed.
-    /// Navigation/editing keys go to <see cref="TextInputState.HandleKey"/>,
-    /// printable characters go to <see cref="TextInputState.InsertText"/>.
+    /// Routes a <see cref="ConsoleInputEvent"/> to the active <see cref="TextInputState"/>.
+    /// Returns <c>true</c> if the event was consumed.
+    /// Navigation/editing keys go to <see cref="TextInputState.HandleKey"/>;
+    /// printable input (including non-ASCII codepoints carried by
+    /// <see cref="ConsoleInputEvent.KeyChar"/>) goes to <see cref="TextInputState.InsertText"/>.
     /// </summary>
     /// <remarks>
     /// After this method returns, check <see cref="TextInputState.IsCommitted"/>
     /// and <see cref="TextInputState.IsCancelled"/> to handle Enter/Escape.
     /// </remarks>
-    public bool HandleInput(InputKey key, InputModifier modifiers)
+    public bool HandleInput(ConsoleInputEvent ev)
     {
         if (State is not { } state)
         {
             return false;
         }
 
+        var (inputKey, inputMod) = (ev.Key.ToInputKey, ev.Modifiers.ToInputModifier);
+
         // Navigation and editing keys (backspace, delete, arrows, home, end, enter, escape)
-        if (key.ToTextInputKey(modifiers) is { } textKey)
+        if (inputKey.ToTextInputKey(inputMod) is { } textKey)
         {
             state.HandleKey(textKey);
             return true;
         }
 
-        // Printable character input
-        if (key.ToChar(modifiers) is { } ch)
+        // Ctrl/Alt held → not text input.
+        if ((ev.Modifiers & (ConsoleModifiers.Control | ConsoleModifiers.Alt)) != 0)
+        {
+            return false;
+        }
+
+        // Prefer the decoded UTF-8 codepoint when the terminal supplied one
+        // (this is what makes non-US-layout characters work).
+        if (ev.KeyChar is { } rune)
+        {
+            state.InsertText(rune.ToString());
+            return true;
+        }
+
+        // Fallback for paths that don't populate KeyChar (legacy callers,
+        // synthetic events): resolve the (key, mods) pair via the US-layout map.
+        if (inputKey.ToChar(inputMod) is { } ch)
         {
             state.InsertText(ch.ToString());
             return true;

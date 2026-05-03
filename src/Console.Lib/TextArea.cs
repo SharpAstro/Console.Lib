@@ -12,8 +12,11 @@ namespace Console.Lib;
 /// Keystrokes split between two methods so callers can control which kinds of
 /// keys reach the editor: <see cref="HandleKey"/> handles navigation/edit keys
 /// (arrows, Home/End, Backspace/Delete, Enter, Tab); <see cref="HandleChar"/>
-/// handles printable input via <see cref="ConsoleInputMapping"/> +
-/// <see cref="InputKeyCharMapping"/>.
+/// inserts the codepoint carried by <see cref="ConsoleInputEvent.KeyChar"/>
+/// (set by <see cref="VirtualTerminal"/> from the UTF-8 input byte stream),
+/// preserving non-ASCII input (é, 中, 🙂, …) that the
+/// <see cref="ConsoleKey"/> + <see cref="ConsoleModifiers"/> pair cannot
+/// round-trip through a US layout.
 /// </para>
 /// </summary>
 public sealed class TextArea(ITerminalViewport viewport) : Widget(viewport)
@@ -209,19 +212,18 @@ public sealed class TextArea(ITerminalViewport viewport) : Widget(viewport)
     }
 
     /// <summary>
-    /// Resolves a <see cref="ConsoleInputEvent"/>'s key/modifier pair to a printable
-    /// character via <see cref="ConsoleInputMapping"/> + <see cref="InputKeyCharMapping"/>
-    /// and inserts it at the cursor. Returns <c>true</c> if a character was inserted.
+    /// Inserts the printable codepoint carried by
+    /// <see cref="ConsoleInputEvent.KeyChar"/> at the cursor. Returns <c>true</c>
+    /// if a character was inserted. <see cref="VirtualTerminal"/> populates
+    /// <c>KeyChar</c> from the UTF-8 byte stream, so non-ASCII input (é, 中,
+    /// emoji) round-trips correctly without depending on the US-layout
+    /// <see cref="InputKeyCharMapping"/> path.
     /// </summary>
-    public bool HandleChar(ConsoleKey key, ConsoleModifiers mods)
+    public bool HandleChar(ConsoleInputEvent ev)
     {
         if (State is null) return false;
-        // Ctrl/Alt held → it's a hotkey, not text. Shift on its own is fine
-        // because the key mapper already folds shift into the resulting char.
-        if ((mods & (ConsoleModifiers.Control | ConsoleModifiers.Alt)) != 0) return false;
-        var inputKey = key.ToInputKey;
-        var inputMod = mods.ToInputModifier;
-        var ch = inputKey.ToChar(inputMod);
-        return ch is { } c && State.InsertChar(c);
+        // Ctrl/Alt held → it's a hotkey, not text.
+        if ((ev.Modifiers & (ConsoleModifiers.Control | ConsoleModifiers.Alt)) != 0) return false;
+        return ev.KeyChar is { } rune && State.InsertRune(rune);
     }
 }

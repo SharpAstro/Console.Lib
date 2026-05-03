@@ -1,3 +1,5 @@
+using System.IO;
+using System.Text;
 using Console.Lib;
 using Shouldly;
 using Xunit;
@@ -175,5 +177,85 @@ public sealed class VirtualTerminalTests
         var inputMod = mods.ToInputModifier;
         var ch = inputKey.ToChar(inputMod);
         ch.ShouldBe((char)b);
+    }
+
+    // -----------------------------------------------------------------------
+    // TryReadRuneFrom — UTF-8 byte stream → Rune
+    //
+    // The byte-level input path (PipeBytesLexer-style: ParseSgrInput's non-ESC
+    // branch) needs to buffer continuation bytes for non-ASCII codepoints so
+    // 'é' (0xC3 0xA9) and friends round-trip into ConsoleInputEvent.KeyChar.
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("a")]      // 1-byte ASCII
+    [InlineData("z")]
+    [InlineData("0")]
+    [InlineData("é")]      // 2-byte UTF-8 (U+00E9)
+    [InlineData("ñ")]
+    [InlineData("中")]      // 3-byte UTF-8 (U+4E2D)
+    [InlineData("漢")]
+    [InlineData("🙂")]      // 4-byte UTF-8 (U+1F642, surrogate pair in UTF-16)
+    [InlineData("🚀")]
+    public void TryReadRuneFrom_DecodesUtf8Codepoint(string s)
+    {
+        var bytes = Encoding.UTF8.GetBytes(s);
+        using var ms = new MemoryStream(bytes);
+        var first = ms.ReadByte();
+        var rune = VirtualTerminal.TryReadRuneFrom(first, ms);
+        rune.ShouldNotBeNull();
+        rune!.Value.ToString().ShouldBe(s);
+        ms.Position.ShouldBe(ms.Length); // all continuation bytes consumed
+    }
+
+    [Theory]
+    [InlineData(0x00)] // NUL
+    [InlineData(0x09)] // TAB — control byte, KeyChar should not carry it
+    [InlineData(0x0D)] // CR
+    [InlineData(0x1B)] // ESC
+    [InlineData(0x7F)] // DEL
+    public void TryReadRuneFrom_RejectsControlBytes(int b)
+    {
+        using var ms = new MemoryStream([(byte)b]);
+        var first = ms.ReadByte();
+        VirtualTerminal.TryReadRuneFrom(first, ms).ShouldBeNull();
+    }
+
+    [Fact]
+    public void TryReadRuneFrom_RejectsBareContinuationByte()
+    {
+        using var ms = new MemoryStream([0xA9]); // continuation byte without lead
+        var first = ms.ReadByte();
+        VirtualTerminal.TryReadRuneFrom(first, ms).ShouldBeNull();
+    }
+
+    [Fact]
+    public void TryReadRuneFrom_RejectsTruncatedSequence()
+    {
+        // 0xC3 expects 1 continuation byte but stream is empty after the lead
+        using var ms = new MemoryStream([0xC3]);
+        var first = ms.ReadByte();
+        VirtualTerminal.TryReadRuneFrom(first, ms).ShouldBeNull();
+    }
+
+    [Fact]
+    public void TryReadRuneFrom_RejectsInvalidContinuation()
+    {
+        // 0xC3 expects continuation, but 0x40 is not a continuation byte
+        using var ms = new MemoryStream([0xC3, 0x40]);
+        var first = ms.ReadByte();
+        VirtualTerminal.TryReadRuneFrom(first, ms).ShouldBeNull();
+    }
+
+    [Fact]
+    public void TryReadRuneFrom_LeavesUnreadBytesAlone_OnAscii()
+    {
+        // ASCII codepoints never consume more than the lead byte
+        using var ms = new MemoryStream([0x42, 0x99, 0xFF]);
+        var first = ms.ReadByte();
+        var rune = VirtualTerminal.TryReadRuneFrom(first, ms);
+        rune.ShouldNotBeNull();
+        rune!.Value.Value.ShouldBe(0x42);
+        ms.Position.ShouldBe(1);
     }
 }

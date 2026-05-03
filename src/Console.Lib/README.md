@@ -261,6 +261,8 @@ int visibleRows = list.VisibleRows; // data rows (excludes header)
 
 Multi-line editable text widget backed by a UTF-8 gap buffer (`GapBuffer`) and editable state (`TextAreaState`). Supports cursor navigation (arrows / Home / End / PgUp / PgDn / Ctrl+Home / Ctrl+End), insertion / Backspace / Delete, sticky desired column for vertical motion, and an optional left-side line-number gutter with vim-style `~` markers past the end of buffer. Cursor moves are codepoint-aware so the cursor never lands mid-UTF-8-sequence.
 
+`HandleChar` consumes the printable codepoint carried by `ConsoleInputEvent.KeyChar` (a `Rune?` populated by `VirtualTerminal` from the UTF-8 byte stream), so non-ASCII input (e.g. `é`, `中`, emoji) round-trips correctly without depending on the US-layout `InputKeyCharMapping` path.
+
 ```csharp
 var area = new TextArea(viewport).Style(new VtStyle(SgrColor.White, SgrColor.Black));
 area.State = new TextAreaState("hello\nworld");
@@ -270,7 +272,7 @@ while (true)
     area.Render();
     var ev = term.TryReadInput();
     if (!area.HandleKey(ev.Key, ev.Modifiers))
-        area.HandleChar(ev.Key, ev.Modifiers);   // printable input
+        area.HandleChar(ev);   // printable input via ev.KeyChar (Rune?)
 }
 ```
 

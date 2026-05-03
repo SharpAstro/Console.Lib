@@ -209,7 +209,12 @@ public sealed class VirtualTerminal : IVirtualTerminal
             if (b == -1) return default;
 
             var (key, modifiers) = ByteToConsoleKey(b);
-            return new(null, key, modifiers);
+            // System.Console.In is text-decoded (UTF-8 once we set InputEncoding in InitAsync),
+            // so a single Read() already yields a UTF-16 code unit. Promote BMP chars to a Rune;
+            // surrogate halves are skipped here because pairing them across reads would require
+            // a buffer the redirected path doesn't keep.
+            var keyChar = TryPromoteCharToRune((char)b);
+            return new(null, key, modifiers, keyChar);
         }
         else
         {
@@ -221,13 +226,22 @@ public sealed class VirtualTerminal : IVirtualTerminal
             }
             else if (first.Key != ConsoleKey.Escape)
             {
-                return new(null, first.Key, first.Modifiers);
+                return new(null, first.Key, first.Modifiers, TryPromoteCharToRune(first.KeyChar));
             }
             else
             {
                 return new(null, ConsoleKey.None, first.Modifiers);
             }
         }
+    }
+
+    // Promotes a UTF-16 code unit to a Rune iff it represents a printable, non-surrogate
+    // codepoint. Used by the non-byte input paths (System.Console.ReadKey / In.Read).
+    private static Rune? TryPromoteCharToRune(char c)
+    {
+        if (c < 0x20 || c == 0x7F) return null; // C0 controls + DEL
+        if (char.IsSurrogate(c)) return null;
+        return new Rune(c);
     }
 
     public ValueTask DisposeAsync()
@@ -316,7 +330,11 @@ public sealed class VirtualTerminal : IVirtualTerminal
         else if (@byte != '\e')
         {
             var (key, modifiers) = ByteToConsoleKey(@byte);
-            return new(null, key, modifiers);
+            // Buffer UTF-8 continuation bytes for non-ASCII codepoints so non-US-layout
+            // input (é, ñ, 中, 🙂, …) survives the byte stream. ASCII bytes return a
+            // single-byte Rune; control bytes (< 0x20 or 0x7F) skip KeyChar entirely.
+            var keyChar = TryReadRuneFrom(@byte, _stdIn!);
+            return new(null, key, modifiers, keyChar);
         }
 
         while (s_isInputRedirected ? System.Console.In.Peek() != -1 : System.Console.KeyAvailable)
@@ -462,6 +480,43 @@ public sealed class VirtualTerminal : IVirtualTerminal
         }
 
         return false;
+    }
+
+    // Given a leading input byte, decodes the rest of the UTF-8 codepoint (if any) by
+    // reading continuation bytes from the supplied stream, and returns the resulting Rune
+    // iff it's a printable codepoint. ASCII control bytes (< 0x20 or 0x7F) and decode
+    // failures return null so the caller falls back to the (ConsoleKey, ConsoleModifiers)
+    // path. Internal-and-static so tests can drive it with a MemoryStream.
+    internal static Rune? TryReadRuneFrom(int firstByte, Stream stdIn)
+    {
+        if (firstByte < 0)
+        {
+            return null;
+        }
+        if (firstByte < 0x80)
+        {
+            return (firstByte < 0x20 || firstByte == 0x7F) ? null : new Rune((char)firstByte);
+        }
+
+        // UTF-8 lead-byte shape: 110xxxxx → 1 cont, 1110xxxx → 2 cont, 11110xxx → 3 cont.
+        int contBytes;
+        if ((firstByte & 0xE0) == 0xC0) contBytes = 1;
+        else if ((firstByte & 0xF0) == 0xE0) contBytes = 2;
+        else if ((firstByte & 0xF8) == 0xF0) contBytes = 3;
+        else return null; // bare continuation byte or 5/6-byte sequence — not valid UTF-8
+
+        Span<byte> buf = stackalloc byte[4];
+        buf[0] = (byte)firstByte;
+        for (var i = 1; i <= contBytes; i++)
+        {
+            var b = stdIn.ReadByte();
+            if (b < 0 || (b & 0xC0) != 0x80) return null; // truncated or not a continuation byte
+            buf[i] = (byte)b;
+        }
+
+        return Rune.DecodeFromUtf8(buf[..(contBytes + 1)], out var rune, out _) == System.Buffers.OperationStatus.Done
+            ? rune
+            : null;
     }
 
     // Maps a single ASCII input byte to the (ConsoleKey, ConsoleModifiers) pair the
