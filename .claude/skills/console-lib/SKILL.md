@@ -5,7 +5,7 @@ description: Bootstrap context for the Console.Lib repo. Run at the start of a s
 
 # Console.Lib repo skill
 
-A .NET 10 / AOT-compatible terminal-app library: dock layout, widgets (`TextBar`, `ScrollableList`, `TreeView`, `Canvas`, `MarkdownWidget`), VT styling, Sixel graphics, mouse + keyboard input. Architecture and conventions live in `CLAUDE.md` at the repo root — read it first if you haven't. This skill is the *what's done / what's next / how to verify* layer on top.
+A .NET 10 / AOT-compatible terminal-app library: dock layout, widgets (`TextBar`, `TextInputBar`, `TextArea`, `ScrollableList`, `TreeView`, `Canvas`, `MarkdownWidget`), VT styling, Sixel graphics, mouse + keyboard input. Architecture and conventions live in `CLAUDE.md` at the repo root — read it first if you haven't. This skill is the *what's done / what's next / how to verify* layer on top.
 
 ## Read these first, in order
 
@@ -29,7 +29,7 @@ The library has a sibling **DIR.Lib** dependency (rendering primitives, `RGBACol
 - **Terminal lifecycle**: `IVirtualTerminal` / `VirtualTerminal` — `InitAsync`, `EnterAlternateScreen`, `TryReadInput`, `HasInput`, `Clear`. On Windows, alternate-screen entry flips `WindowsConsoleInput.EnableVirtualTerminalIO` and SGR mouse mode.
 - **Viewports**: `ITerminalViewport`, `TerminalViewport` (sub-region with translated coordinates).
 - **Layout**: `DockStyle` (in `DIR.Lib`), `TerminalLayout`, `Panel` (collection of widgets sharing a layout).
-- **Widgets**: `Widget` (abstract base; `Render`, `HitTest`), `TextBar`, `ScrollableList<T>` (cursor + selection + optional multi-column mode via `Columns(n)` / `ColumnIndex` / `MoveColumn` and the column-aware `IRowFormatter.FormatRow(int, ColorMode, bool, int, int)` overload), `TreeView<T>` (cursor + expand/collapse), `Canvas<TSurface>`, `MarkdownWidget`.
+- **Widgets**: `Widget` (abstract base; `Render`, `HitTest`), `TextBar`, `TextInputBar` (single-line editor, uses `TextInputState`), `TextArea` (multi-line editor on a UTF-8 `GapBuffer`; `TextAreaState` exposes `MemoryBeforeGap`/`MemoryAfterGap` for zero-alloc pipe consumers), `ScrollableList<T>` (cursor + selection + optional multi-column mode via `Columns(n)` / `ColumnIndex` / `MoveColumn` and the column-aware `IRowFormatter.FormatRow(int, ColorMode, bool, int, int)` overload), `TreeView<T>` (cursor + expand/collapse), `Canvas<TSurface>`, `MarkdownWidget`.
 - **Input**: `ConsoleInputEvent` (mouse + key), `MouseEvent` (with SGR coordinates), `ConsoleInputMapping`.
 - **Styling**: `VtStyle`, `SgrColor`, `ColorMode` (`None` / `Sgr16` / `TrueColor`).
 - **Sixel**: `SixelEncoder` (high-perf, ArrayPool-backed), `SixelRenderer<TSurface>`, `Canvas<T>.EncodeSixel`.

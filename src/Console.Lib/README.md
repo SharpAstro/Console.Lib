@@ -36,6 +36,7 @@ classDiagram
     }
     class TextBar
     class ScrollableList~TItem~
+    class TextArea
     class Canvas~TSurface~ {
         +Render()*
         +Render(clip)
@@ -81,6 +82,7 @@ classDiagram
     Widget --> ITerminalViewport : viewport
     TextBar --|> Widget
     ScrollableList --|> Widget
+    TextArea --|> Widget
     Canvas --|> Widget
     ScrollableList ..> IRowFormatter : TItem
 
@@ -254,6 +256,25 @@ var list = new ScrollableList<MyRow>(viewport)
 
 int visibleRows = list.VisibleRows; // data rows (excludes header)
 ```
+
+### TextArea
+
+Multi-line editable text widget backed by a UTF-8 gap buffer (`GapBuffer`) and editable state (`TextAreaState`). Supports cursor navigation (arrows / Home / End / PgUp / PgDn / Ctrl+Home / Ctrl+End), insertion / Backspace / Delete, sticky desired column for vertical motion, and an optional left-side line-number gutter with vim-style `~` markers past the end of buffer. Cursor moves are codepoint-aware so the cursor never lands mid-UTF-8-sequence.
+
+```csharp
+var area = new TextArea(viewport).Style(new VtStyle(SgrColor.White, SgrColor.Black));
+area.State = new TextAreaState("hello\nworld");
+
+while (true)
+{
+    area.Render();
+    var ev = term.TryReadInput();
+    if (!area.HandleKey(ev.Key, ev.Modifiers))
+        area.HandleChar(ev.Key, ev.Modifiers);   // printable input
+}
+```
+
+`TextAreaState` exposes the buffer contents as `ReadOnlySpan<byte>` (`SpanBeforeGap` / `SpanAfterGap`) and `ReadOnlyMemory<byte>` (`MemoryBeforeGap` / `MemoryAfterGap`) for zero-alloc consumers that want to feed the bytes into a lexer / pipe / encoder without materialising the whole text.
 
 ### Canvas\<TSurface\>
 
