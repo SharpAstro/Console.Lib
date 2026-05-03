@@ -464,7 +464,11 @@ public sealed class VirtualTerminal : IVirtualTerminal
         return false;
     }
 
-    private static (ConsoleKey Key, ConsoleModifiers Modifiers) ByteToConsoleKey(int b) => b switch
+    // Maps a single ASCII input byte to the (ConsoleKey, ConsoleModifiers) pair the
+    // rest of the input pipeline expects. Shifted-symbol bytes (e.g. '!', '@', '_', '<')
+    // resolve to the unshifted ConsoleKey + ConsoleModifiers.Shift so that
+    // InputKeyCharMapping.ToChar can recover the original character on a US layout.
+    internal static (ConsoleKey Key, ConsoleModifiers Modifiers) ByteToConsoleKey(int b) => b switch
     {
         >= 'a' and <= 'z' => ((ConsoleKey)(b - 'a' + 'A'), 0),
         >= 'A' and <= 'Z' => ((ConsoleKey)b, ConsoleModifiers.Shift),
@@ -474,16 +478,28 @@ public sealed class VirtualTerminal : IVirtualTerminal
         '\r' or '\n' => (ConsoleKey.Enter, 0),
         ' ' => (ConsoleKey.Spacebar, 0),
         0x7F => (ConsoleKey.Backspace, 0), // terminals send DEL (0x7F) for Backspace key
-        '-' => (ConsoleKey.OemMinus, 0),
-        '+' or '=' => (ConsoleKey.OemPlus, 0),
-        '.' => (ConsoleKey.OemPeriod, 0),
-        ',' => (ConsoleKey.OemComma, 0),
-        '/' => (ConsoleKey.Oem2, 0),
-        '\\' => (ConsoleKey.Oem5, 0),
+        // Shifted digit row (US layout): the byte already carries the shifted character,
+        // so we report the underlying digit key plus the Shift modifier.
+        '!' => (ConsoleKey.D1, ConsoleModifiers.Shift),
+        '@' => (ConsoleKey.D2, ConsoleModifiers.Shift),
+        '#' => (ConsoleKey.D3, ConsoleModifiers.Shift),
+        '$' => (ConsoleKey.D4, ConsoleModifiers.Shift),
+        '%' => (ConsoleKey.D5, ConsoleModifiers.Shift),
+        '^' => (ConsoleKey.D6, ConsoleModifiers.Shift),
+        '&' => (ConsoleKey.D7, ConsoleModifiers.Shift),
+        '*' => (ConsoleKey.D8, ConsoleModifiers.Shift),
+        '(' => (ConsoleKey.D9, ConsoleModifiers.Shift),
+        ')' => (ConsoleKey.D0, ConsoleModifiers.Shift),
+        '-' or '_' => (ConsoleKey.OemMinus, b == '_' ? ConsoleModifiers.Shift : 0),
+        '+' or '=' => (ConsoleKey.OemPlus, b == '+' ? ConsoleModifiers.Shift : 0),
+        '.' or '>' => (ConsoleKey.OemPeriod, b == '>' ? ConsoleModifiers.Shift : 0),
+        ',' or '<' => (ConsoleKey.OemComma, b == '<' ? ConsoleModifiers.Shift : 0),
+        '/' or '?' => (ConsoleKey.Oem2, b == '?' ? ConsoleModifiers.Shift : 0),
+        '\\' or '|' => (ConsoleKey.Oem5, b == '|' ? ConsoleModifiers.Shift : 0),
         ';' or ':' => (ConsoleKey.Oem1, b == ':' ? ConsoleModifiers.Shift : 0),
         '\'' or '"' => (ConsoleKey.Oem7, b == '"' ? ConsoleModifiers.Shift : 0),
-        '[' => (ConsoleKey.Oem4, 0),
-        ']' => (ConsoleKey.Oem6, 0),
+        '[' or '{' => (ConsoleKey.Oem4, b == '{' ? ConsoleModifiers.Shift : 0),
+        ']' or '}' => (ConsoleKey.Oem6, b == '}' ? ConsoleModifiers.Shift : 0),
         '`' or '~' => (ConsoleKey.Oem3, b == '~' ? ConsoleModifiers.Shift : 0),
         >= 0x01 and <= 0x1A => ((ConsoleKey)(b - 0x01 + 'A'), ConsoleModifiers.Control),
         _ => (ConsoleKey.None, 0),
