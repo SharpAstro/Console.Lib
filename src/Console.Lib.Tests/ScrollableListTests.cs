@@ -205,8 +205,8 @@ public sealed class ScrollableListTests
     [Fact]
     public void MouseClick_OnContentRow_SetsRowAndColumn()
     {
-        // Need enough items to trigger HasScrollBar (>VisibleRows = 7) so the
-        // mouse handler engages. CellSize is (10, 20) per FakeTerminal.
+        // Overflowing list (>VisibleRows = 7) → scrollbar present. CellSize is (10, 20)
+        // per FakeTerminal; with a scrollbar, content width = viewport width - 1 = 19.
         var list = NewList(itemCount: 10, width: 20, height: 8).Columns(2);
 
         // Click on the first content row, right half (cell col 15 → pixel x 150).
@@ -217,6 +217,34 @@ public sealed class ScrollableListTests
         list.ColumnIndex.ShouldBe(1);
 
         // Click on the second content row, left half (cell col 5 → pixel x 50).
+        list.HandleMouse(new MouseEvent(Button: 0, X: 50, Y: 40, IsRelease: false))
+            .ShouldBeTrue();
+        list.CursorIndex.ShouldBe(1);
+        list.ColumnIndex.ShouldBe(0);
+    }
+
+    [Fact]
+    public void MouseClick_OnContentRow_RegistersWithoutScrollbar()
+    {
+        // Short list (≤VisibleRows = 7) → no scrollbar; clicks must still register.
+        // Without scrollbar, content width = full viewport width (20). Columns(2) →
+        // cells [0..9] are column 0, cells [10..19] are column 1.
+        var list = NewList(itemCount: 3, width: 20, height: 8).Columns(2);
+
+        // Click on the second content row, right half (cell col 15 → pixel x 150).
+        list.HandleMouse(new MouseEvent(Button: 0, X: 150, Y: 40, IsRelease: false))
+            .ShouldBeTrue();
+        list.CursorIndex.ShouldBe(1);
+        list.ColumnIndex.ShouldBe(1);
+
+        // Click on the last column of the row (cell col 19 → pixel x 190) still
+        // routes to the content branch when there is no scrollbar.
+        list.HandleMouse(new MouseEvent(Button: 0, X: 190, Y: 20, IsRelease: false))
+            .ShouldBeTrue();
+        list.CursorIndex.ShouldBe(0);
+        list.ColumnIndex.ShouldBe(1);
+
+        // Click on the left half (cell col 5 → pixel x 50) of row 2.
         list.HandleMouse(new MouseEvent(Button: 0, X: 50, Y: 40, IsRelease: false))
             .ShouldBeTrue();
         list.CursorIndex.ShouldBe(1);

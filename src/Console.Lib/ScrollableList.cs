@@ -241,16 +241,14 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
             return wasDragging;
         }
 
-        if (!HasScrollBar) return false;
-
         // Motion without a held button is ignored in mode 1002, but guard anyway.
         var isLeftButton = mouse.Button == 0;
         if (!isLeftButton) return false;
 
         // Drag: keep consuming motion regardless of whether the cursor is still over
         // the widget. Desktop scrollbar convention — once you grab the thumb, the drag
-        // continues until release. Use raw pixel Y rather than Widget.HitTest so we
-        // also respond when the user drifts off the list.
+        // continues until release. _isDragging is only set when HasScrollBar was true
+        // at press time, so this branch implicitly requires a scrollbar.
         if (mouse.IsMotion && _isDragging)
         {
             var cellH = Viewport.CellSize.Height;
@@ -276,7 +274,10 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
         if (HitTest(mouse.X, mouse.Y) is not (var col, var row)) return false;
 
         var lastCol = Viewport.Size.Width - 1;
-        if (col != lastCol)
+        // Without a scrollbar the entire viewport is content, so every column
+        // routes to the content-click branch. With a scrollbar, only the
+        // last column is the track.
+        if (!HasScrollBar || col != lastCol)
         {
             // Click on a content row → move the cursor there. Header row click
             // is consumed but ignored (no sort behavior yet). Motion without a
