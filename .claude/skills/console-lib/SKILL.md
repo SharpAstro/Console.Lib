@@ -29,7 +29,7 @@ The library has a sibling **DIR.Lib** dependency (rendering primitives, `RGBACol
 - **Terminal lifecycle**: `IVirtualTerminal` / `VirtualTerminal` — `InitAsync`, `EnterAlternateScreen`, `TryReadInput`, `HasInput`, `Clear`. On Windows, alternate-screen entry flips `WindowsConsoleInput.EnableVirtualTerminalIO` and SGR mouse mode.
 - **Viewports**: `ITerminalViewport`, `TerminalViewport` (sub-region with translated coordinates).
 - **Layout**: `DockStyle` (in `DIR.Lib`), `TerminalLayout`, `Panel` (collection of widgets sharing a layout).
-- **Widgets**: `Widget` (abstract base; `Render`, `HitTest`), `TextBar`, `ScrollableList<T>` (now with cursor + selection), `TreeView<T>` (cursor + expand/collapse), `Canvas<TSurface>`, `MarkdownWidget`.
+- **Widgets**: `Widget` (abstract base; `Render`, `HitTest`), `TextBar`, `ScrollableList<T>` (cursor + selection + optional multi-column mode via `Columns(n)` / `ColumnIndex` / `MoveColumn` and the column-aware `IRowFormatter.FormatRow(int, ColorMode, bool, int, int)` overload), `TreeView<T>` (cursor + expand/collapse), `Canvas<TSurface>`, `MarkdownWidget`.
 - **Input**: `ConsoleInputEvent` (mouse + key), `MouseEvent` (with SGR coordinates), `ConsoleInputMapping`.
 - **Styling**: `VtStyle`, `SgrColor`, `ColorMode` (`None` / `Sgr16` / `TrueColor`).
 - **Sixel**: `SixelEncoder` (high-perf, ArrayPool-backed), `SixelRenderer<TSurface>`, `Canvas<T>.EncodeSixel`.

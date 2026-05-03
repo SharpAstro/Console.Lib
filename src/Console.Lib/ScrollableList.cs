@@ -16,6 +16,8 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     private IReadOnlyList<TItem> _items = [];
     private int _scrollOffset;
     private int _cursor;                // -1 when the list is empty; index into _items otherwise.
+    private int _columns = 1;           // Sub-cells per row. 1 = legacy single-column behavior.
+    private int _columnIndex;           // Cursor column in [0, _columns).
     private string _header = "";
     private VtStyle _headerStyle = new(SgrColor.BrightWhite, SgrColor.BrightBlack);
     private VtStyle _emptyStyle = new(SgrColor.White, SgrColor.Black);
@@ -50,6 +52,20 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
         ? _items[_cursor]
         : default;
 
+    /// <summary>
+    /// Number of selectable sub-cells per row. Default <c>1</c> (legacy single-cell rows).
+    /// Set via <see cref="Columns(int)"/>; consumed by <see cref="HandleKey"/> (Left/Right
+    /// arms), the mouse click handler, and the column-aware <see cref="IRowFormatter.FormatRow(int, ColorMode, bool, int, int)"/>
+    /// overload.
+    /// </summary>
+    public int ColumnCount => _columns;
+
+    /// <summary>
+    /// Cursor column in <c>[0, ColumnCount)</c>, or <c>-1</c> when the list is empty.
+    /// Always <c>0</c> in the default single-column mode.
+    /// </summary>
+    public int ColumnIndex => _items.Count == 0 ? -1 : _columnIndex;
+
     private int HeaderRows => _header.Length > 0 ? 1 : 0;
 
     public ScrollableList<TItem> Items(IReadOnlyList<TItem> items)
@@ -69,17 +85,59 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     }
 
     /// <summary>
+    /// Set the number of selectable sub-cells per row. Default is <c>1</c>.
+    /// Values greater than <c>1</c> opt the list into "multi-column" mode:
+    /// <see cref="HandleKey"/> grows Left/Right arms, mouse clicks resolve to a
+    /// (row, column) pair via even-split of the row width, and the column-aware
+    /// <see cref="IRowFormatter.FormatRow(int, ColorMode, bool, int, int)"/> overload
+    /// receives the cursor column. Throws when <paramref name="n"/> is less than 1;
+    /// clamps the current column index to <c>[0, n)</c>.
+    /// </summary>
+    public ScrollableList<TItem> Columns(int n)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(n, 1);
+        _columns = n;
+        if (_columnIndex >= n) _columnIndex = n - 1;
+        if (_columnIndex < 0) _columnIndex = 0;
+        return this;
+    }
+
+    /// <summary>
     /// Move the cursor by <paramref name="delta"/> rows, clamping at the list
     /// boundaries. The scroll offset follows so the cursor row stays visible.
     /// Returns <c>true</c> when the cursor actually moved.
     /// </summary>
-    public bool MoveCursor(int delta)
+    public bool MoveCursor(int delta) => MoveCursor(delta, 0);
+
+    /// <summary>
+    /// Move the cursor by <paramref name="rowDelta"/> rows and
+    /// <paramref name="colDelta"/> sub-columns, clamping each axis at its
+    /// boundaries. The scroll offset follows so the cursor row stays visible.
+    /// Returns <c>true</c> when the cursor actually moved on either axis.
+    /// </summary>
+    public bool MoveCursor(int rowDelta, int colDelta)
     {
         if (_items.Count == 0) return false;
-        var next = Math.Clamp(_cursor + delta, 0, _items.Count - 1);
-        if (next == _cursor) return false;
-        _cursor = next;
+        var nextRow = Math.Clamp(_cursor + rowDelta, 0, _items.Count - 1);
+        var nextCol = Math.Clamp(_columnIndex + colDelta, 0, _columns - 1);
+        if (nextRow == _cursor && nextCol == _columnIndex) return false;
+        _cursor = nextRow;
+        _columnIndex = nextCol;
         EnsureCursorVisible();
+        return true;
+    }
+
+    /// <summary>
+    /// Move the cursor column by <paramref name="delta"/>, clamping at
+    /// <c>[0, ColumnCount)</c>. No-op in single-column mode.
+    /// Returns <c>true</c> when the column actually moved.
+    /// </summary>
+    public bool MoveColumn(int delta)
+    {
+        if (_items.Count == 0 || _columns <= 1) return false;
+        var next = Math.Clamp(_columnIndex + delta, 0, _columns - 1);
+        if (next == _columnIndex) return false;
+        _columnIndex = next;
         return true;
     }
 
@@ -102,17 +160,21 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     /// Handles a key for this list. Returns <c>true</c> when the event changed
     /// state (cursor / scroll) and a re-render is needed. Mirrors the key map
     /// used by <see cref="TreeView{T}.HandleKey"/>: ↑/↓, PageUp/PageDown, Home,
-    /// End. Unknown keys return <c>false</c> so the caller can fall through.
+    /// End. When <see cref="ColumnCount"/> is greater than one, Left/Right move
+    /// the cursor column. Unknown keys return <c>false</c> so the caller can
+    /// fall through.
     /// </summary>
     public bool HandleKey(ConsoleKey key, ConsoleModifiers _ = 0) => key switch
     {
-        ConsoleKey.UpArrow   => MoveCursor(-1),
-        ConsoleKey.DownArrow => MoveCursor(+1),
-        ConsoleKey.PageUp    => MoveCursor(-Math.Max(1, VisibleRows - 1)),
-        ConsoleKey.PageDown  => MoveCursor(+Math.Max(1, VisibleRows - 1)),
-        ConsoleKey.Home      => MoveTo(0),
-        ConsoleKey.End       => MoveTo(int.MaxValue),
-        _                    => false,
+        ConsoleKey.UpArrow    => MoveCursor(-1),
+        ConsoleKey.DownArrow  => MoveCursor(+1),
+        ConsoleKey.PageUp     => MoveCursor(-Math.Max(1, VisibleRows - 1)),
+        ConsoleKey.PageDown   => MoveCursor(+Math.Max(1, VisibleRows - 1)),
+        ConsoleKey.Home       => MoveTo(0),
+        ConsoleKey.End        => MoveTo(int.MaxValue),
+        ConsoleKey.LeftArrow  => MoveColumn(-1),
+        ConsoleKey.RightArrow => MoveColumn(+1),
+        _                     => false,
     };
 
     private void EnsureCursorVisible()
@@ -218,13 +280,19 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
         {
             // Click on a content row → move the cursor there. Header row click
             // is consumed but ignored (no sort behavior yet). Motion without a
-            // drag is dropped.
+            // drag is dropped. In multi-column mode the click also picks a
+            // sub-column via even-split of the content area.
             if (mouse.IsMotion) return false;
             if (row < HeaderRows) return false;
             var clickedIdx = _scrollOffset + (row - HeaderRows);
             if (clickedIdx < 0 || clickedIdx >= _items.Count) return false;
-            if (clickedIdx == _cursor) return false;
+            var contentWidth = HasScrollBar ? Viewport.Size.Width - 1 : Viewport.Size.Width;
+            var newCol = _columns > 1 && contentWidth > 0
+                ? Math.Clamp(col * _columns / contentWidth, 0, _columns - 1)
+                : 0;
+            if (clickedIdx == _cursor && newCol == _columnIndex) return false;
             _cursor = clickedIdx;
+            _columnIndex = newCol;
             EnsureCursorVisible();
             return true;
         }
@@ -284,10 +352,13 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
             var itemIdx = _scrollOffset + dataRow;
             if (itemIdx >= 0 && itemIdx < _items.Count)
             {
-                // Pass selection state so formatters can paint a cursor highlight.
-                // Default IRowFormatter implementation falls back to the legacy
-                // overload, so existing rows still work without any changes.
-                Viewport.Write(_items[itemIdx].FormatRow(contentWidth, colorMode, itemIdx == _cursor));
+                // Pass selection state and column info so formatters can paint
+                // a per-column cursor highlight. Default IRowFormatter overloads
+                // cascade to the legacy two-arg shape, so existing rows still
+                // work without any changes.
+                var sel = itemIdx == _cursor;
+                Viewport.Write(_items[itemIdx].FormatRow(
+                    contentWidth, colorMode, sel, sel ? _columnIndex : -1, _columns));
             }
             else
             {
