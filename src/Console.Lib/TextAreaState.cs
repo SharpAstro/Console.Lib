@@ -4,13 +4,34 @@ namespace Console.Lib;
 
 /// <summary>
 /// Editable multi-line text state on top of a UTF-8 <see cref="GapBuffer"/>.
-/// Cursor and column positions are byte offsets into the buffer; cursor moves
-/// in <see cref="MoveLeft"/> / <see cref="MoveRight"/> step over a whole UTF-8
-/// codepoint, never landing mid-sequence.
+/// Cursor and column positions are <em>byte</em> offsets into the buffer;
+/// cursor moves in <see cref="MoveLeft"/> / <see cref="MoveRight"/> step over
+/// a whole UTF-8 codepoint, never landing mid-sequence.
 /// <para>
 /// All mutating methods return <c>true</c> when something actually changed —
 /// callers (typically a render loop) use that signal to decide whether to
 /// repaint and propagate the edit downstream (re-tokenize, re-validate, etc.).
+/// </para>
+/// <para>
+/// <b>Why bytes everywhere</b>: the buffer is UTF-8 by design (lingua franca
+/// for terminal I/O and source code), and exposing byte-based columns means
+/// pipe consumers — lexers, validators — can walk the gap buffer directly
+/// without re-encoding. The trade-off is that one byte of column ≠ one
+/// codepoint ≠ one terminal cell:
+/// <list type="bullet">
+/// <item>ASCII (&lt;0x80): 1 byte, 1 codepoint, 1 cell — the trivial case</item>
+/// <item>2-byte UTF-8 (e.g. é, ñ, Cyrillic): 2 bytes, 1 codepoint, 1 cell</item>
+/// <item>3-byte UTF-8 (e.g. 中, 日 — CJK Han): 3 bytes, 1 codepoint, but
+///   <em>2</em> cells in xterm — the renderer in <see cref="TextArea"/>
+///   does not yet account for that, see its class doc</item>
+/// <item>4-byte UTF-8 (non-BMP, e.g. 🙂): 4 bytes, 1 codepoint, 1 cell in
+///   most terminals (some emoji presentations render 2; treated as 1 here)</item>
+/// </list>
+/// All <see cref="MoveLeft"/>/<see cref="MoveRight"/>/<see cref="MoveWordLeft"/>/
+/// <see cref="MoveWordRight"/> step in codepoints (snap to UTF-8 boundary);
+/// <see cref="MoveTo"/> takes a byte column from the click-mapping layer and
+/// snaps backward to the nearest codepoint boundary so the cursor never lands
+/// mid-sequence.
 /// </para>
 /// </summary>
 public sealed class TextAreaState
@@ -280,9 +301,16 @@ public sealed class TextAreaState
     public bool MoveTo(int line, int byteCol)
     {
         EnsureIndex();
+        // _lineCount is always >= 1 after EnsureIndex (an empty buffer still
+        // counts as one empty line), but defend against a zero anyway —
+        // Math.Clamp throws ArgumentException when min > max, and we'd rather
+        // a click on a freshly-cleared buffer be a no-op than crash the input
+        // loop. Same defensiveness applies to a negative byteCol.
+        if (_lineCount <= 0) return false;
         line = Math.Clamp(line, 0, _lineCount - 1);
         var lineStart = _lineStarts[line];
         var lineEnd = line + 1 < _lineCount ? _lineStarts[line + 1] - 1 : _buf.Length;
+        if (lineEnd < lineStart) lineEnd = lineStart;        // malformed index defence
         var raw = lineStart + Math.Clamp(byteCol, 0, lineEnd - lineStart);
         var newPos = SnapToCodepointBoundary(raw, lineStart);
         if (newPos == _cursorPos) return false;

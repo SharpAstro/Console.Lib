@@ -235,4 +235,29 @@ public sealed class TextAreaStateTests
         s.MoveTo(0, 4).ShouldBeTrue();
         s.CursorPos.ShouldBe(3);                  // snapped to start of 'é'
     }
+
+    [Fact]
+    public void MoveTo_NegativeInputs_ClampToOrigin()
+    {
+        // Defensive clamping for callers that compute coordinates from a
+        // mouse event and could underflow on a stale scroll/viewport. Both
+        // axes must clamp without throwing.
+        var s = new TextAreaState("abc\ndef");
+        s.MoveRight(); s.MoveRight();             // sit at (0, 2)
+        s.MoveTo(-5, -10).ShouldBeTrue();
+        s.CursorLineColumn.ShouldBe((0, 0));
+    }
+
+    [Fact]
+    public void MoveTo_EmptyBuffer_DoesNotThrow()
+    {
+        // EnsureIndex always seeds at least one line, so MoveTo(0, 0) on an
+        // empty buffer is a valid no-op rather than an exception. Pin that
+        // contract — Math.Clamp would throw if (0, _lineCount-1) inverted
+        // (min > max), which is the failure mode we're defending against.
+        var s = new TextAreaState();
+        s.MoveTo(0, 0).ShouldBeFalse();
+        s.MoveTo(99, 99).ShouldBeFalse();
+        s.CursorLineColumn.ShouldBe((0, 0));
+    }
 }

@@ -18,6 +18,48 @@ namespace Console.Lib;
 /// <see cref="ConsoleKey"/> + <see cref="ConsoleModifiers"/> pair cannot
 /// round-trip through a US layout.
 /// </para>
+/// <para>
+/// <b>Three coordinate systems live here</b>, and click-mapping has to bridge
+/// them:
+/// <list type="bullet">
+/// <item><term>bytes</term> — what <see cref="TextAreaState"/> stores. UTF-8.
+///   <c>"café"</c> is 5 bytes. The cursor position
+///   (<see cref="TextAreaState.CursorPos"/>) and column
+///   (<see cref="TextAreaState.CursorLineColumn"/>) are byte offsets.</item>
+/// <item><term>UTF-16 chars</term> — what <see cref="string"/> exposes after
+///   <see cref="TextAreaState.GetLine"/> decodes a line. <c>"café"</c> is 4
+///   chars; <c>"🙂"</c> is 2 (a surrogate pair). Used internally by the
+///   render-side cursor split.</item>
+/// <item><term>cells</term> — what the terminal actually draws. One cell per
+///   ASCII char, one cell per BMP codepoint, <em>one</em> cell per non-BMP
+///   surrogate pair (so <c>"🙂"</c> renders as a single cell here even though
+///   it's 2 chars and 4 bytes), <see cref="TabWidth"/> cells per tab.</item>
+/// </list>
+/// </para>
+/// <para>
+/// <b>Known limitation: East Asian Width.</b> True wide-glyph codepoints
+/// (CJK Han, fullwidth Latin, most emoji-presentation scripts) render as
+/// <em>two</em> cells in xterm-family terminals but this widget counts them
+/// as one. That means a click on the second cell of 中 lands one byte past
+/// where the user pointed, and the on-screen cursor block is half-width over
+/// such glyphs. Fixing this needs an East-Asian-Width / emoji-width
+/// classification table; tracked but not yet implemented. ASCII-only and
+/// Latin-Extended content (the realistic input for the lalr-tui consumer)
+/// is unaffected.
+/// </para>
+/// <para>
+/// <b>Tab handling.</b> <see cref="HandleKey"/> on
+/// <see cref="ConsoleKey.Tab"/> inserts four spaces (a soft tab) — content
+/// authored inside the widget never contains <c>\t</c>. Loaded files that
+/// <em>do</em> contain real tab bytes are mapped at <see cref="TabWidth"/>
+/// (4) cells in click-positioning, which matches the soft-tab convention
+/// but <em>not</em> xterm's default 8-column hard tab stop. So clicking past
+/// a hard tab in a loaded file may land a few bytes off in the unrelated
+/// case where the source uses 8-column tabs. The realistic content of the
+/// lalr-tui consumer (YAML grammars, source input) doesn't hit this; the
+/// approximation is documented here so a future content-loader knows to
+/// normalise tabs on load if exact alignment matters.
+/// </para>
 /// </summary>
 public sealed class TextArea(ITerminalViewport viewport) : Widget(viewport)
 {
@@ -162,6 +204,16 @@ public sealed class TextArea(ITerminalViewport viewport) : Widget(viewport)
     /// <summary>
     /// Map a byte offset within a line to its corresponding char offset in the
     /// decoded UTF-16 string. Lines are short, so a linear scan is fine.
+    /// <para>
+    /// This is the byte→char half of the click-mapping pair (see the class doc
+    /// for the full bytes/chars/cells story); the cell→byte direction lives in
+    /// <see cref="CellOffsetToByteOffset"/>. Used by the cursor-row render to
+    /// figure out where to slice the decoded line for the reverse-video cursor
+    /// cell. Surrogate pairs encode a single non-BMP codepoint as 4 UTF-8
+    /// bytes and 2 UTF-16 chars; BMP chars map 1:1 from char to (1, 2, 3) UTF-8
+    /// bytes by codepoint range. Wide-glyph (East-Asian-Width) is not handled
+    /// — see the class doc.
+    /// </para>
     /// </summary>
     private static int ByteOffsetToCharOffset(string lineText, int byteOffset)
     {
@@ -216,6 +268,13 @@ public sealed class TextArea(ITerminalViewport viewport) : Widget(viewport)
     /// the body (i.e. past the gutter) moves the cursor to the clicked cell.
     /// Mouse releases / drags / wheel events are ignored — selection support
     /// is a follow-up. Returns <c>true</c> when the cursor moved.
+    /// <para>
+    /// Heavily defensive: every coordinate is clamped, every conversion is
+    /// bounded, and the whole body is wrapped in a try/catch so a malformed
+    /// state (e.g. a stale TextAreaState, a zero-size viewport, an
+    /// out-of-range scroll offset after a resize) yields a no-op rather than
+    /// propagating an exception out of the input loop.
+    /// </para>
     /// </summary>
     public bool HandleMouse(MouseEvent m)
     {
@@ -226,47 +285,100 @@ public sealed class TextArea(ITerminalViewport viewport) : Widget(viewport)
         if (m.Button != 0) return false;
         if (HitTest(m.X, m.Y) is not (var col, var row)) return false;
 
-        var lineCount = State.LineCount;
-        var line = _scrollLine + row;
-        if (line >= lineCount) line = Math.Max(0, lineCount - 1);
+        try
+        {
+            var lineCount = Math.Max(1, State.LineCount);   // EnsureIndex guarantees >=1, but defend anyway
+            // _scrollLine could in principle be stale after a resize that
+            // shrinks the viewport; clamp to a valid line index up front so
+            // we never feed a negative or out-of-range value to MoveTo.
+            var line = Math.Clamp(_scrollLine + Math.Max(0, row), 0, lineCount - 1);
 
-        // Same gutter-width formula as Render() — keep these two in sync. The
-        // click-in-gutter case lands at column 0 of the line so the user can
-        // jump to a line's start by clicking its line-number marker.
-        var gutterWidth = _showGutter ? Math.Max(4, lineCount.ToString().Length + 1) : 0;
-        var contentCol = Math.Max(0, col - gutterWidth);
+            // Same gutter-width formula as Render() — keep these two in sync.
+            // Click-in-gutter lands at byte 0 of the line (so users can jump
+            // to a line's start by clicking the line-number marker).
+            var gutterWidth = _showGutter ? Math.Max(4, lineCount.ToString().Length + 1) : 0;
+            var contentCol = Math.Max(0, col - gutterWidth);
 
-        // Cell column → byte column. Render() lays out one cell per UTF-16
-        // char (no wide-char accounting) so we mirror that here. Multi-byte
-        // UTF-8 codepoints (é, 中, …) consume 2-3 bytes each but render in 1
-        // cell, so the byte offset is computed by walking the decoded line.
-        var lineText = State.GetLine(line);
-        var byteCol = CharOffsetToByteOffset(lineText, contentCol);
-        return State.MoveTo(line, byteCol);
+            // Cell column → byte column. Render() lays out one cell per
+            // UTF-16 char (with tab counted as TabWidth cells to match the
+            // soft-tab insert convention) so we mirror that accounting here.
+            // Multi-byte UTF-8 codepoints (é, 中, …) consume 2-3 bytes each
+            // but render in 1 cell, so we walk the decoded line.
+            var lineText = State.GetLine(line) ?? "";
+            var byteCol = CellOffsetToByteOffset(lineText, contentCol);
+            return State.MoveTo(line, byteCol);
+        }
+        catch (Exception)
+        {
+            // Defense in depth — any unexpected state mismatch (state mutated
+            // mid-render, viewport size lying about its width, etc.) becomes
+            // a no-op click instead of bubbling up. The cursor stays put.
+            return false;
+        }
     }
 
     /// <summary>
-    /// Inverse of <see cref="ByteOffsetToCharOffset"/>: walks the decoded line
-    /// and returns the UTF-8 byte length up to (but not including) the
-    /// supplied char offset. Surrogate pairs encode a single non-BMP codepoint
-    /// (4 UTF-8 bytes); BMP chars encode to 1, 2, or 3 bytes.
+    /// Visual width assumed for a tab character. Matches the 4-space soft-tab
+    /// inserted by <see cref="HandleKey"/> so click-positioning over a line
+    /// that was edited inside the widget always lines up. Loaded files that
+    /// contain real tab bytes get the same 4-cell approximation — close enough
+    /// for editor click-mapping and consistent with what most code editors
+    /// default to before the user changes a setting.
     /// </summary>
-    private static int CharOffsetToByteOffset(string lineText, int charOffset)
+    private const int TabWidth = 4;
+
+    /// <summary>
+    /// Cell-column → UTF-8 byte offset. Used by <see cref="HandleMouse"/> to
+    /// turn a click at terminal-cell <c>(col)</c> into the byte position
+    /// <see cref="TextAreaState.MoveTo"/> consumes. Per-codepoint accounting:
+    /// <list type="bullet">
+    /// <item>tab — <see cref="TabWidth"/> cells, 1 byte (4-cell soft-tab
+    ///   approximation; see class doc on tab handling)</item>
+    /// <item>ASCII (&lt;0x80) — 1 cell, 1 byte</item>
+    /// <item>BMP non-ASCII (&lt;0x800) — 1 cell, 2 bytes (e.g. é, Cyrillic)</item>
+    /// <item>BMP non-ASCII (≥0x800) — 1 cell, 3 bytes (e.g. 中, 日, most CJK
+    ///   — but see <b>known limitation</b> below: real-world CJK glyphs
+    ///   actually render as 2 cells, which we don't yet account for)</item>
+    /// <item>surrogate pair (non-BMP, e.g. 🙂) — 1 cell, 4 bytes, advances
+    ///   the source-string index by 2</item>
+    /// </list>
+    /// When the click lands past end-of-line the function returns the line's
+    /// full byte length and <see cref="TextAreaState.MoveTo"/> clamps to the
+    /// line end — so a click on a tilde row (past EOF) lands at end-of-buffer
+    /// rather than throwing.
+    /// <para>
+    /// <b>Known limitation</b>: East Asian Width / emoji-presentation
+    /// codepoints render as two terminal cells but are counted as one here;
+    /// see the class doc for the impact and the fix path.
+    /// </para>
+    /// </summary>
+    private static int CellOffsetToByteOffset(string lineText, int cellOffset)
     {
-        if (charOffset <= 0) return 0;
+        if (cellOffset <= 0 || lineText.Length == 0) return 0;
         var bytes = 0;
-        var limit = Math.Min(charOffset, lineText.Length);
-        for (var i = 0; i < limit; i++)
+        var cells = 0;
+        for (var i = 0; i < lineText.Length; i++)
         {
+            if (cells >= cellOffset) return bytes;
             var c = lineText[i];
-            if (char.IsHighSurrogate(c) && i + 1 < lineText.Length && char.IsLowSurrogate(lineText[i + 1]))
+            int byteAdv;
+            int cellAdv;
+            if (c == '\t')
             {
-                bytes += 4;
+                byteAdv = 1;
+                cellAdv = TabWidth;
+            }
+            else if (char.IsHighSurrogate(c) && i + 1 < lineText.Length && char.IsLowSurrogate(lineText[i + 1]))
+            {
+                byteAdv = 4;
+                cellAdv = 1;
                 i++;
             }
-            else if (c < 0x80) bytes += 1;
-            else if (c < 0x800) bytes += 2;
-            else bytes += 3;
+            else if (c < 0x80) { byteAdv = 1; cellAdv = 1; }
+            else if (c < 0x800) { byteAdv = 2; cellAdv = 1; }
+            else { byteAdv = 3; cellAdv = 1; }
+            bytes += byteAdv;
+            cells += cellAdv;
         }
         return bytes;
     }
