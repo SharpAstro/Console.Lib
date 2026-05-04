@@ -195,8 +195,8 @@ public sealed class TextArea(ITerminalViewport viewport) : Widget(viewport)
         var pageRows = Math.Max(1, VisibleRows - 1);
         return key switch
         {
-            ConsoleKey.LeftArrow  => State.MoveLeft(),
-            ConsoleKey.RightArrow => State.MoveRight(),
+            ConsoleKey.LeftArrow  => ctrl ? State.MoveWordLeft()  : State.MoveLeft(),
+            ConsoleKey.RightArrow => ctrl ? State.MoveWordRight() : State.MoveRight(),
             ConsoleKey.UpArrow    => State.MoveUp(),
             ConsoleKey.DownArrow  => State.MoveDown(),
             ConsoleKey.Home       => ctrl ? State.MoveDocumentStart() : State.MoveLineStart(),
@@ -209,6 +209,66 @@ public sealed class TextArea(ITerminalViewport viewport) : Widget(viewport)
             ConsoleKey.Tab        => State.InsertText("    "),  // soft-tab; smart-tab is a later concern
             _ => false,
         };
+    }
+
+    /// <summary>
+    /// Routes a mouse event into the editor. A primary-button press inside
+    /// the body (i.e. past the gutter) moves the cursor to the clicked cell.
+    /// Mouse releases / drags / wheel events are ignored — selection support
+    /// is a follow-up. Returns <c>true</c> when the cursor moved.
+    /// </summary>
+    public bool HandleMouse(MouseEvent m)
+    {
+        if (State is null) return false;
+        // Press only — drag selection, double-click word-select, etc. are
+        // future work; for now click-to-position is the whole contract.
+        if (m.IsRelease || m.IsMotion) return false;
+        if (m.Button != 0) return false;
+        if (HitTest(m.X, m.Y) is not (var col, var row)) return false;
+
+        var lineCount = State.LineCount;
+        var line = _scrollLine + row;
+        if (line >= lineCount) line = Math.Max(0, lineCount - 1);
+
+        // Same gutter-width formula as Render() — keep these two in sync. The
+        // click-in-gutter case lands at column 0 of the line so the user can
+        // jump to a line's start by clicking its line-number marker.
+        var gutterWidth = _showGutter ? Math.Max(4, lineCount.ToString().Length + 1) : 0;
+        var contentCol = Math.Max(0, col - gutterWidth);
+
+        // Cell column → byte column. Render() lays out one cell per UTF-16
+        // char (no wide-char accounting) so we mirror that here. Multi-byte
+        // UTF-8 codepoints (é, 中, …) consume 2-3 bytes each but render in 1
+        // cell, so the byte offset is computed by walking the decoded line.
+        var lineText = State.GetLine(line);
+        var byteCol = CharOffsetToByteOffset(lineText, contentCol);
+        return State.MoveTo(line, byteCol);
+    }
+
+    /// <summary>
+    /// Inverse of <see cref="ByteOffsetToCharOffset"/>: walks the decoded line
+    /// and returns the UTF-8 byte length up to (but not including) the
+    /// supplied char offset. Surrogate pairs encode a single non-BMP codepoint
+    /// (4 UTF-8 bytes); BMP chars encode to 1, 2, or 3 bytes.
+    /// </summary>
+    private static int CharOffsetToByteOffset(string lineText, int charOffset)
+    {
+        if (charOffset <= 0) return 0;
+        var bytes = 0;
+        var limit = Math.Min(charOffset, lineText.Length);
+        for (var i = 0; i < limit; i++)
+        {
+            var c = lineText[i];
+            if (char.IsHighSurrogate(c) && i + 1 < lineText.Length && char.IsLowSurrogate(lineText[i + 1]))
+            {
+                bytes += 4;
+                i++;
+            }
+            else if (c < 0x80) bytes += 1;
+            else if (c < 0x800) bytes += 2;
+            else bytes += 3;
+        }
+        return bytes;
     }
 
     /// <summary>

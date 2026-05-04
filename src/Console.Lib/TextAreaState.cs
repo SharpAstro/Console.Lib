@@ -232,6 +232,81 @@ public sealed class TextAreaState
         return true;
     }
 
+    /// <summary>
+    /// Moves the cursor to the start of the previous word, where a word is a
+    /// maximal run of letters / digits / underscores (Emacs <c>M-b</c>, also
+    /// VS Code's <c>Ctrl+Left</c>). Two passes: first skip any non-word bytes
+    /// behind the cursor, then skip the run of word bytes — so a click after
+    /// trailing whitespace lands at the start of the preceding word, not in
+    /// the gap between words.
+    /// </summary>
+    public bool MoveWordLeft()
+    {
+        if (_cursorPos == 0) return false;
+        var p = _cursorPos;
+        while (p > 0 && !IsWordByte(_buf[p - 1])) p--;
+        while (p > 0 && IsWordByte(_buf[p - 1])) p--;
+        if (p == _cursorPos) return false;
+        _cursorPos = p;
+        _desiredColumn = -1;
+        return true;
+    }
+
+    /// <summary>
+    /// Moves the cursor past the next word boundary (Emacs <c>M-f</c> / VS
+    /// Code <c>Ctrl+Right</c>). Mirror of <see cref="MoveWordLeft"/>: skip
+    /// non-word bytes, then skip the following word run.
+    /// </summary>
+    public bool MoveWordRight()
+    {
+        var len = _buf.Length;
+        if (_cursorPos >= len) return false;
+        var p = _cursorPos;
+        while (p < len && !IsWordByte(_buf[p])) p++;
+        while (p < len && IsWordByte(_buf[p])) p++;
+        if (p == _cursorPos) return false;
+        _cursorPos = p;
+        _desiredColumn = -1;
+        return true;
+    }
+
+    /// <summary>
+    /// Sets the cursor to (<paramref name="line"/>, <paramref name="byteCol"/>),
+    /// clamped to a valid line index and to the line's byte length, then
+    /// snapped backward to a UTF-8 codepoint boundary so the cursor never
+    /// lands mid-sequence. Used by <see cref="TextArea"/>'s mouse handler to
+    /// turn a click into a cursor position.
+    /// </summary>
+    public bool MoveTo(int line, int byteCol)
+    {
+        EnsureIndex();
+        line = Math.Clamp(line, 0, _lineCount - 1);
+        var lineStart = _lineStarts[line];
+        var lineEnd = line + 1 < _lineCount ? _lineStarts[line + 1] - 1 : _buf.Length;
+        var raw = lineStart + Math.Clamp(byteCol, 0, lineEnd - lineStart);
+        var newPos = SnapToCodepointBoundary(raw, lineStart);
+        if (newPos == _cursorPos) return false;
+        _cursorPos = newPos;
+        _desiredColumn = -1;
+        return true;
+    }
+
+    /// <summary>
+    /// Word-character classifier for <see cref="MoveWordLeft"/> / <see cref="MoveWordRight"/>.
+    /// ASCII bytes use the standard letter/digit/underscore rule; any non-ASCII
+    /// byte (lead or continuation of a multi-byte UTF-8 codepoint) is treated
+    /// as a word byte. That keeps non-Latin scripts (Cyrillic, Greek, CJK,
+    /// emoji, …) inside word boundaries instead of fragmenting on every byte.
+    /// </summary>
+    private static bool IsWordByte(byte b)
+    {
+        if (b >= 0x80) return true;
+        return b == (byte)'_'
+            || (b >= (byte)'0' && b <= (byte)'9')
+            || (b >= (byte)'A' && b <= (byte)'Z')
+            || (b >= (byte)'a' && b <= (byte)'z');
+    }
+
     /// <summary>Pre-gap byte segment (span — for sync consumers).</summary>
     public ReadOnlySpan<byte> SpanBeforeGap => _buf.SpanBeforeGap;
 

@@ -168,4 +168,71 @@ public sealed class TextAreaStateTests
         s.GetText().ShouldBe("🙂");
         s.CursorPos.ShouldBe(4);
     }
+
+    [Fact]
+    public void MoveWordRight_SkipsSpacesThenWord()
+    {
+        var s = new TextAreaState("foo  bar baz");
+        // Cursor starts at byte 0 (start of "foo"). One MoveWordRight skips
+        // through "foo" — emacs M-f / VS Code Ctrl+Right semantics.
+        s.MoveWordRight().ShouldBeTrue();
+        s.CursorPos.ShouldBe(3);                  // end of "foo"
+        s.MoveWordRight().ShouldBeTrue();
+        s.CursorPos.ShouldBe(8);                  // end of "bar" (skipped two spaces first)
+        s.MoveWordRight().ShouldBeTrue();
+        s.CursorPos.ShouldBe(12);                 // end of "baz"
+        s.MoveWordRight().ShouldBeFalse();        // already at EOF
+    }
+
+    [Fact]
+    public void MoveWordLeft_SkipsSpacesThenWord()
+    {
+        var s = new TextAreaState("foo  bar baz");
+        s.MoveDocumentEnd();
+        s.MoveWordLeft().ShouldBeTrue();
+        s.CursorPos.ShouldBe(9);                  // start of "baz"
+        s.MoveWordLeft().ShouldBeTrue();
+        s.CursorPos.ShouldBe(5);                  // start of "bar"
+        s.MoveWordLeft().ShouldBeTrue();
+        s.CursorPos.ShouldBe(0);                  // start of "foo"
+        s.MoveWordLeft().ShouldBeFalse();         // already at start of buffer
+    }
+
+    [Fact]
+    public void MoveWordLeftRight_KeepsNonAsciiInsideWord()
+    {
+        // "café bär" — non-ASCII bytes are word bytes, so a single
+        // MoveWordRight skips through "café" without splitting on the é.
+        var s = new TextAreaState("café bär");
+        s.MoveWordRight().ShouldBeTrue();
+        s.CursorPos.ShouldBe(5);                  // c=1 + a=1 + f=1 + é=2 = 5 bytes
+        s.MoveWordRight().ShouldBeTrue();
+        s.CursorPos.ShouldBe(10);                 // + space=1 + b=1 + ä=2 + r=1 = 10
+    }
+
+    [Fact]
+    public void MoveTo_ClampsToValidLineAndColumn()
+    {
+        var s = new TextAreaState("abc\nde\nfghi");
+        s.MoveTo(1, 1).ShouldBeTrue();
+        s.CursorLineColumn.ShouldBe((1, 1));
+        // Past line end — clamped to line end (line 1 = "de", length 2)
+        s.MoveTo(1, 99).ShouldBeTrue();
+        s.CursorLineColumn.ShouldBe((1, 2));
+        // Past last line — clamped to last valid line
+        s.MoveTo(99, 0).ShouldBeTrue();
+        s.CursorLineColumn.ShouldBe((2, 0));
+        // No-op when target equals current
+        s.MoveTo(2, 0).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void MoveTo_SnapsBackOffMultiByteCodepoint()
+    {
+        // "café" — 'é' starts at byte 3 and spans bytes 3-4. A click that
+        // lands on the second byte of 'é' (col 4) should snap back to col 3.
+        var s = new TextAreaState("café");
+        s.MoveTo(0, 4).ShouldBeTrue();
+        s.CursorPos.ShouldBe(3);                  // snapped to start of 'é'
+    }
 }
