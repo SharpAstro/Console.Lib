@@ -57,6 +57,8 @@ public sealed class MathLayoutBaselineTests
     [InlineData("bracket-paren")]
     [InlineData("bracket-square")]
     [InlineData("matrix-2x2")]
+    [InlineData("limits-int-0-inf")]
+    [InlineData("limits-sum-i-n")]
     public void Baseline(string name)
     {
         var (box, style) = BuildScene(name);
@@ -149,6 +151,21 @@ public sealed class MathLayoutBaselineTests
                     new GlyphBox("b", style)),
                 BracketKind.Square, style),
             "matrix-2x2" => BuildMatrix2x2(style),
+            "limits-int-0-inf" => new LimitsBox(
+                // \int rendered at 1.5x the base font — big operators
+                // are scaled up in display style.
+                new GlyphBox("∫", style, style.FontSize * 1.5f),
+                new GlyphBox("0", style.Smaller()),
+                new GlyphBox("∞", style.Smaller()),
+                style),
+            "limits-sum-i-n" => new LimitsBox(
+                new GlyphBox("∑", style, style.FontSize * 1.5f),
+                new HBox(
+                    new GlyphBox("i", style.Smaller()),
+                    new GlyphBox("=", style.Smaller()),
+                    new GlyphBox("0", style.Smaller())),
+                new GlyphBox("n", style.Smaller()),
+                style),
             _ => throw new ArgumentException($"unknown scene '{name}'"),
         };
         return (box, style);

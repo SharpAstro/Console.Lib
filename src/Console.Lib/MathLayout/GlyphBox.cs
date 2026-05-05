@@ -35,46 +35,24 @@ public sealed class GlyphBox : Box
         // formula corpus that's fine; if it ever matters, we'd thread a
         // shared rasterizer through BoxStyle instead.
         using var measurer = new RgbaImageRenderer(1, 1);
-        var (w, _) = measurer.MeasureText(text, style.FontPath, fontSize);
+        var (w, h) = measurer.MeasureText(text, style.FontPath, fontSize);
         _width = w;
 
-        // The Height/Depth split has to match what RgbaImageRenderer.DrawText
-        // *actually paints* — not just the glyph's intrinsic ascent/descent.
-        // DrawText uses lineHeight = fontSize * 1.3 and positions the
-        // baseline at  rectTop + (lineHeight + ascent - descent) / 2.
-        // For a Near-vertical-aligned single-line render with the rect
-        // we pass in Draw() below (top = baselineY - _height,
-        // height = _height + _depth), the actual baseline lands exactly
-        // at our intended baselineY iff _height = (lineHeight + ascent
-        // - descent) / 2 AND _height + _depth >= lineHeight (so the
-        // glyph row's full padding fits inside the rect).
+        // Tight TeX-style metrics: report the glyph's actual ascent/descent
+        // as Height/Depth instead of inflating to DrawText's per-line
+        // padding (lineHeight = fontSize * 1.3). MeasureText returns
+        // combined visual height (ascent + descent); split 0.8/0.2 — close
+        // enough for typical Latin/Greek/digits. (Letters with true
+        // descenders like g/y/p get the ~20% descent they need; capitals
+        // and digits over-claim a tiny amount of depth, but never collide
+        // because nothing renders below the baseline for them.)
         //
-        // We don't have direct access to per-glyph (ascent, descent) here
-        // — MeasureText only returns combined visual height. Use the
-        // 0.8/0.2 split heuristic for typical Latin/Greek glyphs and pad
-        // total to lineHeight so DrawText's line-height padding fits
-        // without bottom-clipping descenders or fraction denominators.
-        const float LineHeightFactor = 1.3f;
-        var lineHeight = fontSize * LineHeightFactor;
-        float maxAscent = 0, maxDescent = 0;
-        foreach (var rune in text.EnumerateRunes())
-        {
-            if (Rune.IsWhiteSpace(rune)) continue;
-            var (_, h) = measurer.MeasureText(rune.ToString(), style.FontPath, fontSize);
-            // Split the visual height into ascent/descent. 0.8/0.2 is
-            // approximately right for Cambria/Consolas/STIX at typical
-            // sizes — letters with true descenders (g, y, p) get the
-            // ~20% descent they need.
-            float ascent = h * 0.8f;
-            float descent = h * 0.2f;
-            if (ascent > maxAscent) maxAscent = ascent;
-            if (descent > maxDescent) maxDescent = descent;
-        }
-        // Match DrawText's interpretation of the rect bounds. _height is
-        // distance from rect-top down to baseline; _depth is distance from
-        // baseline down to rect-bottom. Sum equals lineHeight exactly.
-        _height = (lineHeight + maxAscent - maxDescent) / 2f;
-        _depth  = lineHeight - _height;
+        // The Draw() method below compensates for DrawText's internal
+        // lineHeight padding by shifting rect.UpperLeft.Y, so the actual
+        // glyph baseline still lands at the caller's baselineY even though
+        // our reported Height is smaller than the rect we pass.
+        _height = h * 0.8f;
+        _depth  = h * 0.2f;
     }
 
     public override float Width => _width;
@@ -83,15 +61,21 @@ public sealed class GlyphBox : Box
 
     public override void Draw(RgbaImageRenderer renderer, float penX, float baselineY, BoxStyle style)
     {
-        // RgbaImageRenderer.DrawText with TextAlign.Near vertically centres
-        // text within the layout rect; we want baseline alignment instead.
-        // Trick: pass a layout rect whose top sits at (baselineY - ascent)
-        // and whose height is exactly the visual height — then Near vertical
-        // alignment puts the first line at the top, baseline at +ascent,
-        // which is exactly what we want.
+        // DrawText computes baseline = rectTop + (lineHeight + ascent -
+        // descent) / 2 with lineHeight = fontSize * 1.3 (a per-line
+        // padding constant baked into the renderer). For our actual glyph
+        // baseline to land at the caller's baselineY despite reporting
+        // tight Height/Depth, we shift the rect-top up by half the slack
+        // (lineHeight - actualHeight) / 2. The rect bounds otherwise don't
+        // affect positioning under Near/Near alignment — DrawText doesn't
+        // clip painted glyphs to the rect.
+        const float DrawTextLineHeightFactor = 1.3f;
+        var lineHeight = _fontSize * DrawTextLineHeightFactor;
+        var rectTop = baselineY - (lineHeight + _height - _depth) / 2f;
+
         var rect = new RectInt(
-            new PointInt((int)MathF.Ceiling(penX + _width), (int)MathF.Ceiling(baselineY + _depth)),
-            new PointInt((int)MathF.Floor(penX), (int)MathF.Floor(baselineY - _height)));
+            new PointInt((int)MathF.Ceiling(penX + _width), (int)MathF.Ceiling(rectTop + lineHeight)),
+            new PointInt((int)MathF.Floor(penX), (int)MathF.Floor(rectTop)));
         renderer.DrawText(_text, style.FontPath, _fontSize, style.Foreground, rect,
             horizAlignment: TextAlign.Near, vertAlignment: TextAlign.Near);
     }
