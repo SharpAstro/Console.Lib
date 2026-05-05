@@ -74,7 +74,7 @@ public sealed class MathLayoutBaselineTests
             // First-run / re-bless: write the current render as the new
             // baseline. Update both the source-tree copy (committed) and
             // the bin/-copy (so subsequent test runs in this build pass).
-            var png = PngEncoder.Encode(rgba, w, h);
+            var png = PngWriter.Encode(rgba, w, h);
             Directory.CreateDirectory(Path.GetDirectoryName(sourceBaselinePath)!);
             Directory.CreateDirectory(Path.GetDirectoryName(baselinePath)!);
             File.WriteAllBytes(sourceBaselinePath, png);
@@ -184,7 +184,7 @@ public sealed class MathLayoutBaselineTests
     private static void DumpFailed(string name, byte[] rgba, int w, int h)
     {
         Directory.CreateDirectory(FailedDir);
-        var png = PngEncoder.Encode(rgba, w, h);
+        var png = PngWriter.Encode(rgba, w, h);
         File.WriteAllBytes(Path.Combine(FailedDir, name + ".actual.png"), png);
     }
 }

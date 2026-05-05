@@ -105,7 +105,7 @@ public static class BoxRenderer
     {
         var (rgba, w, h) = RenderToRgba(box, style);
         if (w == 0 || h == 0) return [];
-        return PngEncoder.Encode(rgba, w, h);
+        return DIR.Lib.PngWriter.Encode(rgba, w, h);
     }
 
     /// <summary>
