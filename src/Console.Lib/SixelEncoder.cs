@@ -29,7 +29,19 @@ namespace Console.Lib;
 /// </summary>
 public static class SixelEncoder
 {
-    private const int MaxColors = 256;
+    /// <summary>
+    /// Maximum number of distinct colours in a single sixel palette.
+    /// 255 (not 256) so we can reserve <see cref="TransparentIndex"/> as
+    /// the "do not paint this pixel" sentinel when encoding RGBA buffers.
+    /// </summary>
+    private const int MaxColors = 255;
+
+    /// <summary>
+    /// indexMap sentinel for "this pixel is transparent — skip it entirely
+    /// when building sixel rows". Picked so it doesn't overlap any valid
+    /// palette index (0..MaxColors-1 = 0..254).
+    /// </summary>
+    private const byte TransparentIndex = 0xFF;
 
     /// <summary>
     /// Writes a vertical slice of the image as a Sixel stream,
@@ -93,12 +105,27 @@ public static class SixelEncoder
         byte[] rawPixels, int pixelCount, int channels,
         byte[] indexMap, int[] palette)
     {
+        // RGBA inputs (channels == 4) honour alpha: any pixel with alpha == 0
+        // is skipped during palette construction and tagged as transparent in
+        // indexMap, so it never contributes a sixel bit. Combined with the
+        // P2=1 in WriteHeader (= "leave un-painted positions alone"), this
+        // preserves the terminal's current background underneath those
+        // pixels. RGB inputs (channels == 3) ignore alpha and treat every
+        // pixel as opaque, matching the original behaviour.
+        var honourAlpha = channels >= 4;
+
         // Pass 1: count frequency of each unique color
         var colorFrequency = new Dictionary<int, int>(capacity: 256);
 
         for (var i = 0; i < pixelCount; i++)
         {
             var offset = i * channels;
+            if (honourAlpha && rawPixels[offset + 3] == 0)
+            {
+                // Defer the indexMap write to the second pass; we don't
+                // populate the palette for transparent pixels.
+                continue;
+            }
             var packed = (rawPixels[offset] << 16) | (rawPixels[offset + 1] << 8) | rawPixels[offset + 2];
 
             ref var count = ref CollectionsMarshal.GetValueRefOrAddDefault(colorFrequency, packed, out _);
@@ -157,6 +184,11 @@ public static class SixelEncoder
         for (var i = 0; i < pixelCount; i++)
         {
             var offset = i * channels;
+            if (honourAlpha && rawPixels[offset + 3] == 0)
+            {
+                indexMap[i] = TransparentIndex;
+                continue;
+            }
             var packed = (rawPixels[offset] << 16) | (rawPixels[offset + 1] << 8) | rawPixels[offset + 2];
             indexMap[i] = colorToIndex[packed];
         }
@@ -240,7 +272,11 @@ public static class SixelEncoder
             sixelGrid.AsSpan(0, paletteSize * width).Clear();
             colorPresent[..paletteSize].Clear();
 
-            // Single pass over the band: build sixel bits AND detect color presence
+            // Single pass over the band: build sixel bits AND detect color presence.
+            // Transparent pixels (TransparentIndex sentinel) contribute no sixel
+            // bit, so the corresponding cell remains "un-painted" and the
+            // P2=1 header lets the terminal leave that cell at its current
+            // contents instead of overwriting it with the background colour.
             for (var row = 0; row < bandH; row++)
             {
                 var rowBit = (byte)(1 << row);
@@ -248,6 +284,7 @@ public static class SixelEncoder
                 for (var col = 0; col < width; col++)
                 {
                     var ci = indexMap[rowStart + col];
+                    if (ci == TransparentIndex) continue;
                     sixelGrid[ci * width + col] |= rowBit;
                     colorPresent[ci] = true;
                 }
