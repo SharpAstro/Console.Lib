@@ -27,23 +27,4 @@
     <ProjectReference Include="..\Console.Lib\Console.Lib.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!--
-      DejaVu Sans (Bitstream Vera license, redistributable) — bundled to
-      give MathLayoutBaselineTests a deterministic font across machines.
-      Same fixture used by SharpAstro.Fonts.Tests.
-    -->
-    <None Include="Fixtures\**\*">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <!--
-      Golden baseline images. Committed to the repo; updated in-place by
-      tests when BLESS=1. CopyToOutputDirectory=PreserveNewest keeps the
-      baseline visible to the test runner.
-    -->
-    <None Include="Baselines\**\*.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
 </Project>

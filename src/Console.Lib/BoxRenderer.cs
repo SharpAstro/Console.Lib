@@ -1,7 +1,7 @@
-using System.IO;
 using System.Text;
+using DIR.Lib.MathLayout;
 
-namespace Console.Lib.MathLayout;
+namespace Console.Lib;
 
 /// <summary>
 /// Encoding to use when shipping a rasterized <see cref="Box"/> to the
@@ -17,8 +17,10 @@ public enum BoxRenderMode
 }
 
 /// <summary>
-/// Allocates an RGBA buffer just large enough for a Box, draws the box, and
-/// emits the result to the terminal in one of three encodings:
+/// Terminal-output adapter for the upstream <see cref="DIR.Lib.MathLayout"/>
+/// box engine. Rasterises a <see cref="Box"/> via
+/// <see cref="BoxRasterizer.RenderToRgba"/> and emits the result in one of
+/// three encodings:
 /// <list type="bullet">
 ///   <item><b>Sixel</b> — true raster, 6 sub-pixels per cell, 24-bit colour.
 ///         Best fidelity. Requires a sixel-capable terminal.</item>
@@ -30,9 +32,10 @@ public enum BoxRenderMode
 ///         per cell. Universal but coarse and tall on screen.</item>
 /// </list>
 ///
-/// The half-block and sextant encoders are transparency-aware: pixels with
-/// zero alpha emit no background-colour SGR, so the box floats over the
-/// terminal's natural background instead of sitting on a hard black square.
+/// All three encodings are transparency-aware: pixels with zero alpha emit
+/// no background-colour SGR (and contribute no sixel bit), so the box floats
+/// over the terminal's natural background instead of sitting on a hard
+/// black square.
 /// </summary>
 public static class BoxRenderer
 {
@@ -47,87 +50,29 @@ public static class BoxRenderer
     /// </summary>
     public static void Render(Box box, BoxStyle style, BoxRenderMode mode, TextWriter output)
     {
-        var (renderer, totalW, totalH) = Rasterize(box, style);
-        if (renderer is null) return;
-        using (renderer)
+        var (rgba, totalW, totalH) = BoxRasterizer.RenderToRgba(box, style);
+        if (totalW <= 0 || totalH <= 0) return;
+
+        switch (mode)
         {
-            switch (mode)
-            {
-                case BoxRenderMode.Sixel:
-                    output.Flush();
-                    using (var stdout = System.Console.OpenStandardOutput())
-                    {
-                        renderer.EncodeSixel(stdout);
-                        stdout.Flush();
-                    }
-                    output.WriteLine();
-                    break;
+            case BoxRenderMode.Sixel:
+                output.Flush();
+                using (var stdout = System.Console.OpenStandardOutput())
+                {
+                    SixelEncoder.Encode(rgba, totalW, totalH, channels: 4, stdout);
+                    stdout.Flush();
+                }
+                output.WriteLine();
+                break;
 
-                case BoxRenderMode.Sextant:
-                    EncodeSextant(renderer.Surface.Pixels, totalW, totalH, output);
-                    break;
+            case BoxRenderMode.Sextant:
+                EncodeSextant(rgba, totalW, totalH, output);
+                break;
 
-                case BoxRenderMode.HalfBlock:
-                    EncodeHalfBlock(renderer.Surface.Pixels, totalW, totalH, output);
-                    break;
-            }
+            case BoxRenderMode.HalfBlock:
+                EncodeHalfBlock(rgba, totalW, totalH, output);
+                break;
         }
-    }
-
-    /// <summary>
-    /// Rasterize <paramref name="box"/> at <paramref name="style"/> into a
-    /// transparent 8-bit RGBA buffer (row-major, no padding) and return it
-    /// along with its dimensions. Useful for unit/golden-image testing or
-    /// for callers that want to post-process the bitmap themselves before
-    /// shipping it to the terminal.
-    /// </summary>
-    public static (byte[] Rgba, int Width, int Height) RenderToRgba(Box box, BoxStyle style)
-    {
-        var (renderer, totalW, totalH) = Rasterize(box, style);
-        if (renderer is null) return ([], 0, 0);
-        using (renderer)
-        {
-            // Surface.Pixels is owned by the renderer and freed on dispose;
-            // copy into a stable array before returning to the caller.
-            var pixels = renderer.Surface.Pixels;
-            var copy = new byte[pixels.Length];
-            Buffer.BlockCopy(pixels, 0, copy, 0, pixels.Length);
-            return (copy, totalW, totalH);
-        }
-    }
-
-    /// <summary>
-    /// Rasterize <paramref name="box"/> and encode the result as a PNG,
-    /// returning the file bytes. Returns an empty array if the box has zero
-    /// area.
-    /// </summary>
-    public static byte[] RenderToPng(Box box, BoxStyle style)
-    {
-        var (rgba, w, h) = RenderToRgba(box, style);
-        if (w == 0 || h == 0) return [];
-        return DIR.Lib.PngWriter.Encode(rgba, w, h);
-    }
-
-    /// <summary>
-    /// Common box → bitmap step shared by all the public Render* entry
-    /// points. Returns <c>null</c> when the box would rasterize to zero
-    /// area, otherwise a fully-drawn renderer the caller is responsible for
-    /// disposing.
-    /// </summary>
-    private static (SixelRgbaImageRenderer? Renderer, int Width, int Height) Rasterize(Box box, BoxStyle style)
-    {
-        int margin = (int)MathF.Ceiling(style.FontSize * 0.15f);
-        int totalW = (int)MathF.Ceiling(box.Width) + margin * 2;
-        int totalH = (int)MathF.Ceiling(box.TotalHeight) + margin * 2;
-        if (totalW <= 0 || totalH <= 0) return (null, 0, 0);
-
-        // Buffer starts transparent (RGBA 0,0,0,0). Sixel still uses the
-        // alpha channel correctly; the text encoders below check alpha to
-        // decide whether to draw a sub-pixel.
-        var renderer = new SixelRgbaImageRenderer((uint)totalW, (uint)totalH);
-        float baselineY = margin + box.Height;
-        box.Draw(renderer, margin, baselineY, style);
-        return (renderer, totalW, totalH);
     }
 
     /// <summary>
