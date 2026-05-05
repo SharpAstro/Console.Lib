@@ -59,6 +59,7 @@ public sealed class MathLayoutBaselineTests
     [InlineData("matrix-2x2")]
     [InlineData("limits-int-0-inf")]
     [InlineData("limits-sum-i-n")]
+    [InlineData("hbox-int-eq-half")]
     public void Baseline(string name)
     {
         var (box, style) = BuildScene(name);
@@ -166,6 +167,24 @@ public sealed class MathLayoutBaselineTests
                     new GlyphBox("0", style.Smaller())),
                 new GlyphBox("n", style.Smaller()),
                 style),
+            // Captures the math-axis alignment: a tall LimitsBox(∫) sitting
+            // inside an HBox alongside a regular '=' GlyphBox and a fraction.
+            // The integral's *visual centre* should align with the '=', not
+            // its baseline — otherwise the '=' looks low against the tall
+            // operator's extent.
+            "hbox-int-eq-half" => new HBox(
+                new LimitsBox(
+                    new GlyphBox("∫", style, style.FontSize * 1.5f),
+                    new GlyphBox("0", style.Smaller()),
+                    new GlyphBox("∞", style.Smaller()),
+                    style),
+                new KernBox(style.FontSize * 0.3f),
+                new GlyphBox("=", style),
+                new KernBox(style.FontSize * 0.3f),
+                new FracBox(
+                    new GlyphBox("1", style),
+                    new GlyphBox("2", style),
+                    style)),
             _ => throw new ArgumentException($"unknown scene '{name}'"),
         };
         return (box, style);
