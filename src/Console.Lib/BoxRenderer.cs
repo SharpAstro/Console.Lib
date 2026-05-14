@@ -50,8 +50,12 @@ public static class BoxRenderer
     /// </summary>
     public static void Render(Box box, BoxStyle style, BoxRenderMode mode, TextWriter output)
     {
-        var (rgba, totalW, totalH) = BoxRasterizer.RenderToRgba(box, style);
-        if (totalW <= 0 || totalH <= 0) return;
+        var image = BoxRasterizer.RenderToRgba(box, style);
+        if (image.Width <= 0 || image.Height <= 0) return;
+
+        var rgba = image.Pixels;
+        var totalW = image.Width;
+        var totalH = image.Height;
 
         switch (mode)
         {
