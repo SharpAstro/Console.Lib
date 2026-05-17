@@ -516,4 +516,30 @@ public sealed class MarkdownRendererTests
         // The render should at least include "oops:" and not crash.
         string.Join("", lines).ShouldContain("oops");
     }
+
+    // ── Pixel-rendered display math ──────────────────────────────────────
+
+    [Fact]
+    public void MathBlock_HalfBlockMode_EmitsPixelOutputOrFallsBackCleanly()
+    {
+        // Asking for half-block (most universal pixel mode) — if a usable
+        // math font is installed the renderer emits multi-row pixel output;
+        // if not, it falls back to the single-line Unicode path. Either way
+        // the call must not throw, and "Before"/"After" prose must survive.
+        var md = "Before.\n\n$$E = mc^2$$\n\nAfter.";
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.None, theme: null, mathMode: BoxRenderMode.HalfBlock);
+        var joined = string.Join("\n", lines);
+        joined.ShouldContain("Before");
+        joined.ShouldContain("After");
+        lines.Count.ShouldBeGreaterThan(0);
+    }
+
+    [Fact]
+    public void MathBlock_NoMathModeArg_UsesUnicodePath()
+    {
+        // Default mathMode is null — pixel rendering is opt-in, so existing
+        // callers keep the single-row Unicode rendering they had before.
+        var lines = MarkdownRenderer.RenderLines("$$x^2$$", 80, ColorMode.None);
+        string.Join("", lines).ShouldContain("x²");
+    }
 }
