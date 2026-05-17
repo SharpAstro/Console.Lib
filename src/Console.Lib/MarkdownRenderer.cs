@@ -1,5 +1,8 @@
+using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
+using DIR.Lib;
+using DIR.Lib.MathLayout;
 using LALR.CC.LexicalGrammar;
 using Markdig;
 using Markdig.Extensions.Mathematics;
@@ -52,20 +55,37 @@ public static class MarkdownRenderer
     private static readonly System.Collections.Generic.Dictionary<string, LexRule[]> MathLexerTable = Latex.BuildLexer();
 
     /// <summary>
+    /// Lazily resolved math-rendering font. <see cref="ResolveMathFont"/>
+    /// picks the first existing candidate from a STIX-Math-preferred list;
+    /// null means no usable font is installed (in which case pixel-rendered
+    /// math falls back to the Unicode path).
+    /// </summary>
+    private static string? s_mathFontPath;
+    private static bool s_mathFontResolved;
+
+    /// <summary>
     /// Renders Markdown to the given <see cref="TextWriter"/>.
     /// </summary>
+    /// <param name="mathMode">When non-null, display math (<c>$$...$$</c> /
+    /// <c>\[...\]</c>) is pixel-rendered as sixel / sextant / half-block.
+    /// Default null keeps display math on the single-row Unicode path —
+    /// callers should set this only after confirming the terminal supports
+    /// the chosen mode (e.g. via <see cref="VirtualTerminal.HasSixelSupport"/>).</param>
     public static void Render(string markdown, TextWriter output, int width,
-        ColorMode colorMode = ColorMode.TrueColor, MarkdownTheme? theme = null)
+        ColorMode colorMode = ColorMode.TrueColor, MarkdownTheme? theme = null,
+        BoxRenderMode? mathMode = null)
     {
-        foreach (var line in RenderLines(markdown, width, colorMode, theme))
+        foreach (var line in RenderLines(markdown, width, colorMode, theme, mathMode))
             output.WriteLine(line);
     }
 
     /// <summary>
     /// Renders Markdown to a list of pre-formatted VT lines suitable for widget rendering.
     /// </summary>
+    /// <param name="mathMode">See <see cref="Render"/> for the math-mode semantics.</param>
     public static List<string> RenderLines(string markdown, int width,
-        ColorMode colorMode = ColorMode.TrueColor, MarkdownTheme? theme = null)
+        ColorMode colorMode = ColorMode.TrueColor, MarkdownTheme? theme = null,
+        BoxRenderMode? mathMode = null)
     {
         if (string.IsNullOrWhiteSpace(markdown))
             return [];
@@ -79,7 +99,7 @@ public static class MarkdownRenderer
         foreach (var block in doc)
         {
             if (!first) result.Add("");
-            RenderBlock(block, width, colorMode, theme, result, nestLevel: 0);
+            RenderBlock(block, width, colorMode, theme, result, nestLevel: 0, mathMode);
             first = false;
         }
 
@@ -128,7 +148,8 @@ public static class MarkdownRenderer
     // ── Block rendering ───────────────────────────────────────────────
 
     private static void RenderBlock(Block block, int width, ColorMode colorMode,
-        MarkdownTheme theme, List<string> result, int nestLevel)
+        MarkdownTheme theme, List<string> result, int nestLevel,
+        BoxRenderMode? mathMode = null)
     {
         switch (block)
         {
@@ -158,7 +179,7 @@ public static class MarkdownRenderer
             // more specific arm has to be listed before the general one or
             // C# pattern matching flags the second as unreachable.
             case MathBlock mathBlock:
-                RenderMathBlock(mathBlock, width, colorMode, theme, result);
+                RenderMathBlock(mathBlock, width, colorMode, theme, result, mathMode);
                 break;
 
             case FencedCodeBlock fenced:
@@ -202,16 +223,13 @@ public static class MarkdownRenderer
     }
 
     private static void RenderMathBlock(MathBlock mathBlock, int width,
-        ColorMode colorMode, MarkdownTheme theme, List<string> result)
+        ColorMode colorMode, MarkdownTheme theme, List<string> result,
+        BoxRenderMode? mathMode)
     {
-        var mathColor = Resolve(theme.Math, colorMode);
-        var rst = Rst(colorMode);
-
         // Concatenate the block's lines (Markdig's MathBlock can span multiple
-        // lines between $$ fences) and run them through the LaTeX visitor as a
-        // single expression. The grammar can't parse multi-line constructs
-        // (\begin{align} etc.), so multi-line display math just falls back to
-        // the literal source — still readable.
+        // lines between $$ fences) into a single source string. The grammar
+        // can't parse multi-line constructs (\begin{align} etc.) — multi-line
+        // display math falls back to literal text via the parse-error path.
         var sb = new StringBuilder();
         for (var i = 0; i < mathBlock.Lines.Count; i++)
         {
@@ -219,8 +237,123 @@ public static class MarkdownRenderer
             var slice = mathBlock.Lines.Lines[i].ToString();
             if (slice is not null) sb.Append(slice);
         }
-        var rendered = RenderMathUnicode(sb.ToString().Trim());
+        var source = sb.ToString().Trim();
+
+        // Try pixel rendering first when the caller asked for it. Falls back
+        // to Unicode on any failure (font missing, parse error, layout error)
+        // so a broken math block can't take down the rest of the document.
+        if (mathMode is { } mode && TryRenderMathBox(source, mode, result))
+            return;
+
+        var mathColor = Resolve(theme.Math, colorMode);
+        var rst = Rst(colorMode);
+        var rendered = RenderMathUnicode(source);
         result.AddRange(WordWrap($"  {mathColor}{rendered}{rst}", width, "  "));
+    }
+
+    /// <summary>
+    /// Parse + lay out + raster-render a math expression as pixels via
+    /// <see cref="BoxBuildingVisitor"/> + <see cref="BoxRenderer"/>. Returns
+    /// false (without writing to <paramref name="result"/>) if any step
+    /// fails — font resolution, parse, layout, or render — so the caller
+    /// can fall through to the Unicode path. The mode-specific font size
+    /// matches what the LatexConsole example uses (sixel renders larger
+    /// because its sub-pixels are smaller).
+    /// </summary>
+    private static bool TryRenderMathBox(string source, BoxRenderMode mode, List<string> result)
+    {
+        if (string.IsNullOrWhiteSpace(source)) return false;
+
+        var fontPath = ResolveMathFont();
+        if (string.IsNullOrEmpty(fontPath)) return false;
+
+        try
+        {
+            var fontSize = mode switch
+            {
+                BoxRenderMode.Sixel     => 32f,
+                BoxRenderMode.Sextant   => 12f,
+                BoxRenderMode.HalfBlock => 10f,
+                _                       => 12f,
+            };
+            var style = new BoxStyle(fontPath, fontSize);
+            var visitor = new BoxBuildingVisitor(style);
+
+            // Math expressions use a separate parser instance because each
+            // BuildParser call binds a specific visitor; we can't share the
+            // Unicode parser with a Box-typed visitor.
+            var boxParser = Latex.BuildParser(visitor);
+            using var lexer = BytesLexer.FromString(source, MathLexerTable);
+            using var tokens = new SyncLATokenIterator(lexer);
+            var item = boxParser.ParseInput(tokens, debugger: null);
+            if (item.IsError || item.Content is not Box box) return false;
+
+            using var sw = new StringWriter();
+            BoxRenderer.Render(box, style, mode, sw);
+
+            // Split into lines so the caller's surrounding layout (transcript
+            // widget, scrollback, etc.) sees one entry per cell row. Sixel
+            // collapses to a single entry because its DCS sequence doesn't
+            // contain real newlines.
+            foreach (var line in sw.ToString().Split('\n'))
+            {
+                if (line.Length > 0) result.Add(line);
+            }
+            return result.Count > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Pick a font with good math/Greek coverage. STIX Two Math is the
+    /// gold-standard for math typography (full math glyphs + Greek,
+    /// OpenType MATH tables); Cambria, Consolas, DejaVu Sans Mono, and the
+    /// platform's resolved system monospace are fallbacks when nothing
+    /// better is installed. Returns null if even the platform fallback
+    /// fails — pixel math then falls through to the Unicode renderer.
+    /// Result is cached per process; the lookup runs once on first math
+    /// block.
+    /// </summary>
+    private static string? ResolveMathFont()
+    {
+        if (s_mathFontResolved) return s_mathFontPath;
+
+        string[] candidates;
+        if (OperatingSystem.IsWindows())
+            candidates =
+            [
+                @"C:\Windows\Fonts\STIXTwoMath-Regular.otf",
+                @"C:\Windows\Fonts\cambria.ttc",
+                @"C:\Windows\Fonts\consola.ttf",
+                @"C:\Windows\Fonts\cour.ttf",
+            ];
+        else if (OperatingSystem.IsMacOS())
+            candidates =
+            [
+                "/Library/Fonts/STIXTwoMath-Regular.otf",
+                "/System/Library/Fonts/Menlo.ttc",
+                "/System/Library/Fonts/Monaco.dfont",
+            ];
+        else
+            candidates =
+            [
+                "/usr/share/fonts/opentype/stix/STIXTwoMath-Regular.otf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+                "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+            ];
+
+        foreach (var p in candidates)
+        {
+            if (File.Exists(p)) { s_mathFontPath = p; s_mathFontResolved = true; return p; }
+        }
+
+        try { s_mathFontPath = FontResolver.ResolveSystemFont(); }
+        catch { s_mathFontPath = null; }
+        s_mathFontResolved = true;
+        return s_mathFontPath;
     }
 
     private static void RenderHeading(HeadingBlock heading, int width, ColorMode colorMode,
