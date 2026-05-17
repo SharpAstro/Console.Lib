@@ -15,6 +15,10 @@ public record MarkdownTheme
     public RGBAColor32 Link { get; init; } = SgrColor.Cyan.ToRgba();
     public RGBAColor32 Bullet { get; init; } = SgrColor.Cyan.ToRgba();
     public RGBAColor32 Dim { get; init; } = SgrColor.BrightBlack.ToRgba();
+    /// <summary>Color used for inline code spans (<c>`x`</c>) and the body of fenced code blocks.</summary>
+    public RGBAColor32 Code { get; init; } = SgrColor.BrightYellow.ToRgba();
+    /// <summary>Color used for math content (inline <c>$x$</c> and display <c>$$x$$</c>) when rendered via the LaTeX visitor.</summary>
+    public RGBAColor32 Math { get; init; } = SgrColor.BrightMagenta.ToRgba();
 
     public static MarkdownTheme Default { get; } = new();
 

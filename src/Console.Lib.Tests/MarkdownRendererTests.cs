@@ -412,4 +412,108 @@ public sealed class MarkdownRendererTests
     {
         MarkdownTheme.TryParseColor("nope", out _).ShouldBeFalse();
     }
+
+    // ── Fenced code blocks + inline code ─────────────────────────────────
+
+    [Fact]
+    public void FencedCodeBlock_RendersWithRules()
+    {
+        var md = "```\nprint(\"hi\")\n```";
+        var lines = MarkdownRenderer.RenderLines(md, 40, ColorMode.None);
+        // Three lines: top rule, body, bottom rule.
+        lines.Count.ShouldBe(3);
+        lines[0].ShouldContain("─");
+        lines[1].Trim().ShouldBe("print(\"hi\")");
+        lines[2].ShouldContain("─");
+    }
+
+    [Fact]
+    public void FencedCodeBlock_WithLanguageTag_IncludesLabel()
+    {
+        var md = "```python\nx = 1\n```";
+        var lines = MarkdownRenderer.RenderLines(md, 40, ColorMode.None);
+        lines[0].ShouldContain("python");
+    }
+
+    [Fact]
+    public void CodeInline_RendersWithCodeColor()
+    {
+        var md = "use `foo` here";
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.None);
+        // ColorMode.None suppresses escapes, so we just check the content survives.
+        string.Join("", lines).ShouldContain("foo");
+    }
+
+    // ── Math: inline ($x$) and display ($$x$$) ──────────────────────────
+
+    [Fact]
+    public void MathInline_RendersSuperscriptUnicode()
+    {
+        var md = "Einstein: $E = mc^2$.";
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.None);
+        var joined = string.Join("", lines);
+        // c^2 → c² via the Unicode superscript table.
+        joined.ShouldContain("c²");
+        // Surrounding prose survives.
+        joined.ShouldContain("Einstein");
+    }
+
+    [Fact]
+    public void MathInline_FracProducesFractionSlash()
+    {
+        var md = "half is $\\frac{1}{2}$.";
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.None);
+        // \frac renders with U+2044 (fraction slash), not plain '/'.
+        string.Join("", lines).ShouldContain("⁄");
+    }
+
+    [Fact]
+    public void MathInline_GreekLetterCommand()
+    {
+        var md = "angle: $\\alpha + \\beta$.";
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.None);
+        var joined = string.Join("", lines);
+        joined.ShouldContain("α");
+        joined.ShouldContain("β");
+    }
+
+    [Fact]
+    public void MathBlock_RendersAsBlock()
+    {
+        var md = "Before.\n\n$$E = mc^2$$\n\nAfter.";
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.None);
+        var joined = string.Join("\n", lines);
+        joined.ShouldContain("Before");
+        joined.ShouldContain("c²");
+        joined.ShouldContain("After");
+    }
+
+    // ── LaTeX wrapper preprocessing ──────────────────────────────────────
+
+    [Fact]
+    public void LatexInlineWrapper_RendersLikeDollarMath()
+    {
+        // \(x^2\) should pre-process into $x^2$ and render the same way.
+        var lines = MarkdownRenderer.RenderLines("here: \\(x^2\\).", 80, ColorMode.None);
+        string.Join("", lines).ShouldContain("x²");
+    }
+
+    [Fact]
+    public void LatexDisplayWrapper_RendersLikeDoubleDollarMath()
+    {
+        var lines = MarkdownRenderer.RenderLines("\\[E = mc^2\\]", 80, ColorMode.None);
+        string.Join("", lines).ShouldContain("c²");
+    }
+
+    // ── Parse-failure fallback ───────────────────────────────────────────
+
+    [Fact]
+    public void MathInline_ParseError_FallsBackToLiteral()
+    {
+        // A trailing unmatched paren has no valid parse — the renderer should
+        // emit the source literally rather than throwing.
+        var lines = MarkdownRenderer.RenderLines("oops: $\\frac{1}{$.", 80, ColorMode.None);
+        // The render should at least include "oops:" and not crash.
+        string.Join("", lines).ShouldContain("oops");
+    }
 }
