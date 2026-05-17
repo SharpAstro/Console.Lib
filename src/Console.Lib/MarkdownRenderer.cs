@@ -1,5 +1,8 @@
 using System.Text;
+using System.Text.RegularExpressions;
+using LALR.CC.LexicalGrammar;
 using Markdig;
+using Markdig.Extensions.Mathematics;
 using Markdig.Extensions.Tables;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
@@ -25,12 +28,28 @@ public static class MarkdownRenderer
     private const string Reset = "\e[0m";
 
     /// <summary>
-    /// Markdig pipeline with pipe-table and color-inline support enabled.
+    /// Markdig pipeline with pipe-table, color-inline, and math (dollar-sign
+    /// delimited) support enabled. Inline <c>$x$</c> and display <c>$$x$$</c>
+    /// produce <see cref="MathInline"/> / <see cref="MathBlock"/> AST nodes;
+    /// LaTeX-style <c>\(...\)</c> and <c>\[...\]</c> wrappers are converted
+    /// to dollar-sign form in <see cref="PreProcessLatexWrappers"/> before
+    /// parsing so Markdig classifies them too.
     /// </summary>
     private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
         .UsePipeTables()
         .UseColorInlines()
+        .UseMathematics()
         .Build();
+
+    /// <summary>
+    /// Cached math parser + lexer table. The LALR.CC source generator
+    /// pre-bakes the parse table and lexer transitions at build time, so
+    /// constructing these is just struct/array initialization — but we
+    /// still hold the result so each math node doesn't pay the cost.
+    /// </summary>
+    private static readonly LatexUnicodeVisitor MathVisitor = new();
+    private static readonly LALR.CC.Parser MathParser = Latex.BuildParser(MathVisitor);
+    private static readonly System.Collections.Generic.Dictionary<string, LexRule[]> MathLexerTable = Latex.BuildLexer();
 
     /// <summary>
     /// Renders Markdown to the given <see cref="TextWriter"/>.
@@ -52,7 +71,8 @@ public static class MarkdownRenderer
             return [];
 
         theme ??= MarkdownTheme.Default;
-        var doc = Markdown.Parse(markdown, Pipeline);
+        var preprocessed = PreProcessLatexWrappers(markdown);
+        var doc = Markdown.Parse(preprocessed, Pipeline);
         var result = new List<string>();
         var first = true;
 
@@ -64,6 +84,45 @@ public static class MarkdownRenderer
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Rewrites LaTeX-style math wrappers (<c>\(...\)</c> and <c>\[...\]</c>)
+    /// into Markdig's dollar-sign form (<c>$...$</c> and <c>$$...$$</c>) so
+    /// the UseMathematics() extension picks them up as MathInline/MathBlock.
+    /// Anything that fails to match is left untouched, which means a stray
+    /// unmatched <c>\(</c> just renders as literal text — same as Markdig's
+    /// usual behavior for malformed inlines.
+    /// </summary>
+    private static string PreProcessLatexWrappers(string markdown)
+    {
+        // Display first (longer delimiter) so it wins over inline on `\[...\]`.
+        markdown = Regex.Replace(markdown, @"\\\[([\s\S]*?)\\\]", "$$$$$1$$$$");
+        markdown = Regex.Replace(markdown, @"\\\(([\s\S]*?)\\\)", "$$$1$$");
+        return markdown;
+    }
+
+    /// <summary>
+    /// Parse + visit a LaTeX math source string through <see cref="LatexUnicodeVisitor"/>.
+    /// Returns the rendered Unicode string, or the literal input wrapped in
+    /// fallback markers on parse error — so a single mangled formula doesn't
+    /// take down the surrounding markdown render.
+    /// </summary>
+    private static string RenderMathUnicode(string source)
+    {
+        if (string.IsNullOrWhiteSpace(source)) return string.Empty;
+        try
+        {
+            using var lexer = BytesLexer.FromString(source, MathLexerTable);
+            using var tokens = new SyncLATokenIterator(lexer);
+            var item = MathParser.ParseInput(tokens, debugger: null);
+            if (item.IsError) return source;
+            return item.Content is string s ? s : source;
+        }
+        catch
+        {
+            return source;
+        }
     }
 
     // ── Block rendering ───────────────────────────────────────────────
@@ -94,7 +153,74 @@ public static class MarkdownRenderer
                 var text = FormatInlinesFromAst(paragraph.Inline, bold: false, italic: false, colorMode, theme);
                 result.AddRange(WordWrap(text, width));
                 break;
+
+            // MathBlock first — it extends FencedCodeBlock in Markdig, so the
+            // more specific arm has to be listed before the general one or
+            // C# pattern matching flags the second as unreachable.
+            case MathBlock mathBlock:
+                RenderMathBlock(mathBlock, width, colorMode, theme, result);
+                break;
+
+            case FencedCodeBlock fenced:
+                RenderFencedCodeBlock(fenced, width, colorMode, theme, result);
+                break;
         }
+    }
+
+    private static void RenderFencedCodeBlock(FencedCodeBlock fenced, int width,
+        ColorMode colorMode, MarkdownTheme theme, List<string> result)
+    {
+        var codeColor = Resolve(theme.Code, colorMode);
+        var dimColor = Resolve(theme.Dim, colorMode);
+        var rst = Rst(colorMode);
+
+        // Top rule with optional language tag on the right edge.
+        var lang = fenced.Info ?? string.Empty;
+        if (!string.IsNullOrEmpty(lang))
+        {
+            var prefix = "── ";
+            var tag = $" {lang} ";
+            var fillLen = System.Math.Max(0, width - prefix.Length - tag.Length);
+            result.Add($"{dimColor}{prefix}{tag}{new string('─', fillLen)}{rst}");
+        }
+        else
+        {
+            result.Add($"{dimColor}{new string('─', width)}{rst}");
+        }
+
+        // Body, code-colored, two-space indent so leading whitespace inside the
+        // block is preserved without colliding with the bottom rule.
+        // Iterate by Count — Markdig's StringLineGroup has a backing array
+        // that can be larger than the live line count.
+        for (var i = 0; i < fenced.Lines.Count; i++)
+        {
+            var s = fenced.Lines.Lines[i].ToString() ?? string.Empty;
+            result.Add($"  {codeColor}{s}{rst}");
+        }
+
+        result.Add($"{dimColor}{new string('─', width)}{rst}");
+    }
+
+    private static void RenderMathBlock(MathBlock mathBlock, int width,
+        ColorMode colorMode, MarkdownTheme theme, List<string> result)
+    {
+        var mathColor = Resolve(theme.Math, colorMode);
+        var rst = Rst(colorMode);
+
+        // Concatenate the block's lines (Markdig's MathBlock can span multiple
+        // lines between $$ fences) and run them through the LaTeX visitor as a
+        // single expression. The grammar can't parse multi-line constructs
+        // (\begin{align} etc.), so multi-line display math just falls back to
+        // the literal source — still readable.
+        var sb = new StringBuilder();
+        for (var i = 0; i < mathBlock.Lines.Count; i++)
+        {
+            if (sb.Length > 0) sb.Append(' ');
+            var slice = mathBlock.Lines.Lines[i].ToString();
+            if (slice is not null) sb.Append(slice);
+        }
+        var rendered = RenderMathUnicode(sb.ToString().Trim());
+        result.AddRange(WordWrap($"  {mathColor}{rendered}{rst}", width, "  "));
     }
 
     private static void RenderHeading(HeadingBlock heading, int width, ColorMode colorMode,
@@ -395,6 +521,31 @@ public static class MarkdownRenderer
                 case LineBreakInline:
                     sb.Append(' ');
                     break;
+
+                case CodeInline code:
+                {
+                    var codeColor = Resolve(theme.Code, colorMode);
+                    sb.Append(rst);
+                    sb.Append(codeColor);
+                    sb.Append(code.Content);
+                    sb.Append(rst);
+                    if (bold) sb.Append(boldAttr);
+                    if (italic) sb.Append(italicAttr);
+                    break;
+                }
+
+                case MathInline math:
+                {
+                    var mathColor = Resolve(theme.Math, colorMode);
+                    var rendered = RenderMathUnicode(math.Content.ToString());
+                    sb.Append(rst);
+                    sb.Append(mathColor);
+                    sb.Append(rendered);
+                    sb.Append(rst);
+                    if (bold) sb.Append(boldAttr);
+                    if (italic) sb.Append(italicAttr);
+                    break;
+                }
             }
         }
     }

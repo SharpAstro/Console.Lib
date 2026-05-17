@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Pixel-rendered LaTeX math demo. Walks the Wikipedia-style math grammar
+    baked into Console.Lib (via the LALR.CC source generator) with a Box-
+    layout visitor, then ships the rasterized RGBA buffer to the terminal as
+    Sixel (WT 1.22+, iTerm2, mintty, xterm +sixel), Unicode sextants (modern
+    Unicode 13 terminals), or 24-bit-colour half-blocks (universal fallback).
+    Auto-detects encoding via DA1 device-attribute query at startup.
+
+    Originally lived in sharpastro/LALR.CC/examples/LatexConsole/. Moved here
+    so Console.Lib could take a build-time dep on LALR.CC without forming a
+    cycle through this example.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Examples.LatexConsole</RootNamespace>
+    <AssemblyName>Examples.LatexConsole</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- AOT-clean: Console.Lib + LALR.CC + DIR.Lib are all IsAotCompatible=true,
+         and the LALR.CC source generator pre-bakes the parse table so the
+         runtime regex/table-builder paths are unreachable in this image. -->
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Pulls Console.Lib + transitive LALR.CC, DIR.Lib, Fonts.Lib,
+         StbImageSharp from the sibling working trees. -->
+    <ProjectReference Include="..\..\src\Console.Lib\Console.Lib.csproj" />
+  </ItemGroup>
+
+</Project>
