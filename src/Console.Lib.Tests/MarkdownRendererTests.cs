@@ -42,30 +42,40 @@ public sealed class MarkdownRendererTests
 
     // ── Inline formatting ─────────────────────────────────────────────
 
+    // Note: Phase F renderer uses selective SGR unset codes (22 / 23
+    // for no-bold / no-italic) instead of a full reset on emphasis
+    // close — preserves outer underline / colour when emphasis is
+    // nested inside a link or color inline. These tests assert on the
+    // emitted SGR enable/disable codes accordingly.
+
+    private const string NoBold = "\e[22m";
+    private const string NoItalic = "\e[23m";
+
     [Fact]
     public void FormatInline_Bold()
     {
         var result = MarkdownRenderer.FormatInline("**hello**", ColorMode.Sgr16);
-        result.ShouldBe($"{Reset}{Bold}hello{Reset}");
+        result.ShouldBe($"{Bold}hello{NoBold}");
     }
 
     [Fact]
     public void FormatInline_Italic()
     {
         var result = MarkdownRenderer.FormatInline("*hello*", ColorMode.Sgr16);
-        result.ShouldBe($"{Reset}{Italic}hello{Reset}");
+        result.ShouldBe($"{Italic}hello{NoItalic}");
     }
 
     [Fact]
     public void FormatInline_BoldItalic()
     {
         var result = MarkdownRenderer.FormatInline("***hello***", ColorMode.Sgr16);
-        // Markdig nests emphasis: <em><strong>hello</strong></em>
-        // Visually identical — bold+italic "hello" then reset
+        // Bold + italic on, content, italic + bold off — both attributes
+        // selectively cleared so the result has visible length 5.
         result.ShouldContain(Bold);
         result.ShouldContain(Italic);
         result.ShouldContain("hello");
-        result.ShouldEndWith(Reset);
+        result.ShouldContain(NoBold);
+        result.ShouldContain(NoItalic);
         MarkdownRenderer.VisibleLength(result).ShouldBe(5);
     }
 
@@ -94,15 +104,11 @@ public sealed class MarkdownRendererTests
     public void FormatInline_NestedBoldInItalic()
     {
         // *italic **bold** italic*
+        // With selective SGR unsets, the outer italic stays on across
+        // the inner bold span — emit italic-on once, italic-off once.
+        // The inner bold emits bold-on then bold-off; italic survives.
         var result = MarkdownRenderer.FormatInline("*italic **bold** italic*", ColorMode.Sgr16);
-        // After first *: italic=true → Reset+Italic
-        // "italic " literal
-        // After **: bold=true → Reset+Bold+Italic
-        // "bold" literal
-        // After **: bold=false → Reset+Italic
-        // " italic" literal
-        // After *: italic=false → Reset
-        result.ShouldBe($"{Reset}{Italic}italic {Reset}{Bold}{Italic}bold{Reset}{Italic} italic{Reset}");
+        result.ShouldBe($"{Italic}italic {Bold}bold{NoBold} italic{NoItalic}");
     }
 
     // ── Headers ───────────────────────────────────────────────────────

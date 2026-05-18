@@ -298,15 +298,19 @@ public static partial class MarkdownRenderer
 
                 case MdEmphasis em:
                     {
+                        // Use selective SGR unset codes (22 = no-bold,
+                        // 23 = no-italic) instead of a full reset.
+                        // A reset (\e[0m) would also clear underline /
+                        // foreground colour set by an outer span (most
+                        // commonly an MdLink wrapping `**bold link**` —
+                        // the link's underline gets killed otherwise).
                         var newBold = bold || em.Level >= 2;
                         var newItalic = italic || em.Level == 1 || em.Level >= 3;
-                        sb.Append(rst);
-                        if (newBold) sb.Append(boldAttr);
-                        if (newItalic) sb.Append(italicAttr);
+                        if (newBold && !bold) sb.Append(boldAttr);
+                        if (newItalic && !italic) sb.Append(italicAttr);
                         RenderMdInlines(em.Content, sb, newBold, newItalic, colorMode, theme);
-                        sb.Append(rst);
-                        if (bold) sb.Append(boldAttr);
-                        if (italic) sb.Append(italicAttr);
+                        if (newBold && !bold) sb.Append(NoBoldAttr(colorMode));
+                        if (newItalic && !italic) sb.Append(NoItalicAttr(colorMode));
                         break;
                     }
 

@@ -1272,6 +1272,18 @@ public static partial class MarkdownRenderer
     private static string ItalicAttr(ColorMode mode) => mode == ColorMode.None ? "" : ItalicCode;
     private static string UnderlineAttr(ColorMode mode) => mode == ColorMode.None ? "" : Underline;
 
+    // Selective SGR unset codes — clear one attribute without touching
+    // the others. Important inside nested spans like `[**bold**](url)`
+    // where the inner emphasis must drop its bold without killing the
+    // outer link's underline + colour. `\e[0m` (full reset) would
+    // collapse all the parent state.
+    private const string NoBold = "\e[22m";
+    private const string NoItalic = "\e[23m";
+    private const string NoUnderline = "\e[24m";
+    internal static string NoBoldAttr(ColorMode mode) => mode == ColorMode.None ? "" : NoBold;
+    internal static string NoItalicAttr(ColorMode mode) => mode == ColorMode.None ? "" : NoItalic;
+    internal static string NoUnderlineAttr(ColorMode mode) => mode == ColorMode.None ? "" : NoUnderline;
+
     // ── Word wrapping (ANSI-aware) ────────────────────────────────────
 
     /// <summary>
