@@ -341,5 +341,25 @@ internal static class Program
             "| a       | b    |   c    |     d |\n" +
             "| longer  | text |  here  |   123 |\n" +
             "| α + β   | γ    |   ∞    |    π² |\n",
+
+        // OSC 8 hyperlinks — every link label below is wrapped in
+        // `\e]8;;URL\a...\e]8;;\a` so supporting terminals turn the
+        // styled text into a clickable target. On Windows Terminal,
+        // iTerm2, WezTerm, kitty, mintty, GNOME Terminal, and VS
+        // Code's integrated terminal you can click the label; the
+        // dim `(url)` after the label keeps the URL visible + copy-
+        // pasteable for terminals that don't render the hyperlink.
+        ["links"] =
+            "## Hyperlinks (OSC 8)\n\n" +
+            "Plain link: [Google Australia](https://www.google.com.au).\n\n" +
+            "Link with formatted text: [**bold** with `code`](https://github.com/anthropics/claude-code).\n\n" +
+            "Multiple links in one paragraph: [Anthropic](https://www.anthropic.com), " +
+            "[Markdig](https://github.com/xoofx/markdig), and " +
+            "[Console.Lib](https://github.com/SharpAstro/Console.Lib) " +
+            "are each clickable independently.\n\n" +
+            "(If your terminal supports OSC 8 — Windows Terminal, iTerm2, WezTerm, " +
+            "kitty, mintty, GNOME, VS Code — the labels above are clickable. " +
+            "Otherwise the underlined+coloured label plus the `(url)` in dim text " +
+            "is what you'll see.)\n",
     };
 }
