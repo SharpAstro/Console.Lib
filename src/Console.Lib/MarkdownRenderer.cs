@@ -21,7 +21,7 @@ namespace Console.Lib;
 /// the active <see cref="ColorMode"/>. Use <see cref="ColorMode.None"/> to suppress all escapes.
 /// </para>
 /// </summary>
-public static class MarkdownRenderer
+public static partial class MarkdownRenderer
 {
     // ── VT attribute constants (mode-independent) ─────────────────────
 
