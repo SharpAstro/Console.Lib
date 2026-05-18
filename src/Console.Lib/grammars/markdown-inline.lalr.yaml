@@ -1,0 +1,189 @@
+# Markdown inline grammar — Phase B math coverage.
+#
+# Recognises text and five math-span forms with the LaTeX sub-parser
+# invoked on each body via a rewriter action:
+#
+#   $math$          inline dollar math
+#   $$math$$        display dollar math (in inline position)
+#   \(math\)        inline LaTeX-paren math
+#   \[math\]        display LaTeX-bracket math (in inline position;
+#                   true block-level handling lands in Phase C)
+#   \boxed{math}    math-benchmark final-answer wrapper, balanced braces
+#
+# Each form lives in its own pushed lexer state so the body bytes can
+# carry backslashes (LaTeX commands) and other special chars without
+# the root tokeniser intercepting them. The bodies are then either a
+# single opaque `mathbody` terminal (dollar forms — body can't contain
+# the delimiter byte) or a list of `latex_frag` tokens that the
+# visitor concatenates (LaTeX-backslash forms — body needs to allow
+# backslashes for nested commands).
+#
+# \boxed{...} adds nested-brace support via a recursive BoxedBody rule
+# (an LR grammar handles balanced braces naturally — the hand-rolled
+# scanner in LatexBackslashInlineParser goes away once this grammar
+# takes over).
+#
+# Sub-parser pattern: the visitor's math actions invoke
+# Latex.BuildParser(...).ParseInput(BytesLexer.FromString(body, MathLexerTable))
+# on the captured body string and store the resulting builder /
+# Unicode-rendered string on MdMathInline. The two grammars stay as
+# disjoint Parser instances; symbol-ID spaces don't collide because
+# the LaTeX parser uses its own grammar table.
+#
+# Phase B-extension will add inline code, emphasis, links, line breaks,
+# and color inlines. The first iteration just covers math, because that
+# was the original motivator and a substantial chunk of work on its own.
+
+symbols:
+  - S            # 0  start
+  - Spans        # 1  list of inline spans
+  - Span         # 2  one span
+  - LatexBody    # 3  body of \(..\) or \[..\] — list of latex_frag tokens
+  - BoxedBody    # 4  body of \boxed{..} — frags interleaved with nested {..}
+  - BoxedItem    # 5  one item in BoxedBody (frag or nested brace group)
+  - text         # 6  terminal: run of non-special bytes
+  - dollar       # 7  terminal: `$`
+  - mathbody     # 8  terminal: body of `$..$`
+  - dollar2      # 9  terminal: `$$`
+  - mathbody2    # 10 terminal: body of `$$..$$`
+  - lparen       # 11 terminal: `\(`
+  - rparen       # 12 terminal: `\)`
+  - lbracket     # 13 terminal: `\[`
+  - rbracket     # 14 terminal: `\]`
+  - lboxed       # 15 terminal: `\boxed{`
+  - lbrace       # 16 terminal: `{` (inside math_boxed state only)
+  - rbrace       # 17 terminal: `}` (inside math_boxed state only)
+  - latex_frag   # 18 terminal: a run of body bytes (non-backslash) or a
+                 #             backslash-escape pair, inside a LaTeX math state
+  - backtick     # 19 terminal: `` ` ``
+  - codebody     # 20 terminal: body of `` `..` `` inline code span
+
+productions:
+  - derivation: none
+    rules:
+      - { lhs: S, rhs: [Spans] }
+
+  # Spans uses epsilon-base + cons recursion so reductions always have
+  # 0 or 2 children — the parser's trim never elides them.
+  - derivation: leftmost
+    rules:
+      - { lhs: Spans, rhs: [],            action: spansEmpty }
+      - { lhs: Spans, rhs: [Span, Spans], action: spansCons }
+
+  # The five span shapes. Plain text is always a single token. Math
+  # forms wrap an opener-body-closer triple (dollar forms) or
+  # opener-list-closer (LaTeX-backslash forms — body is a token list
+  # so the lexer can tokenise its insides without seeing the close).
+  - derivation: none
+    rules:
+      - { lhs: Span, rhs: [text],                            action: literalSpan }
+      - { lhs: Span, rhs: [dollar,  mathbody,  dollar],      action: mathSpan }
+      - { lhs: Span, rhs: [dollar2, mathbody2, dollar2],     action: mathDisplaySpan }
+      - { lhs: Span, rhs: [lparen,   LatexBody, rparen],     action: mathParenSpan }
+      - { lhs: Span, rhs: [lbracket, LatexBody, rbracket],   action: mathBracketSpan }
+      - { lhs: Span, rhs: [lboxed,   BoxedBody, rbrace],     action: mathBoxedSpan }
+      - { lhs: Span, rhs: [backtick, codebody,  backtick],   action: codeSpan }
+
+  # LaTeX body = list of body fragments. Each fragment is either a
+  # run of non-backslash bytes or a `\X` pair (backslash + any byte
+  # except the close marker). The visitor concatenates them.
+  - derivation: leftmost
+    rules:
+      - { lhs: LatexBody, rhs: [],                       action: latexBodyEmpty }
+      - { lhs: LatexBody, rhs: [latex_frag, LatexBody],  action: latexBodyCons }
+
+  # Boxed body = items, where each item is either a frag or a nested
+  # `{ inner }` group. The recursion gives us balanced braces for free.
+  - derivation: leftmost
+    rules:
+      - { lhs: BoxedBody, rhs: [],                          action: boxedBodyEmpty }
+      - { lhs: BoxedBody, rhs: [BoxedItem, BoxedBody],      action: boxedBodyCons }
+
+  - derivation: none
+    rules:
+      - { lhs: BoxedItem, rhs: [latex_frag],                action: boxedItemFrag }
+      - { lhs: BoxedItem, rhs: [lbrace, BoxedBody, rbrace], action: boxedItemGroup }
+
+# Lexer states.
+#
+# `root` — outside any math span. Recognises opener delimiters and a
+# fallthrough `text` rule for everything else. Order matters here for
+# tie-broken longest matches: `\boxed{` (7 bytes) must beat `\(` /
+# `\[` (2 bytes each) which must beat the bare `\X` escape rule.
+#
+# `math_dollar`, `math_dollar2` — capture the body as a single
+# `mathbody` / `mathbody2` token via `[^$]+`. Single-dollar in
+# display body and single-`$` in inline body are not supported —
+# matches typical model output, simplifies the grammar.
+#
+# `math_paren`, `math_bracket` — capture body as multiple
+# `latex_frag` tokens. Two rules per state:
+#   1. Pop on the close marker (`\)` / `\]`).
+#   2. Match a run of non-backslash bytes OR a `\X` escape as a
+#      single fragment. Fragments concatenate in the visitor.
+#
+# `math_boxed` — capture body honouring nested braces. Pop on the
+# outermost `}`; `{` and `}` are explicit tokens so the grammar can
+# recurse. Body fragments are non-`{}` runs and backslash-prefixed
+# pairs that aren't a brace.
+
+lexer:
+  root:
+    - { symbol: lboxed,   match: '\\boxed\{',  push: math_boxed }
+    - { symbol: dollar2,  match: '\$\$',       push: math_dollar2 }
+    - { symbol: dollar,   match: '\$',         push: math_dollar }
+    - { symbol: lparen,   match: '\\\(',       push: math_paren }
+    - { symbol: lbracket, match: '\\\[',       push: math_bracket }
+    - { symbol: backtick, match: '`',          push: code_inline }
+    # Everything else is text. Three patterns cover the alphabet:
+    #   1. Runs of non-special bytes (`, $, \ are special; everything
+    #      else flows through unchanged).
+    #   2. A bare backslash followed by a non-letter byte (an escape
+    #      sequence like \*, \_, \\ — the visitor strips the backslash).
+    #   3. A bare backslash followed by letters (`\name` command —
+    #      visitor passes through as literal text, or upstream loose
+    #      substitution may have already converted it).
+    - { symbol: text,     match: '[^\\$`]+' }
+    - { symbol: text,     match: '\\[^a-zA-Z]' }
+    - { symbol: text,     match: '\\[a-zA-Z]+' }
+
+  math_dollar:
+    - { symbol: dollar,   match: '\$',         pop: true }
+    - { symbol: mathbody, match: '[^$]+' }
+
+  math_dollar2:
+    - { symbol: dollar2,    match: '\$\$',     pop: true }
+    - { symbol: mathbody2,  match: '[^$]+' }
+
+  math_paren:
+    - { symbol: rparen,     match: '\\\)',     pop: true }
+    - { symbol: latex_frag, match: '[^\\]+' }
+    - { symbol: latex_frag, match: '\\[^a-zA-Z)]' }
+    - { symbol: latex_frag, match: '\\[a-zA-Z]+' }
+
+  math_bracket:
+    - { symbol: rbracket,   match: '\\\]',     pop: true }
+    - { symbol: latex_frag, match: '[^\\]+' }
+    - { symbol: latex_frag, match: '\\[^a-zA-Z\]]' }
+    - { symbol: latex_frag, match: '\\[a-zA-Z]+' }
+
+  # math_boxed tracks brace nesting via the lexer's push/pop stack: every
+  # `{` re-pushes math_boxed, every `}` pops. The outermost `}` pops back
+  # to root; inner `}`s pop back to math_boxed and keep tokenising. The
+  # grammar's recursive BoxedBody / BoxedItem rules handle the structural
+  # balance — the lexer just has to keep the right state count.
+  # code_inline captures the body of an inline `..` span as a single
+  # opaque `codebody` token. Single-backtick fences only — CommonMark's
+  # multi-backtick fence (where ``foo `bar` baz`` lets a single backtick
+  # appear inside) lands in Phase B-extension if a real model output
+  # surfaces the need.
+  code_inline:
+    - { symbol: backtick, match: '`',          pop: true }
+    - { symbol: codebody, match: '[^`]+' }
+
+  math_boxed:
+    - { symbol: lbrace,     match: '\{',       push: math_boxed }
+    - { symbol: rbrace,     match: '\}',       pop: true }
+    - { symbol: latex_frag, match: '[^\\{}]+' }
+    - { symbol: latex_frag, match: '\\[^a-zA-Z{}]' }
+    - { symbol: latex_frag, match: '\\[a-zA-Z]+' }
