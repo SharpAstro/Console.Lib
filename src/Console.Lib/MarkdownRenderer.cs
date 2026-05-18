@@ -98,23 +98,11 @@ public static partial class MarkdownRenderer
         ColorMode colorMode = ColorMode.TrueColor, MarkdownTheme? theme = null,
         BoxRenderMode? mathMode = null, string? mathFontPath = null)
     {
-        if (string.IsNullOrWhiteSpace(markdown))
-            return [];
-
-        theme ??= MarkdownTheme.Default;
-        var preprocessed = PreProcessLatexWrappers(markdown);
-        var doc = Markdown.Parse(preprocessed, Pipeline);
-        var result = new List<string>();
-        var first = true;
-
-        foreach (var block in doc)
-        {
-            if (!first) result.Add("");
-            RenderBlock(block, width, colorMode, theme, result, nestLevel: 0, mathMode, mathFontPath);
-            first = false;
-        }
-
-        return result;
+        // Phase F (in-progress switch): delegate to the LALR.CC path.
+        // The old Markdig body stays unreachable for now so the helper
+        // methods it called are still compiled — once Phase F removes
+        // the Markdig PackageReference we delete those too.
+        return RenderLinesLalr(markdown, width, colorMode, theme, mathMode, mathFontPath);
     }
 
     /// <summary>
@@ -306,7 +294,7 @@ public static partial class MarkdownRenderer
     /// whitespace (since the grammar tokenises letters as math-italic variables
     /// and discards whitespace).
     /// </summary>
-    private static string RenderMathUnicode(string source)
+    internal static string RenderMathUnicode(string source)
     {
         if (string.IsNullOrWhiteSpace(source)) return string.Empty;
 
@@ -1164,11 +1152,18 @@ public static partial class MarkdownRenderer
     internal static string FormatInline(string text, ColorMode colorMode, MarkdownTheme? theme = null)
     {
         theme ??= MarkdownTheme.Default;
-        var doc = Markdown.Parse(text, Pipeline);
-        if (doc.FirstOrDefault() is ParagraphBlock para && para.Inline is not null)
-            return FormatInlinesFromAst(para.Inline, bold: false, italic: false, colorMode, theme);
-        return text;
+        // Delegate to the LALR.CC inline visitor + RenderMdInlines so
+        // FormatInline shares the same parsing path as the rest of the
+        // renderer. The Markdig path's FormatInlinesFromAst stays on
+        // hand below for inspection until Phase F cleanup removes it.
+        var inlines = s_formatInlineVisitor.Parse(text);
+        if (inlines.Count == 0) return text;
+        var sb = new StringBuilder();
+        RenderMdInlines(inlines, sb, bold: false, italic: false, colorMode, theme);
+        return sb.ToString();
     }
+
+    private static readonly MarkdownInlineVisitor s_formatInlineVisitor = new();
 
     private static string FormatInlinesFromAst(ContainerInline container, bool bold, bool italic,
         ColorMode colorMode, MarkdownTheme theme)

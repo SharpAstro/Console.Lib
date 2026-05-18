@@ -114,6 +114,27 @@ internal sealed class MarkdownBlockVisitor : MarkdownBlock.IVisitor<object>
 
     private sealed record RawItem(string Line, bool IsBlank);
 
+    /// <summary>Same grouping logic <see cref="GroupIntoBlocks"/> uses
+    /// but applied to a pre-tokenised list of strings (e.g. the
+    /// continuation lines inside a list item). Splits at blank lines
+    /// and classifies each group via <see cref="ClassifyBlock"/>.</summary>
+    private IReadOnlyList<MdBlock> ParseLineGroups(IReadOnlyList<string> lines)
+    {
+        var blocks = new List<MdBlock>();
+        var current = new List<string>();
+        void Flush()
+        {
+            if (current.Count > 0) { blocks.Add(ClassifyBlock(current)); current = new List<string>(); }
+        }
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line)) Flush();
+            else current.Add(line);
+        }
+        Flush();
+        return blocks;
+    }
+
     // ── Block classification ──────────────────────────────────────────
 
     private static readonly Regex HeadingRx = new(@"^(#{1,6})\s+(.*)$", RegexOptions.Compiled);
@@ -221,25 +242,57 @@ internal sealed class MarkdownBlockVisitor : MarkdownBlock.IVisitor<object>
         var marker = ordered ? OrderedItemRx : UnorderedItemRx;
         var items = new List<MdListItem>();
         int orderedStart = 0;
+        int i = 0;
 
-        for (int i = 0; i < lines.Count;)
+        while (i < lines.Count)
         {
-            var m = marker.Match(lines[i]);
+            var line = lines[i];
+            // Items at this level start at column 0 (no leading space)
+            // and have the appropriate marker. Indented marker lines
+            // are sub-list items handled below.
+            if (line.Length > 0 && line[0] == ' ') break;
+
+            var m = marker.Match(line);
             if (!m.Success) break;
 
             if (ordered && items.Count == 0)
                 int.TryParse(m.Groups[1].Value, out orderedStart);
 
-            var itemLines = new List<string> { m.Groups[2].Value };
+            var firstLine = m.Groups[2].Value;
+            var indentedContinuation = new List<string>();
             int j = i + 1;
-            while (j < lines.Count && !marker.IsMatch(lines[j]))
+            while (j < lines.Count && lines[j].Length > 0 && lines[j][0] == ' ')
             {
-                itemLines.Add(lines[j].TrimStart());
+                // Strip up to 2 leading spaces of indentation — CommonMark
+                // uses 2-space sub-list indent by convention; deeper indents
+                // are passed through as part of the nested content.
+                indentedContinuation.Add(lines[j].Length >= 2 ? lines[j].Substring(2) : lines[j].TrimStart());
                 j++;
             }
 
-            var joined = string.Join("\n", itemLines);
-            items.Add(new MdListItem(new MdBlock[] { new MdParagraph(_inline.Parse(joined)) }));
+            // Item body: a paragraph for the first line; if indented
+            // continuation lines start with a list marker, those become
+            // a nested MdList. Otherwise they're additional paragraph
+            // lines.
+            var body = new List<MdBlock>();
+            body.Add(new MdParagraph(_inline.Parse(firstLine)));
+            if (indentedContinuation.Count > 0)
+            {
+                var firstCont = indentedContinuation[0];
+                if (UnorderedItemRx.IsMatch(firstCont))
+                    body.Add(BuildList(indentedContinuation, ordered: false));
+                else if (OrderedItemRx.IsMatch(firstCont))
+                    body.Add(BuildList(indentedContinuation, ordered: true));
+                else
+                {
+                    // Generic continuation — could be a math block, code
+                    // fence, additional paragraph, etc. Re-group by blank
+                    // line and classify each group the same way the
+                    // top-level GroupIntoBlocks does.
+                    body.AddRange(ParseLineGroups(indentedContinuation));
+                }
+            }
+            items.Add(new MdListItem(body));
             i = j;
         }
 

@@ -153,14 +153,15 @@ public static partial class MarkdownRenderer
 
         foreach (var item in list.Items)
         {
+            var bulletChar = nestLevel switch { 0 => "•", 1 => "◦", _ => "▪" };
             var marker = list.Ordered
                 ? $"{dimColor}{itemNum}.{rst}"
-                : $"{bulletColor}•{rst}";
+                : $"{bulletColor}{bulletChar}{rst}";
             itemNum++;
 
             // First block of the list item — usually a paragraph.
-            // Subsequent blocks (nested lists, etc.) get indented under
-            // the same item.
+            // Subsequent blocks (nested lists, math blocks, fences,
+            // additional paragraphs) get indented under the same item.
             bool firstBlock = true;
             foreach (var body in item.Body)
             {
@@ -175,6 +176,14 @@ public static partial class MarkdownRenderer
                 else if (body is MdList nestedList)
                 {
                     RenderMdList(nestedList, width, colorMode, theme, result, mathMode, mathFontPath, nestLevel + 1);
+                }
+                else
+                {
+                    // Math block, code fence, etc. — render via the main
+                    // block dispatcher; the indentation isn't preserved
+                    // perfectly here (the existing Markdig path has the
+                    // same approximation) but the content surfaces.
+                    RenderMdBlock(body, width, colorMode, theme, result, mathMode, mathFontPath);
                 }
                 firstBlock = false;
             }

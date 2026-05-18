@@ -62,6 +62,9 @@ symbols:
   - escape              # 21 terminal: `\X` where X is non-letter
   - star                # 22 terminal: `*`
   - star2               # 23 terminal: `**`
+  - star3               # 37 terminal: `***` — visitor produces an
+                        #             Emphasis(level=3) marker that
+                        #             renders as both bold and italic
   - lbracket            # 24 terminal: `[` (link / color opener)
   - rbracket            # 25 terminal: `]` (plain bracket close, NOT
                         #             followed by `(` or `{`)
@@ -107,6 +110,7 @@ productions:
       - { lhs: Span, rhs: [escape],                                          action: escapeSpan }
       - { lhs: Span, rhs: [star],                                            action: starMarkerSpan }
       - { lhs: Span, rhs: [star2],                                           action: star2MarkerSpan }
+      - { lhs: Span, rhs: [star3],                                           action: star3MarkerSpan }
       - { lhs: Span, rhs: [hard_break],                                      action: hardBreakSpan }
       - { lhs: Span, rhs: [soft_break],                                      action: softBreakSpan }
       - { lhs: Span, rhs: [lbracket, Spans, rbracket],                                  action: plainBracketSpan }
@@ -156,6 +160,7 @@ lexer:
     - { symbol: color_tail_open,  match: '\]\{',       push: color_body }
     - { symbol: lbracket,         match: '\[' }
     - { symbol: rbracket,         match: '\]' }
+    - { symbol: star3,            match: '\*\*\*' }
     - { symbol: star2,            match: '\*\*' }
     - { symbol: star,             match: '\*' }
     # Hard line break: two-plus trailing spaces then newline, or `\\` at

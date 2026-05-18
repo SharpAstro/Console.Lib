@@ -207,15 +207,17 @@ public sealed class MarkdownInlineSpikeTests
     }
 
     [Fact]
-    public void BackslashCommand_PreservedAsLiteralText()
+    public void BackslashCommand_SubstitutedToUnicode()
     {
-        // `\div` (backslash + letters) is NOT an escape — it's a LaTeX
-        // command name. The visitor passes it through as literal text;
-        // upstream Unicode substitution handles the known ones.
+        // `\div` (backslash + letters) is a known LaTeX command — the
+        // visitor's Visit(LiteralSpan) looks it up in the loose-latex
+        // table and emits the Unicode glyph directly. Mirrors what the
+        // Markdig path's SubstituteLooseLatex pass produces, with the
+        // difference that the LALR path applies the substitution at
+        // visit time rather than via a pre-pass over the source string
+        // (so things inside code spans and math states aren't touched).
         var spans = _visitor.Parse("see \\div here");
-        spans.OfType<MdLiteral>()
-            .Select(l => l.Text)
-            .ShouldContain(t => t.Contains("\\div"));
+        string.Concat(spans.OfType<MdLiteral>().Select(l => l.Text)).ShouldContain("÷");
     }
 
     // ── Emphasis (delimiter-stack pairing) ───────────────────────────

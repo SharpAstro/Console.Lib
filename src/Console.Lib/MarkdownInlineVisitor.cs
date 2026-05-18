@@ -198,7 +198,7 @@ internal sealed class MarkdownInlineVisitor : MarkdownInline.IVisitor<object>
         for (int i = 0; i < output.Count; i++)
         {
             if (output[i] is MdStarMarker m)
-                output[i] = new MdLiteral(m.Level == 2 ? "**" : "*");
+                output[i] = new MdLiteral(m.Level switch { 3 => "***", 2 => "**", _ => "*" });
         }
 
         return output;
@@ -220,8 +220,52 @@ internal sealed class MarkdownInlineVisitor : MarkdownInline.IVisitor<object>
 
     // ── Plain text ────────────────────────────────────────────────────
 
-    public object Visit(MarkdownInline.LiteralSpan node) =>
-        new MdLiteral((string)node.Arg0.Content);
+    public object Visit(MarkdownInline.LiteralSpan node)
+    {
+        var raw = (string)node.Arg0.Content;
+        // `\name` LaTeX commands in prose surface to the inline grammar
+        // as `text` tokens via the `\\[a-zA-Z]+` rule. The Markdig path
+        // ran SubstituteLooseLatex to convert known commands to Unicode
+        // (\div → ÷, \alpha → α, etc.) before parsing. Replicate that
+        // here at the literal-emission site so the LALR path produces
+        // the same output for prose-embedded LaTeX commands.
+        if (raw.Length >= 2 && raw[0] == '\\' && IsAsciiLetter(raw[1]))
+        {
+            var name = raw.Substring(1);
+            if (s_looseLatexCommands.TryGetValue(name, out var glyph))
+                return new MdLiteral(glyph);
+        }
+        return new MdLiteral(raw);
+    }
+
+    private static bool IsAsciiLetter(char c) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+
+    /// <summary>Mirror of <c>MarkdownRenderer.LooseLatexCommands</c> for
+    /// prose-embedded LaTeX commands (commands the model emits without
+    /// math-delimiter wrappers, like <c>v \ll c</c> or <c>131 \div 2</c>).
+    /// The Markdig path applies these via a regex pre-pass; the LALR
+    /// path applies them per-literal at visit time.</summary>
+    private static readonly Dictionary<string, string> s_looseLatexCommands = new(StringComparer.Ordinal)
+    {
+        ["div"] = "÷",
+        ["times"] = "×",
+        ["cdot"] = "·",
+        ["approx"] = "≈",
+        ["equiv"] = "≡",
+        ["to"] = "→",
+        ["rightarrow"] = "→",
+        ["leftarrow"] = "←",
+        ["infty"] = "∞",
+        ["partial"] = "∂",
+        ["nabla"] = "∇",
+        ["alpha"] = "α", ["beta"] = "β", ["gamma"] = "γ", ["delta"] = "δ",
+        ["epsilon"] = "ε", ["theta"] = "θ", ["lambda"] = "λ", ["mu"] = "μ",
+        ["pi"] = "π", ["sigma"] = "σ", ["phi"] = "φ", ["omega"] = "ω",
+        ["Gamma"] = "Γ", ["Delta"] = "Δ", ["Sigma"] = "Σ", ["Omega"] = "Ω",
+        ["quad"] = "  ", ["qquad"] = "    ",
+        ["dots"] = "…", ["ldots"] = "…", ["cdots"] = "⋯", ["vdots"] = "⋮", ["ddots"] = "⋱",
+        ["ll"] = "≪", ["gg"] = "≫",
+    };
 
     // ── Inline code (single-backtick fences) ─────────────────────────
 
@@ -244,19 +288,34 @@ internal sealed class MarkdownInlineVisitor : MarkdownInline.IVisitor<object>
 
     public object Visit(MarkdownInline.EscapeSpan node)
     {
-        // Lexer matched `\X` as the two-char escape token; the literal
-        // we want is just the second char. The grammar already excludes
-        // `\X+` letter-runs from this rule (those tokenise as text and
-        // pass through verbatim for the upstream Unicode substitution
-        // pass to handle).
+        // Lexer matched `\X` as the two-char escape token where X is a
+        // non-letter. Most of these are CommonMark escapes — `\X` → X
+        // literal — but four LaTeX thin-space macros (`\,` `\;` `\:`
+        // `\!`) need special handling: the math-benchmark LaTeX renders
+        // them as visible (or invisible) horizontal space, so render
+        // them as whitespace rather than literal punctuation.
         var raw = (string)node.Arg0.Content;
-        return new MdLiteral(raw.Length >= 2 ? raw.Substring(1) : raw);
+        if (raw.Length >= 2)
+        {
+            switch (raw[1])
+            {
+                case ',':
+                case ';':
+                case ':':
+                    return new MdLiteral(" ");
+                case '!':
+                    return new MdLiteral(string.Empty);
+            }
+            return new MdLiteral(raw.Substring(1));
+        }
+        return new MdLiteral(raw);
     }
 
     // ── Emphasis markers (paired by the post-pass) ───────────────────
 
     public object Visit(MarkdownInline.StarMarkerSpan node) => new MdStarMarker(Level: 1);
     public object Visit(MarkdownInline.Star2MarkerSpan node) => new MdStarMarker(Level: 2);
+    public object Visit(MarkdownInline.Star3MarkerSpan node) => new MdStarMarker(Level: 3);
 
     // ── Line breaks (soft / hard per CommonMark) ─────────────────────
 
@@ -335,12 +394,16 @@ internal sealed class MarkdownInlineVisitor : MarkdownInline.IVisitor<object>
     {
         // Source = the body alone (consistent with the other math forms,
         // where the wrapper delimiters are not part of `Source`). The
-        // sub-parser still has to see the full `\boxed{X}` so its own
-        // \boxed handler kicks in — we re-wrap just for that call.
+        // math grammar's lexer has no `\boxed` rule, so feeding the
+        // wrapped `\boxed{X}` directly would tokenise as cmd(\boxed) +
+        // group({X}), parse as juxtaposition, and render `\boxedX` with
+        // both halves visible. Instead we recursively parse the body
+        // alone and wrap the result in brackets — same convention the
+        // Markdig path's ExpandLatexMacros uses for `\boxed{}`.
         var body = (string)node.Arg1.Content;
         return new MdMathInline(
             Source: body,
-            Unicode: ParseMathUnicode("\\boxed{" + body + "}"),
+            Unicode: "[" + ParseMathUnicode(body) + "]",
             Builder: null);
     }
 
@@ -390,19 +453,15 @@ internal sealed class MarkdownInlineVisitor : MarkdownInline.IVisitor<object>
 
     private static string ParseMathUnicode(string source)
     {
-        if (string.IsNullOrWhiteSpace(source)) return string.Empty;
-        try
-        {
-            using var lexer = global::LALR.CC.LexicalGrammar.BytesLexer.FromString(source, s_mathLexerTable);
-            using var tokens = new global::LALR.CC.LexicalGrammar.SyncLATokenIterator(lexer);
-            var item = s_unicodeParser.ParseInput(tokens, debugger: null);
-            if (item.IsError) return source;
-            return (item.Content as string) ?? source;
-        }
-        catch
-        {
-            return source;
-        }
+        // Delegate to the existing math-rendering pipeline in
+        // MarkdownRenderer.RenderMathUnicode — it does the full
+        // ExpandLatexMacros pre-pass (`\text{}`, `\boxed{}`,
+        // `\begin{...}\end{...}`, backslash-escape resolution,
+        // unsafe-byte placeholder mapping) plus the LaTeX grammar
+        // parse + Unicode visitor. Duplicating that here would mean
+        // re-implementing the macro-expansion logic in the inline
+        // visitor; delegating keeps a single source of truth.
+        return MarkdownRenderer.RenderMathUnicode(source);
     }
 
     // ── Parser construction ───────────────────────────────────────────
