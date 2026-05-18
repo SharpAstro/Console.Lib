@@ -33,15 +33,20 @@ public static class MarkdownRenderer
     /// <summary>
     /// Markdig pipeline with pipe-table, color-inline, and math (dollar-sign
     /// delimited) support enabled. Inline <c>$x$</c> and display <c>$$x$$</c>
-    /// produce <see cref="MathInline"/> / <see cref="MathBlock"/> AST nodes;
-    /// LaTeX-style <c>\(...\)</c> and <c>\[...\]</c> wrappers are converted
-    /// to dollar-sign form in <see cref="PreProcessLatexWrappers"/> before
-    /// parsing so Markdig classifies them too.
+    /// produce <see cref="MathInline"/> / <see cref="MathBlock"/> AST nodes
+    /// via Markdig's builtin <c>UseMathematics()</c>.
+    /// <see cref="LatexBackslashInlineExtension"/> handles <c>\(...\)</c> and
+    /// <c>\boxed{...}</c> as inline math during parse (no preprocessing
+    /// required). The block-level <c>\[...\]</c> form is still rewritten to
+    /// <c>$$...$$</c> in <see cref="PreProcessLatexWrappers"/> because the
+    /// inline parser can't promote block math; a dedicated block parser
+    /// would replace that last regex.
     /// </summary>
     private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
         .UsePipeTables()
         .UseColorInlines()
         .UseMathematics()
+        .UseLatexBackslashInline()
         .Build();
 
     /// <summary>
@@ -113,12 +118,12 @@ public static class MarkdownRenderer
     }
 
     /// <summary>
-    /// Rewrites LaTeX-style math wrappers (<c>\(...\)</c> and <c>\[...\]</c>)
-    /// into Markdig's dollar-sign form (<c>$...$</c> and <c>$$...$$</c>) so
-    /// the UseMathematics() extension picks them up as MathInline/MathBlock.
-    /// Anything that fails to match is left untouched, which means a stray
-    /// unmatched <c>\(</c> just renders as literal text — same as Markdig's
-    /// usual behavior for malformed inlines.
+    /// Block-level <c>\[X\]</c> still needs a textual rewrite to <c>$$X$$</c>
+    /// because Markdig's <c>MathBlockParser</c> opens on a single character
+    /// and the inline-level <see cref="LatexBackslashInlineParser"/> can't
+    /// promote a paragraph to a block. Inline <c>\(...\)</c> and the bare
+    /// <c>\boxed{...}</c> form are handled by the inline parser during
+    /// parse, so they no longer need preprocessing.
     ///
     /// Then substitutes a curated set of common LaTeX math commands
     /// (<c>\div</c>, <c>\times</c>, <c>\approx</c>, …) with their Unicode
@@ -132,17 +137,27 @@ public static class MarkdownRenderer
     /// </summary>
     private static string PreProcessLatexWrappers(string markdown)
     {
-        // Display first (longer delimiter) so it wins over inline on `\[...\]`.
         markdown = Regex.Replace(markdown, @"\\\[([\s\S]*?)\\\]", "$$$$$1$$$$");
-        markdown = Regex.Replace(markdown, @"\\\(([\s\S]*?)\\\)", "$$$1$$");
         return SubstituteLooseLatexOutsideMath(markdown);
     }
 
+
     /// <summary>
     /// Walks <paramref name="markdown"/> alternating between prose and math
-    /// (<c>$…$</c> / <c>$$…$$</c>) spans, applying <see cref="SubstituteLooseLatex"/>
-    /// only to the prose halves. Math spans are passed through untouched so
-    /// the math renderer's command lookup still sees the original tokens.
+    /// spans, applying <see cref="SubstituteLooseLatex"/> only to the prose
+    /// halves. Math spans are passed through untouched so the math renderer's
+    /// command lookup still sees the original <c>\name</c> tokens.
+    ///
+    /// <para>Four math-span shapes are recognised: <c>$…$</c>, <c>$$…$$</c>,
+    /// <c>\(…\)</c>, and <c>\[…\]</c>. The LaTeX backslash forms were added
+    /// when <see cref="LatexBackslashInlineParser"/> took over their parse
+    /// — previously they were rewritten to <c>$…$</c> upfront so the
+    /// <c>$</c>-only scan caught them by accident; now they reach Markdig
+    /// intact, so this scan has to know them explicitly. Without that, a
+    /// loose <c>\ll</c> inside <c>\( v \ll c \)</c> was substituted to <c>≪</c>
+    /// in the prose pass, then the math grammar saw the Unicode glyph as
+    /// an opaque atom, dropped surrounding spaces via juxtaposition, and
+    /// rendered <c>v≪c</c> instead of <c>v ≪ c</c>.</para>
     /// </summary>
     private static string SubstituteLooseLatexOutsideMath(string markdown)
     {
@@ -150,27 +165,48 @@ public static class MarkdownRenderer
         int i = 0;
         while (i < markdown.Length)
         {
-            int dollar = markdown.IndexOf('$', i);
-            if (dollar < 0)
+            // Find the next math-span opener of any flavour. The opener is
+            // either `$`, `\(`, or `\[`.
+            int next = -1;
+            string? closer = null;
+            int openerLen = 0;
+            for (int j = i; j < markdown.Length; j++)
+            {
+                char c = markdown[j];
+                if (c == '$')
+                {
+                    bool isDouble = j + 1 < markdown.Length && markdown[j + 1] == '$';
+                    closer = isDouble ? "$$" : "$";
+                    openerLen = closer.Length;
+                    next = j;
+                    break;
+                }
+                if (c == '\\' && j + 1 < markdown.Length)
+                {
+                    char n = markdown[j + 1];
+                    if (n == '(') { closer = "\\)"; openerLen = 2; next = j; break; }
+                    if (n == '[') { closer = "\\]"; openerLen = 2; next = j; break; }
+                }
+            }
+
+            if (next < 0)
             {
                 sb.Append(SubstituteLooseLatex(markdown.AsSpan(i)));
                 break;
             }
-            if (dollar > i)
-                sb.Append(SubstituteLooseLatex(markdown.AsSpan(i, dollar - i)));
+            if (next > i)
+                sb.Append(SubstituteLooseLatex(markdown.AsSpan(i, next - i)));
 
-            bool isDouble = dollar + 1 < markdown.Length && markdown[dollar + 1] == '$';
-            var closer = isDouble ? "$$" : "$";
-            int endSearch = dollar + closer.Length;
-            int close = markdown.IndexOf(closer, endSearch, StringComparison.Ordinal);
+            int endSearch = next + openerLen;
+            int close = markdown.IndexOf(closer!, endSearch, StringComparison.Ordinal);
             if (close < 0)
             {
                 // Unterminated math — pass the rest through unchanged, matches
                 // Markdig's behaviour for malformed inlines.
-                sb.Append(markdown, dollar, markdown.Length - dollar);
+                sb.Append(markdown, next, markdown.Length - next);
                 break;
             }
-            sb.Append(markdown, dollar, close + closer.Length - dollar);
+            sb.Append(markdown, next, close + closer!.Length - next);
             i = close + closer.Length;
         }
         return sb.ToString();

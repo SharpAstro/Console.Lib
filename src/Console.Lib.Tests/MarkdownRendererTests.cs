@@ -543,6 +543,96 @@ public sealed class MarkdownRendererTests
         string.Join("", lines).ShouldContain("x²");
     }
 
+    // ── Loose-Unicode boundary scan respects LaTeX backslash math ────────
+
+    [Fact]
+    public void LooseLatex_LlInsideLatexParen_RendersWithSpaces()
+    {
+        // Regression: when \(..\) was rewritten to $..$ in the preprocessing
+        // pass, SubstituteLooseLatexOutsideMath caught the resulting $..$
+        // boundary and left \ll alone, letting the math grammar tokenise it
+        // as `rel` and emit `v ≪ c` with proper spaces. After Path 1 moved
+        // \(..\) handling into LatexBackslashInlineParser, the bare \(..\)
+        // form was no longer being detected as math by the prose-substitution
+        // scan, so `\ll` got substituted to `≪` upstream and the math grammar
+        // saw the bare Unicode glyph, dropped surrounding spaces via the
+        // juxtaposition rule, and rendered `v≪c`.
+        var lines = MarkdownRenderer.RenderLines("Test: \\( v \\ll c \\) end.", 80, ColorMode.None);
+        string.Join("", lines).ShouldContain(" ≪ ");
+    }
+
+    [Fact]
+    public void LooseLatex_DivInsideLatexBracket_NotSubstitutedInProse()
+    {
+        // The \[..\] form should NOT have its body substituted by the
+        // prose-Unicode pass — the math grammar owns it. We only verify the
+        // body isn't being double-handled, not the final spacing (that's a
+        // separate concern: the latex grammar needs `\div` added to its
+        // `rel` rules to get the same `Visit(Rel)`-style spaced rendering
+        // that `\ll` and `\approx` get; currently it falls through `cmd`
+        // and juxtaposes without spaces).
+        var lines = MarkdownRenderer.RenderLines("\\[ a \\div b \\]", 80, ColorMode.None);
+        string.Join("", lines).ShouldContain("÷");
+        // Either spaced (after the future latex-grammar fix) or unspaced
+        // (current behaviour) — what we explicitly DON'T want is the raw
+        // `\div` to survive into the output.
+        string.Join("", lines).ShouldNotContain("\\div");
+    }
+
+    // ── Bare \boxed{} (math-benchmark final-answer convention) ───────────
+
+    [Fact]
+    public void BareBoxed_OutsideMathDelimiters_RendersAsMath()
+    {
+        // Qwen-Math / DeepSeek-R1-style "final answer" emission: \boxed{...}
+        // sits in prose with no $$/\[/$/\( wrapper. Renderer must still treat
+        // it as math, otherwise the literal "\boxed{...}" leaks into the page.
+        var md = "Energy: \\boxed{E = mc^2 + \\frac{1}{2}mv^2}";
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.None);
+        var joined = string.Join("", lines);
+        joined.ShouldNotContain("\\boxed");
+        joined.ShouldContain("Energy:");
+        joined.ShouldContain("mc²");
+    }
+
+    [Fact]
+    public void BareBoxed_NestedBraces_BalancesCorrectly()
+    {
+        // The body has a nested \frac{...}{...} — a non-greedy regex would
+        // stop at the first '}' and leave "}mv^2}" stranded as prose. The
+        // balanced-brace scanner has to walk the whole body.
+        var md = "Result: \\boxed{\\frac{1}{2}mv^2}";
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.None);
+        var joined = string.Join("", lines);
+        joined.ShouldNotContain("\\boxed");
+        joined.ShouldNotContain("\\frac");
+        joined.ShouldNotContain("}mv");
+    }
+
+    [Fact]
+    public void BareBoxed_InsideExistingMathSpan_NotDoubleWrapped()
+    {
+        // A \boxed{} already inside $$...$$ must be left alone — the math
+        // pipeline's own handler renders the body. Double-wrapping with $
+        // would break the dollar-balanced parse.
+        var md = "$$\\boxed{x^2}$$";
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.None);
+        string.Join("", lines).ShouldNotContain("\\boxed");
+    }
+
+    [Fact]
+    public void BareBoxed_PreservesProseAroundIt()
+    {
+        // The surrounding sentence text must survive the wrap. Pre-wrap
+        // prose, the boxed math, post-wrap prose — all three regions
+        // intact.
+        var md = "Before \\boxed{x} after.";
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.None);
+        var joined = string.Join("", lines);
+        joined.ShouldContain("Before");
+        joined.ShouldContain("after.");
+    }
+
     // ── Real-world model output patterns ─────────────────────────────────
 
     [Fact]
