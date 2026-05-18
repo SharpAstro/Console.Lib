@@ -1,19 +1,74 @@
 using System.Collections.Generic;
+using DIR.Lib;
 using DIR.Lib.MathLayout;
 
 namespace Console.Lib;
 
 /// <summary>
-/// Phase-A spike: skeleton AST for the LALR.CC-based markdown renderer.
-/// Replaces the Markdig <c>Inline</c> hierarchy that <see cref="MarkdownRenderer"/>'s
-/// switch statement currently walks. Block-level types (<c>MdBlock</c>) land
-/// in Phase C; this file is just enough for the inline-grammar spike to
-/// produce something a future renderer can walk.
-///
-/// <para>All types are <c>record</c>s for value-equality semantics — handy
+/// AST for the LALR.CC-based markdown renderer. Replaces the Markdig
+/// <c>Block</c> and <c>Inline</c> hierarchies that
+/// <see cref="MarkdownRenderer"/>'s switch statement currently walks.
+/// All types are <c>record</c>s for value-equality semantics — handy
 /// for AST diffing in tests, and the cost is negligible for read-mostly
-/// tree walks.</para>
+/// tree walks.
 /// </summary>
+public abstract record MdBlock;
+
+/// <summary>Default block type — prose. <see cref="Content"/> is the
+/// inline span list produced by <see cref="MarkdownInlineVisitor"/>
+/// from the paragraph's joined-line text.</summary>
+public sealed record MdParagraph(IReadOnlyList<MdInline> Content) : MdBlock;
+
+/// <summary>ATX-style heading (<c># H1</c> .. <c>###### H6</c>).
+/// <see cref="Level"/> is the number of leading <c>#</c> chars
+/// (1–6); <see cref="Content"/> is the inline content of the heading
+/// line after the marker.</summary>
+public sealed record MdHeading(int Level, IReadOnlyList<MdInline> Content) : MdBlock;
+
+/// <summary>Horizontal rule — <c>---</c> / <c>***</c> / <c>___</c>
+/// on its own line. Renders as a full-width separator.</summary>
+public sealed record MdThematicBreak : MdBlock;
+
+/// <summary>Fenced code block — content wrapped in
+/// ` ``` ` / ` ~~~ ` fences. <see cref="Lang"/> is the optional info
+/// string after the opener fence (e.g. <c>"csharp"</c>);
+/// <see cref="Lines"/> is the raw body lines with no further inline
+/// parsing.</summary>
+public sealed record MdCodeFence(string? Lang, IReadOnlyList<string> Lines) : MdBlock;
+
+/// <summary>Block-level math — <c>$$..$$</c> or <c>\[..\]</c> on its
+/// own paragraph. <see cref="Source"/> is the raw LaTeX body;
+/// <see cref="Unicode"/> is the Unicode rendering through
+/// <see cref="LatexUnicodeVisitor"/>; <see cref="Builder"/> is the
+/// deferred box-mode rasteriser produced by
+/// <see cref="BoxBuildingVisitor"/> (null in Unicode-only mode).</summary>
+public sealed record MdMathBlock(string Source, string Unicode, System.Func<BoxStyle, Box>? Builder) : MdBlock;
+
+/// <summary>Ordered or unordered list. <see cref="Ordered"/> is true
+/// for <c>1. 2. 3.</c> lists, false for <c>- + *</c> bullets.
+/// <see cref="OrderedStart"/> is the first ordered-list number when
+/// <see cref="Ordered"/> is true (used for renumber-starts), 0 otherwise.
+/// <see cref="Items"/> is the list-item block sequence.</summary>
+public sealed record MdList(bool Ordered, int OrderedStart, IReadOnlyList<MdListItem> Items) : MdBlock;
+
+/// <summary>One list item. <see cref="Body"/> is the item's content —
+/// usually a single <see cref="MdParagraph"/>, but can include
+/// nested blocks (sub-lists, code, etc.) for richly-structured items.</summary>
+public sealed record MdListItem(IReadOnlyList<MdBlock> Body);
+
+/// <summary>Pipe-table — header row + alignment row + body rows.
+/// <see cref="Headers"/> is the first-row cells; <see cref="Rows"/>
+/// is the body row cells (each cell parsed by the inline grammar);
+/// <see cref="Alignments"/> is per-column alignment derived from the
+/// separator row's <c>:---</c> / <c>:---:</c> / <c>---:</c> markers.</summary>
+public sealed record MdTable(
+    IReadOnlyList<IReadOnlyList<MdInline>> Headers,
+    IReadOnlyList<IReadOnlyList<IReadOnlyList<MdInline>>> Rows,
+    IReadOnlyList<MdTableAlignment> Alignments) : MdBlock;
+
+/// <summary>Per-column alignment for <see cref="MdTable"/>.</summary>
+public enum MdTableAlignment { Left, Center, Right }
+
 public abstract record MdInline;
 
 /// <summary>Plain text run. <see cref="Text"/> may contain whitespace and

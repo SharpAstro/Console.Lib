@@ -82,6 +82,7 @@
   <ItemGroup>
     <AdditionalFiles Include="grammars\latex.lalr.yaml" Link="latex.lalr.yaml" />
     <AdditionalFiles Include="grammars\markdown-inline.lalr.yaml" Link="markdown-inline.lalr.yaml" />
+    <AdditionalFiles Include="grammars\markdown-block.lalr.yaml" Link="markdown-block.lalr.yaml" />
   </ItemGroup>
 
   <ItemGroup>
