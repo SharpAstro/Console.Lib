@@ -116,14 +116,22 @@ internal sealed class LatexUnicodeVisitor : IVisitor<string>
         // Big operators
         ["sum"] = "∑", ["prod"] = "∏", ["int"] = "∫", ["oint"] = "∮",
         ["bigcup"] = "⋃", ["bigcap"] = "⋂",
-        // Constants and relation symbols
+        // Standalone-symbol constants (no operand-like surrounding spaces —
+        // they read as nouns or unary modifiers, not binary operators).
         ["infty"] = "∞", ["partial"] = "∂", ["nabla"] = "∇",
-        ["pm"] = "±", ["mp"] = "∓", ["to"] = "→",
-        ["leftarrow"] = "←", ["rightarrow"] = "→",
-        ["leq"] = "≤", ["geq"] = "≥", ["neq"] = "≠",
-        ["approx"] = "≈", ["equiv"] = "≡",
-        ["in"] = "∈", ["notin"] = "∉", ["subset"] = "⊂",
         ["cup"] = "∪", ["cap"] = "∩",
+        // Binary relations / arrows / set operators. The grammar treats these
+        // as plain `cmd` atoms (no dedicated production), so the Juxt visitor
+        // would otherwise concatenate them with their operands and produce
+        // "γ≈1" instead of "γ ≈ 1". Embed the surrounding spaces in the glyph
+        // string itself — Juxt then sees " ≈ " as the atom's text and the
+        // concat naturally gives the right typography. Leading/trailing space
+        // at expression edges is harmless (e.g. "f: A → B" reads fine).
+        ["pm"] = " ± ", ["mp"] = " ∓ ",
+        ["to"] = " → ", ["leftarrow"] = " ← ", ["rightarrow"] = " → ",
+        ["leq"] = " ≤ ", ["geq"] = " ≥ ", ["neq"] = " ≠ ",
+        ["approx"] = " ≈ ", ["equiv"] = " ≡ ",
+        ["in"] = " ∈ ", ["notin"] = " ∉ ", ["subset"] = " ⊂ ",
         // Arithmetic operators that the model often emits as commands inside
         // math (\cdot and \times are also lexer-aliased to '*' but the model
         // may end up here too).
@@ -135,8 +143,9 @@ internal sealed class LatexUnicodeVisitor : IVisitor<string>
         // specific forms.
         ["dots"] = "…", ["ldots"] = "…", ["cdots"] = "⋯",
         ["vdots"] = "⋮", ["ddots"] = "⋱",
-        // Much-less-than / much-greater-than relations.
-        ["ll"] = "≪", ["gg"] = "≫",
+        // Much-less-than / much-greater-than relations — same surrounding-
+        // space treatment as the other binary relations above.
+        ["ll"] = " ≪ ", ["gg"] = " ≫ ",
     };
 
     private static readonly Dictionary<char, char> Superscripts = new()
