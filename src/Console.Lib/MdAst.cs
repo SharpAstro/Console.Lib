@@ -41,3 +41,19 @@ public sealed record MdMathInline(
 /// CommonMark's multi-backtick fence (which lets single backticks appear
 /// inside the body) lands in Phase B-extension.</summary>
 public sealed record MdCodeInline(string Content) : MdInline;
+
+/// <summary>Emphasis (italic / bold / bold-italic). <see cref="Level"/>
+/// is 1 for <c>*italic*</c>, 2 for <c>**bold**</c>, 3 for
+/// <c>***bold-italic***</c> (the pairing pass collapses adjacent
+/// markers). The renderer maps level to VT bold + italic attributes.</summary>
+public sealed record MdEmphasis(int Level, System.Collections.Generic.IReadOnlyList<MdInline> Content) : MdInline;
+
+/// <summary>Transient emphasis-delimiter marker. Emitted by the grammar
+/// for each `*` or `**` token; replaced by <see cref="MdEmphasis"/>
+/// nodes during <see cref="MarkdownInlineVisitor.Parse"/>'s post-pass
+/// pairing step. Any markers that survive the pairing (unmatched
+/// delimiters like the `*` in <c>2 * 3 = 6</c>) are rewritten back to
+/// <see cref="MdLiteral"/> so the rendered output shows the original
+/// text rather than a stray placeholder. Should not normally appear
+/// in the final span list returned to consumers.</summary>
+internal sealed record MdStarMarker(int Level) : MdInline;

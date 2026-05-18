@@ -57,6 +57,11 @@ symbols:
                  #             backslash-escape pair, inside a LaTeX math state
   - backtick     # 19 terminal: `` ` ``
   - codebody     # 20 terminal: body of `` `..` `` inline code span
+  - escape       # 21 terminal: `\X` where X is a non-letter — visitor
+                 #              strips the leading backslash and emits X
+                 #              as literal text
+  - star         # 22 terminal: single `*`  — emphasis marker (italic)
+  - star2        # 23 terminal: double `**` — emphasis marker (bold)
 
 productions:
   - derivation: none
@@ -83,6 +88,9 @@ productions:
       - { lhs: Span, rhs: [lbracket, LatexBody, rbracket],   action: mathBracketSpan }
       - { lhs: Span, rhs: [lboxed,   BoxedBody, rbrace],     action: mathBoxedSpan }
       - { lhs: Span, rhs: [backtick, codebody,  backtick],   action: codeSpan }
+      - { lhs: Span, rhs: [escape],                          action: escapeSpan }
+      - { lhs: Span, rhs: [star],                            action: starMarkerSpan }
+      - { lhs: Span, rhs: [star2],                           action: star2MarkerSpan }
 
   # LaTeX body = list of body fragments. Each fragment is either a
   # run of non-backslash bytes or a `\X` pair (backslash + any byte
@@ -135,16 +143,24 @@ lexer:
     - { symbol: lparen,   match: '\\\(',       push: math_paren }
     - { symbol: lbracket, match: '\\\[',       push: math_bracket }
     - { symbol: backtick, match: '`',          push: code_inline }
-    # Everything else is text. Three patterns cover the alphabet:
-    #   1. Runs of non-special bytes (`, $, \ are special; everything
-    #      else flows through unchanged).
-    #   2. A bare backslash followed by a non-letter byte (an escape
-    #      sequence like \*, \_, \\ — the visitor strips the backslash).
-    #   3. A bare backslash followed by letters (`\name` command —
-    #      visitor passes through as literal text, or upstream loose
-    #      substitution may have already converted it).
-    - { symbol: text,     match: '[^\\$`]+' }
-    - { symbol: text,     match: '\\[^a-zA-Z]' }
+    # Emphasis: `**` and `*`. Longest-match resolves `**` before bare `*`
+    # (2 chars vs 1). Three-or-more runs are tokenised as `**`-then-`*`
+    # by repeated longest-match — that matches CommonMark's convention
+    # where `***bold-italic***` is bold around italic (the visitor's
+    # pairing pass folds adjacent markers).
+    - { symbol: star2,    match: '\*\*' }
+    - { symbol: star,     match: '\*' }
+    # Everything else is text or a backslash-escape:
+    #   1. Runs of non-special bytes.
+    #   2. `\X` for non-letter X — emitted as a distinct `escape` token
+    #      so the visitor can strip the leading backslash (CommonMark
+    #      escape syntax — `\*` renders as literal `*`).
+    #   3. `\name` commands — visitor passes through as literal text.
+    #      Upstream loose substitution may convert known ones to Unicode
+    #      when the inline grammar runs inside a wider pipeline; unknown
+    #      ones surface as literal text rather than disappearing.
+    - { symbol: text,     match: '[^\\$`*]+' }
+    - { symbol: escape,   match: '\\[^a-zA-Z]' }
     - { symbol: text,     match: '\\[a-zA-Z]+' }
 
   math_dollar:

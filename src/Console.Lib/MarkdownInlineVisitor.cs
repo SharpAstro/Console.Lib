@@ -26,8 +26,9 @@ namespace Console.Lib;
 internal sealed class MarkdownInlineVisitor : MarkdownInline.IVisitor<object>
 {
     /// <summary>Parses an inline-only markdown string and returns the
-    /// produced span list. Returns an empty list on parse error so the
-    /// caller can fall through to a literal-text render of the source.</summary>
+    /// produced span list with emphasis already paired up. Returns an
+    /// empty list on parse error so the caller can fall through to a
+    /// literal-text render of the source.</summary>
     public IReadOnlyList<MdInline> Parse(string source)
     {
         if (string.IsNullOrEmpty(source)) return Array.Empty<MdInline>();
@@ -38,12 +39,89 @@ internal sealed class MarkdownInlineVisitor : MarkdownInline.IVisitor<object>
             using var tokens = new global::LALR.CC.LexicalGrammar.SyncLATokenIterator(lexer);
             var result = s_parser.ParseInput(tokens, debugger: null);
             if (result.IsError) return Array.Empty<MdInline>();
-            return result.Content as IReadOnlyList<MdInline> ?? Array.Empty<MdInline>();
+            var flat = result.Content as IReadOnlyList<MdInline> ?? Array.Empty<MdInline>();
+            return PairEmphasis(flat);
         }
         catch (global::LALR.CC.ParseErrorException)
         {
             return Array.Empty<MdInline>();
         }
+    }
+
+    /// <summary>
+    /// Post-pass over the flat span list: pairs <see cref="MdStarMarker"/>
+    /// tokens into <see cref="MdEmphasis"/> nodes via a delimiter stack
+    /// (the same approach Markdig uses). Unmatched markers are rewritten
+    /// back to literal text so the rendered output shows the original
+    /// `*` or `**` — matching CommonMark's behaviour for unbalanced
+    /// delimiters (a stray `*` in <c>2 * 3 = 6</c> stays literal).
+    ///
+    /// <para><b>Pairing rule:</b> scan left to right. On each marker,
+    /// search backwards in the open-marker stack for a same-level match.
+    /// If found, collapse the range between them into an
+    /// <see cref="MdEmphasis"/>; otherwise push the marker as an
+    /// open candidate. CommonMark's flanking rules (which `*` left/right
+    /// flanks based on surrounding whitespace + punctuation) are not yet
+    /// applied — for typical LLM output the simpler "match nearest
+    /// same-level opener" is close enough.</para>
+    /// </summary>
+    private static IReadOnlyList<MdInline> PairEmphasis(IReadOnlyList<MdInline> flat)
+    {
+        // Fast path: nothing to pair.
+        var anyMarker = false;
+        for (int i = 0; i < flat.Count && !anyMarker; i++)
+            anyMarker = flat[i] is MdStarMarker;
+        if (!anyMarker) return flat;
+
+        // Output buffer + stack of (index-in-output, level) for open markers.
+        var output = new List<MdInline>(flat.Count);
+        var openStack = new List<(int Index, int Level)>();
+
+        foreach (var span in flat)
+        {
+            if (span is not MdStarMarker marker)
+            {
+                output.Add(span);
+                continue;
+            }
+
+            // Look for matching opener: same level, nearest first.
+            int matchIdx = -1;
+            for (int j = openStack.Count - 1; j >= 0; j--)
+            {
+                if (openStack[j].Level == marker.Level) { matchIdx = j; break; }
+            }
+
+            if (matchIdx < 0)
+            {
+                // No matching opener — record as potential opener.
+                openStack.Add((output.Count, marker.Level));
+                output.Add(marker);
+                continue;
+            }
+
+            // Collapse: drop any intervening unpaired openers (they didn't
+            // find a match, so they revert to literal in the rewrite step
+            // below) and wrap the content between opener and this marker
+            // in an MdEmphasis.
+            int openerOutputIdx = openStack[matchIdx].Index;
+            openStack.RemoveRange(matchIdx, openStack.Count - matchIdx);
+            var content = new List<MdInline>(output.Count - openerOutputIdx - 1);
+            for (int k = openerOutputIdx + 1; k < output.Count; k++)
+                content.Add(output[k]);
+            output.RemoveRange(openerOutputIdx, output.Count - openerOutputIdx);
+            output.Add(new MdEmphasis(marker.Level, content));
+        }
+
+        // Rewrite any markers that survived (unpaired delimiters) back
+        // to literal text so the renderer shows the original characters.
+        for (int i = 0; i < output.Count; i++)
+        {
+            if (output[i] is MdStarMarker m)
+                output[i] = new MdLiteral(m.Level == 2 ? "**" : "*");
+        }
+
+        return output;
     }
 
     // ── Span-list assembly (epsilon-base + cons recursion) ────────────
@@ -69,6 +147,24 @@ internal sealed class MarkdownInlineVisitor : MarkdownInline.IVisitor<object>
 
     public object Visit(MarkdownInline.CodeSpan node) =>
         new MdCodeInline((string)node.Arg1.Content);
+
+    // ── Backslash escape (\* → *, \_ → _, \\ → \, …) ─────────────────
+
+    public object Visit(MarkdownInline.EscapeSpan node)
+    {
+        // Lexer matched `\X` as the two-char escape token; the literal
+        // we want is just the second char. The grammar already excludes
+        // `\X+` letter-runs from this rule (those tokenise as text and
+        // pass through verbatim for the upstream Unicode substitution
+        // pass to handle).
+        var raw = (string)node.Arg0.Content;
+        return new MdLiteral(raw.Length >= 2 ? raw.Substring(1) : raw);
+    }
+
+    // ── Emphasis markers (paired by the post-pass) ───────────────────
+
+    public object Visit(MarkdownInline.StarMarkerSpan node) => new MdStarMarker(Level: 1);
+    public object Visit(MarkdownInline.Star2MarkerSpan node) => new MdStarMarker(Level: 2);
 
     // ── Math: dollar forms ($..$, $$..$$) ─────────────────────────────
 

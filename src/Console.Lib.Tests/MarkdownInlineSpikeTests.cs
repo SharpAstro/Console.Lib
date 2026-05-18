@@ -166,6 +166,115 @@ public sealed class MarkdownInlineSpikeTests
         _visitor.Parse("`` foo").ShouldBeEmpty();
     }
 
+    // ── Backslash escapes ────────────────────────────────────────────
+
+    [Fact]
+    public void BackslashEscape_StripsLeadingBackslash()
+    {
+        // `\*` in markdown source means "literal *" — the rendered text
+        // should be just `*`. The grammar emits `\*` as an `escape`
+        // terminal and the visitor strips the backslash.
+        var spans = _visitor.Parse("a \\* b");
+        spans.Count.ShouldBe(3);
+        spans[0].ShouldBeOfType<MdLiteral>().Text.ShouldBe("a ");
+        spans[1].ShouldBeOfType<MdLiteral>().Text.ShouldBe("*");
+        spans[2].ShouldBeOfType<MdLiteral>().Text.ShouldBe(" b");
+    }
+
+    [Fact]
+    public void BackslashEscape_MultipleEscapes()
+    {
+        // `\\` → `\`, `\_` → `_`, `\{` → `{` — every non-letter follower
+        // is a literal escape per CommonMark.
+        var literals = _visitor.Parse("\\\\ \\_ \\{")
+            .OfType<MdLiteral>()
+            .Select(l => l.Text)
+            .ToArray();
+        // Joined: `\ _ {` — the literal of each escape interleaved with
+        // the literal space runs.
+        string.Concat(literals).ShouldBe("\\ _ {");
+    }
+
+    [Fact]
+    public void BackslashCommand_PreservedAsLiteralText()
+    {
+        // `\div` (backslash + letters) is NOT an escape — it's a LaTeX
+        // command name. The visitor passes it through as literal text;
+        // upstream Unicode substitution handles the known ones.
+        var spans = _visitor.Parse("see \\div here");
+        spans.OfType<MdLiteral>()
+            .Select(l => l.Text)
+            .ShouldContain(t => t.Contains("\\div"));
+    }
+
+    // ── Emphasis (delimiter-stack pairing) ───────────────────────────
+
+    [Fact]
+    public void SingleStar_ProducesItalic()
+    {
+        var spans = _visitor.Parse("an *italic* word");
+        spans.Count.ShouldBe(3);
+        spans[0].ShouldBeOfType<MdLiteral>().Text.ShouldBe("an ");
+        var em = spans[1].ShouldBeOfType<MdEmphasis>();
+        em.Level.ShouldBe(1);
+        em.Content.Count.ShouldBe(1);
+        em.Content[0].ShouldBeOfType<MdLiteral>().Text.ShouldBe("italic");
+        spans[2].ShouldBeOfType<MdLiteral>().Text.ShouldBe(" word");
+    }
+
+    [Fact]
+    public void DoubleStar_ProducesBold()
+    {
+        var spans = _visitor.Parse("a **bold** word");
+        var em = spans.OfType<MdEmphasis>().Single();
+        em.Level.ShouldBe(2);
+        em.Content[0].ShouldBeOfType<MdLiteral>().Text.ShouldBe("bold");
+    }
+
+    [Fact]
+    public void NestedEmphasis_BoldContainsItalic()
+    {
+        // `**a *b* c**` → bold(a, italic(b), c). The pairing scan finds
+        // the inner `*` pair first, then the outer `**` pair wraps the
+        // result.
+        var spans = _visitor.Parse("**a *b* c**");
+        spans.Count.ShouldBe(1);
+        var bold = spans[0].ShouldBeOfType<MdEmphasis>();
+        bold.Level.ShouldBe(2);
+        bold.Content.Count.ShouldBe(3);
+        bold.Content[0].ShouldBeOfType<MdLiteral>().Text.ShouldBe("a ");
+        var italic = bold.Content[1].ShouldBeOfType<MdEmphasis>();
+        italic.Level.ShouldBe(1);
+        italic.Content[0].ShouldBeOfType<MdLiteral>().Text.ShouldBe("b");
+        bold.Content[2].ShouldBeOfType<MdLiteral>().Text.ShouldBe(" c");
+    }
+
+    [Fact]
+    public void UnmatchedStar_StaysLiteral()
+    {
+        // `2 * 3 = 6` has a lone `*` that doesn't pair. The post-pass
+        // rewrites it back to literal text so the rendered output
+        // shows the multiplication sign as intended. This is the
+        // pragmatic alternative to a strict grammar that would
+        // fail-and-fallback the entire paragraph.
+        var spans = _visitor.Parse("2 * 3 = 6");
+        spans.OfType<MdEmphasis>().ShouldBeEmpty();
+        // The literal sequence `2 ` + `*` + ` 3 = 6` makes it through.
+        string.Concat(spans.OfType<MdLiteral>().Select(l => l.Text)).ShouldBe("2 * 3 = 6");
+    }
+
+    [Fact]
+    public void StarThenDoubleStar_DontCrossPair()
+    {
+        // `*a **b* c**` — the inner `*` pair matches with the outer
+        // `*`, leaving the `**` markers unpaired. Loose pairing here
+        // is approximate; CommonMark's strict flanking rules would
+        // do better. Test documents what we DO produce: an italic
+        // span and dangling `**` text.
+        var spans = _visitor.Parse("*a **b* c**");
+        spans.OfType<MdEmphasis>().Single().Level.ShouldBe(1);
+    }
+
     // ── Failure modes ────────────────────────────────────────────────
 
     [Fact]
