@@ -1284,6 +1284,27 @@ public static partial class MarkdownRenderer
     internal static string NoItalicAttr(ColorMode mode) => mode == ColorMode.None ? "" : NoItalic;
     internal static string NoUnderlineAttr(ColorMode mode) => mode == ColorMode.None ? "" : NoUnderline;
 
+    /// <summary>
+    /// OSC 8 hyperlink sequences. Wrap a piece of rendered text so
+    /// supporting terminals (Windows Terminal, iTerm2, WezTerm, kitty,
+    /// mintty, GNOME Terminal, VS Code's integrated terminal, etc.)
+    /// turn it into a clickable hyperlink targeting <paramref name="url"/>.
+    /// Format is <c>\e]8;;URL\aTEXT\e]8;;\a</c> — BEL-terminated OSC
+    /// (the ST-terminated form <c>\e\\</c> is equivalent but BEL has
+    /// wider terminal support, including Windows Terminal &lt; 1.18).
+    /// </summary>
+    /// <returns>(opener, closer) pair. Empty strings if
+    /// <paramref name="mode"/> is <see cref="ColorMode.None"/> or
+    /// <paramref name="url"/> is empty — non-supporting terminals
+    /// typically swallow unknown OSC sequences silently but skipping
+    /// them outright in plain-text mode keeps the output free of
+    /// any control bytes.</returns>
+    internal static (string Open, string Close) Hyperlink(string? url, ColorMode mode)
+    {
+        if (mode == ColorMode.None || string.IsNullOrEmpty(url)) return ("", "");
+        return ($"\e]8;;{url}\a", "\e]8;;\a");
+    }
+
     // ── Word wrapping (ANSI-aware) ────────────────────────────────────
 
     /// <summary>

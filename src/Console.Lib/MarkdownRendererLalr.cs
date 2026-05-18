@@ -318,9 +318,20 @@ public static partial class MarkdownRenderer
                     {
                         var linkColor = Resolve(theme.Link, colorMode);
                         var dimColor = Resolve(theme.Dim, colorMode);
+                        // OSC 8 hyperlink wrap — turns the label into a
+                        // clickable target on supporting terminals
+                        // (Windows Terminal, iTerm2, WezTerm, kitty,
+                        // mintty, VS Code, GNOME). Non-supporting
+                        // terminals discard the OSC silently. The
+                        // `(url)` text after the label stays so the URL
+                        // is visible to readers + copy-pasteable from
+                        // terminals that don't render the hyperlink.
+                        var (hOpen, hClose) = Hyperlink(link.Url, colorMode);
+                        sb.Append(hOpen);
                         sb.Append($"{UnderlineAttr(colorMode)}{linkColor}");
                         RenderMdInlines(link.Text, sb, bold: false, italic: false, colorMode, theme);
                         sb.Append(rst);
+                        sb.Append(hClose);
                         if (!string.IsNullOrEmpty(link.Url))
                             sb.Append($"{dimColor} ({link.Url}){rst}");
                         if (bold) sb.Append(boldAttr);

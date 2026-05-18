@@ -83,7 +83,13 @@ public sealed class MarkdownRendererTests
     public void FormatInline_Link()
     {
         var result = MarkdownRenderer.FormatInline("[click](http://example.com)", ColorMode.Sgr16);
-        result.ShouldBe($"{Underline}{Cyan}click{Reset}{Dim} (http://example.com){Reset}");
+        // OSC 8 hyperlink wrap (`\e]8;;URL\a`) makes the label clickable
+        // on supporting terminals; the underline + colour give visual
+        // affordance for unsupporting terminals; the dim `(url)` after
+        // keeps the URL visible + copy-pasteable for plain-text dumps.
+        var oscOpen = "\e]8;;http://example.com\a";
+        var oscClose = "\e]8;;\a";
+        result.ShouldBe($"{oscOpen}{Underline}{Cyan}click{Reset}{oscClose}{Dim} (http://example.com){Reset}");
     }
 
     [Fact]
