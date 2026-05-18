@@ -60,6 +60,16 @@ public static class BoxRenderer
         switch (mode)
         {
             case BoxRenderMode.Sixel:
+                // Add a leading newline so the sixel image starts on its own
+                // fresh text row, with full clearance above. Without this,
+                // Windows Terminal's pixel-row-to-text-row alignment can clip
+                // the image's top row when it overlaps the preceding text
+                // row's bottom — most visible on letters with ascenders
+                // close to the box's top boundary (e.g. the bowl of `p` in
+                // "p ≈ mv"). Trailing newline below positions the cursor on
+                // the row after the image so subsequent text doesn't draw
+                // over it.
+                output.WriteLine();
                 output.Flush();
                 using (var stdout = System.Console.OpenStandardOutput())
                 {
