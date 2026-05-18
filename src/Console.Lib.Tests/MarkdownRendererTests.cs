@@ -689,6 +689,33 @@ public sealed class MarkdownRendererTests
     }
 
     [Fact]
+    public void Dots_RenderAsEllipsis_BothProseAndMath()
+    {
+        // Power-series and "and so on" lines in model output use \dots
+        // (and friends). Without explicit handling they fell through to
+        // literal "\dots" in the rendered output.
+        var prose = MarkdownRenderer.RenderLines("a + b + \\dots + z", 80, ColorMode.None);
+        string.Join("", prose).ShouldContain("…");
+        string.Join("", prose).ShouldNotContain("\\dots");
+
+        var math = MarkdownRenderer.RenderLines("$1 + 2 + \\dots + n$", 80, ColorMode.None);
+        string.Join("", math).ShouldContain("…");
+        string.Join("", math).ShouldNotContain("\\dots");
+    }
+
+    [Fact]
+    public void Ll_RendersAsUnicodeRelation_NotJuxtaposedCmd()
+    {
+        // The "for v \ll c" small-velocity expansion pattern. Without
+        // explicit handling the grammar's whitespace-discard collapses
+        // "v \ll c" → "v\llc" via juxtaposition of the cmd("\ll") atom.
+        var lines = MarkdownRenderer.RenderLines("for $v \\ll c$ the expansion is", 80, ColorMode.None);
+        var joined = string.Join("", lines);
+        joined.ShouldNotContain("\\ll");
+        joined.ShouldContain("≪"); // ≪
+    }
+
+    [Fact]
     public void MathRegion_LeavesCommandsAlone()
     {
         // Inside $…$ we must NOT prose-substitute \sum — the math renderer

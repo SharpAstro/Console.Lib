@@ -131,6 +131,12 @@ internal sealed class LatexUnicodeVisitor : IVisitor<string>
         // Spacing macros — render as plain spaces so juxtaposed atoms don't
         // run together when the model used them as visual separators.
         ["quad"] = "  ", ["qquad"] = "    ",
+        // Ellipsis variants — the catch-all \dots plus the orientation-
+        // specific forms.
+        ["dots"] = "…", ["ldots"] = "…", ["cdots"] = "⋯",
+        ["vdots"] = "⋮", ["ddots"] = "⋱",
+        // Much-less-than / much-greater-than relations.
+        ["ll"] = "≪", ["gg"] = "≫",
     };
 
     private static readonly Dictionary<char, char> Superscripts = new()

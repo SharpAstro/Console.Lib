@@ -182,6 +182,12 @@ internal sealed class BoxBuildingVisitor : IVisitor<Box>
         // invisible kerns rather than literal spaces — the layout system
         // already spaces atoms appropriately; just keep the glyph empty.
         ["quad"] = " ", ["qquad"] = "  ",
+        // Ellipsis variants — \dots is the catch-all model's default, the
+        // others pick a specific orientation.
+        ["dots"] = "…", ["ldots"] = "…", ["cdots"] = "⋯",
+        ["vdots"] = "⋮", ["ddots"] = "⋱",
+        // Much-less-than / much-greater-than relations.
+        ["ll"] = "≪", ["gg"] = "≫",
     };
 
     /// <summary>

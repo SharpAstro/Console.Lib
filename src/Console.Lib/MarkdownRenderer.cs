@@ -239,6 +239,22 @@ public static class MarkdownRenderer
         (@"\Omega",      "Ω"),
         (@"\quad",       "  "),
         (@"\qquad",      "    "),
+        // Ellipsis macros — \dots is the catch-all, the others pick a
+        // specific orientation. Falling through to literal "\dots" was the
+        // single most-common surface bug after the big rendering pass: any
+        // power-series or "and so on" line in the model output kept the
+        // raw command visible.
+        (@"\dots",       "…"),
+        (@"\ldots",      "…"),
+        (@"\cdots",      "⋯"),
+        (@"\vdots",      "⋮"),
+        (@"\ddots",      "⋱"),
+        // Much-less-than / much-greater-than. Used by the model in
+        // "small-velocity expansion" contexts ("for v \ll c") — without
+        // these the cmd-rule + juxt-rule collapses to "v\llc" once the
+        // grammar's whitespace-discard kicks in.
+        (@"\ll",         "≪"),
+        (@"\gg",         "≫"),
     ];
 
     /// <summary>
