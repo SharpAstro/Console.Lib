@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Markdown rendering demo / iteration harness. Pipes input (positional
+    args, a file, stdin, or one of the built-in samples) through
+    Console.Lib.MarkdownRenderer.RenderLines and writes the styled output
+    to stdout. Auto-detects the math rendering mode via DA1 the same way
+    consumer apps do, with `mode` as an explicit override.
+
+    Useful for iterating on the markdown grammar, the LaTeX sub-parser
+    integration, or the VT-styling pipeline without round-tripping a real
+    LLM each time. The built-in samples capture model-output patterns
+    that previously surfaced rendering bugs (the boxed{} final-answer
+    convention, fenced-code regressions, etc.) so regressions stay
+    reproducible on demand.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Examples.MarkdownConsole</RootNamespace>
+    <AssemblyName>Examples.MarkdownConsole</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- AOT-clean: Console.Lib + LALR.CC + DIR.Lib are all IsAotCompatible=true,
+         and the LALR.CC source generator pre-bakes the parse table so the
+         runtime regex/table-builder paths are unreachable in this image. -->
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Console.Lib\Console.Lib.csproj" />
+  </ItemGroup>
+
+</Project>
