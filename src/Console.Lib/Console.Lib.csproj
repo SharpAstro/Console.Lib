@@ -6,8 +6,8 @@
     <Nullable>enable</Nullable>
     <IsAotCompatible>true</IsAotCompatible>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <VersionPrefix>2.14.0</VersionPrefix>
-    <AssemblyVersion>2.14.0.0</AssemblyVersion>
+    <VersionPrefix>2.15.0</VersionPrefix>
+    <AssemblyVersion>2.15.0.0</AssemblyVersion>
     <PackageID>Console.Lib</PackageID>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
@@ -86,7 +86,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Markdig" />
     <PackageReference Include="Microsoft.SourceLink.GitHub">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
