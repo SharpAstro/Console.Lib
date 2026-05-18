@@ -95,7 +95,7 @@ internal static class Program
                     continue;
                 }
 
-                var box = (Box)result.Content;
+                var box = visitor.Build(result.Content);
                 CL.BoxRenderer.Render(box, visitor.Style, resolvedMode, SysConsole.Out);
             }
             catch (Exception ex)

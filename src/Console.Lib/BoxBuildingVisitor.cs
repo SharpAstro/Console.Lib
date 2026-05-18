@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using LALR.CC.LexicalGrammar;
 using DIR.Lib;
@@ -7,29 +8,45 @@ using static Console.Lib.Latex;
 namespace Console.Lib;
 
 /// <summary>
-/// IVisitor&lt;Box&gt; implementation: maps each Latex AST record to a TeX-lite
-/// Box composition. Pairs with <see cref="BoxRenderer"/>, which paints the
-/// returned root Box into an RGBA buffer for sixel/sextant/half-block output.
+/// IVisitor implementation: maps each Latex AST record to a deferred
+/// <see cref="Box"/> builder — a <c>Func&lt;BoxStyle, Box&gt;</c> that materialises
+/// the subtree at whatever style its caller chooses. Pairs with
+/// <see cref="BoxRenderer"/>, which paints the materialised Box into an RGBA
+/// buffer for sixel/sextant/half-block output.
 ///
-/// Atoms (Number / Variable / Command) build a <see cref="GlyphBox"/> at the
-/// configured base font size. Composites (Add / Sub / Eq / Mul / Div / Juxt)
-/// combine children with <see cref="HBox"/> + small inter-token kerns.
-/// Scripts use <see cref="SupSubBox"/> with the script font shrunk via
-/// <see cref="BoxStyle.Smaller"/>. Frac and Sqrt build the obvious dedicated
-/// boxes.
+/// <para><b>Why deferred:</b> the visitor runs bottom-up at parse time, so when
+/// <see cref="Visit(Sup)"/> finally sees an exponent its sub-tree was already
+/// materialised by the parent style. To honour TeX's script-size shrink we need
+/// the entire exponent — atom *or* composite — rebuilt at <see cref="BoxStyle.Smaller"/>.
+/// Returning thunks instead of boxes pushes construction past the parse so
+/// <see cref="Visit(Sup)"/> / <see cref="Visit(Subscript)"/> can invoke the
+/// child builder with the smaller style; every nested <c>new GlyphBox</c>,
+/// kern, <see cref="FracBox"/>, <see cref="BracketBox"/>, etc. inside the
+/// closure then picks up the smaller size automatically.</para>
 ///
-/// Because the AST records carry <see cref="Item"/> children and the visitor
-/// chain lets us return any T from each Visit overload, we just propagate
-/// already-built Box subtrees up the tree via <c>Item.Content</c>. Atoms look
-/// at <c>Arg0.Content</c> as a string (the raw lexer-matched bytes).
+/// <para>Atoms (Number / Variable / Command) build a <see cref="GlyphBox"/> at
+/// the supplied style. Composites (Add / Sub / Eq / Mul / Div / Juxt) combine
+/// child builders with <see cref="HBox"/> + small inter-token kerns sized off
+/// the supplied style. Scripts use <see cref="SupSubBox"/> with the script
+/// builder invoked at <c>style.Smaller()</c>. <see cref="Frac"/>, <see cref="Sqrt"/>,
+/// brackets, and the big-operator scaffold build the obvious dedicated boxes.</para>
 ///
-/// Lifted from the LALR.CC LatexConsole example so Console.Lib can render
+/// <para>Because the AST records carry <see cref="Item"/> children and the
+/// visitor lets us return any T from each Visit overload, the parser threads
+/// already-built sub-builders up the tree via <c>Item.Content</c>. Atoms read
+/// the raw lexer-matched bytes from <c>Arg0.Content</c>.</para>
+///
+/// <para>Lifted from the LALR.CC LatexConsole example so Console.Lib can render
 /// display math (Markdig <c>MathBlock</c> nodes) inline with the rest of a
 /// rendered markdown document. The example app now lives in this repo under
-/// examples/LatexConsole/ and just demonstrates the renderer in isolation.
+/// examples/LatexConsole/ and just demonstrates the renderer in isolation.</para>
 /// </summary>
-internal sealed class BoxBuildingVisitor : IVisitor<Box>
+internal sealed class BoxBuildingVisitor : IVisitor<Func<BoxStyle, Box>>
 {
+    /// <summary>Default style — applied when an external caller materialises
+    /// the top-level builder. Scripts re-enter their builders at
+    /// <c>Style.Smaller()</c>; that smaller value flows through the closure
+    /// chain rather than being stored here.</summary>
     public BoxStyle Style { get; }
 
     public BoxBuildingVisitor(BoxStyle style)
@@ -37,19 +54,27 @@ internal sealed class BoxBuildingVisitor : IVisitor<Box>
         Style = style;
     }
 
-    private Box Child(Item item) => (Box)item.Content;
+    /// <summary>Materialise the top-level builder returned by the parser at
+    /// this visitor's <see cref="Style"/>. Call sites that received a parse
+    /// result's <c>Item.Content</c> can use this to recover a <see cref="Box"/>
+    /// without knowing the deferred-builder shape.</summary>
+    public Box Build(object content) => ((Func<BoxStyle, Box>)content)(Style);
 
-    private Box BinaryOp(Item left, string op, Item right, float kernEm = 0.25f)
-    {
-        var kern = new KernBox(Style.FontSize * kernEm);
-        return new HBox(Child(left), kern, new GlyphBox(op, Style), kern, Child(right));
-    }
+    private static Func<BoxStyle, Box> Builder(Item item) => (Func<BoxStyle, Box>)item.Content;
 
-    public Box Visit(Add node)      => BinaryOp(node.Arg0, "+", node.Arg2);
-    public Box Visit(Subtract node) => BinaryOp(node.Arg0, "−", node.Arg2); // U+2212 minus
-    public Box Visit(Eq node)       => BinaryOp(node.Arg0, "=", node.Arg2, 0.35f);
-    public Box Visit(Mul node)      => BinaryOp(node.Arg0, "·", node.Arg2, 0.15f); // U+00B7 dot
-    public Box Visit(Div node)      => BinaryOp(node.Arg0, "/", node.Arg2);
+    private static Func<BoxStyle, Box> BinaryOp(
+        Func<BoxStyle, Box> left, string op, Func<BoxStyle, Box> right, float kernEm = 0.25f) =>
+        style =>
+        {
+            var kern = new KernBox(style.FontSize * kernEm);
+            return new HBox(left(style), kern, new GlyphBox(op, style), kern, right(style));
+        };
+
+    public Func<BoxStyle, Box> Visit(Add node)      => BinaryOp(Builder(node.Arg0), "+", Builder(node.Arg2));
+    public Func<BoxStyle, Box> Visit(Subtract node) => BinaryOp(Builder(node.Arg0), "−", Builder(node.Arg2)); // U+2212 minus
+    public Func<BoxStyle, Box> Visit(Eq node)       => BinaryOp(Builder(node.Arg0), "=", Builder(node.Arg2), 0.35f);
+    public Func<BoxStyle, Box> Visit(Mul node)      => BinaryOp(Builder(node.Arg0), "·", Builder(node.Arg2), 0.15f); // U+00B7 dot
+    public Func<BoxStyle, Box> Visit(Div node)      => BinaryOp(Builder(node.Arg0), "/", Builder(node.Arg2));
 
     /// <summary>
     /// Binary relation (\approx \leq \geq \neq \equiv \ll \gg \in \notin
@@ -60,20 +85,27 @@ internal sealed class BoxBuildingVisitor : IVisitor<Box>
     /// bytes for any rel name we haven't mapped, so a typo surfaces
     /// visibly rather than rendering as a strange unicode glyph.
     /// </summary>
-    public Box Visit(Rel node)
+    public Func<BoxStyle, Box> Visit(Rel node)
     {
         var raw = (string)node.Arg1.Content;
         var name = raw.Length > 1 && raw[0] == '\\' ? raw.Substring(1) : raw;
         var glyph = Commands.TryGetValue(name, out var g) ? g : raw;
-        return BinaryOp(node.Arg0, glyph, node.Arg2, 0.35f);
+        return BinaryOp(Builder(node.Arg0), glyph, Builder(node.Arg2), 0.35f);
     }
 
     /// <summary>Implicit multiplication ("xy", "n(n+1)") — a tiny kern, no operator.</summary>
-    public Box Visit(Juxt node) =>
-        new HBox(new KernBox(Style.FontSize * 0.05f), Child(node.Arg0), Child(node.Arg1));
+    public Func<BoxStyle, Box> Visit(Juxt node)
+    {
+        var left = Builder(node.Arg0);
+        var right = Builder(node.Arg1);
+        return style => new HBox(new KernBox(style.FontSize * 0.05f), left(style), right(style));
+    }
 
-    public Box Visit(Neg node) =>
-        new HBox(new GlyphBox("−", Style), Child(node.Arg1));
+    public Func<BoxStyle, Box> Visit(Neg node)
+    {
+        var inner = Builder(node.Arg1);
+        return style => new HBox(new GlyphBox("−", style), inner(style));
+    }
 
     /// <summary>
     /// Postfix superscript. For ordinary atoms, builds a right-of-operator
@@ -84,35 +116,60 @@ internal sealed class BoxBuildingVisitor : IVisitor<Box>
     /// preserves the <see cref="BigOpScaffold"/>: the first script wraps the
     /// bare operator into a scaffold, the second slots into the same
     /// scaffold's other slot.
+    ///
+    /// <para>The exponent's builder is invoked at <c>style.Smaller()</c>, so
+    /// composite exponents — <c>x^{a+b}</c>, <c>(1-x)^{-1/2}</c> — recurse
+    /// down the closure chain shrinking every inner glyph, kern, fraction
+    /// rule, and bracket. Atom exponents (<c>x^2</c>) get the same shrink
+    /// for free.</para>
     /// </summary>
-    public Box Visit(Sup node)
+    public Func<BoxStyle, Box> Visit(Sup node)
     {
-        var smaller = Style.Smaller();
-        var baseBox = Child(node.Arg0);
-        if (baseBox is BigOpScaffold scaffold && !scaffold.HasUpper)
-            return scaffold.WithUpper(ReBuild(node.Arg2, smaller));
-        return new SupSubBox(baseBox, sup: ReBuild(node.Arg2, smaller), sub: null, Style);
+        var baseBuilder = Builder(node.Arg0);
+        var supBuilder = Builder(node.Arg2);
+        return style =>
+        {
+            var baseBox = baseBuilder(style);
+            var smaller = style.Smaller();
+            if (baseBox is BigOpScaffold scaffold && !scaffold.HasUpper)
+                return scaffold.WithUpper(supBuilder(smaller));
+            return new SupSubBox(baseBox, sup: supBuilder(smaller), sub: null, style);
+        };
     }
 
     /// <summary>Postfix subscript. Mirror of <see cref="Visit(Sup)"/>.</summary>
-    public Box Visit(Subscript node)
+    public Func<BoxStyle, Box> Visit(Subscript node)
     {
-        var smaller = Style.Smaller();
-        var baseBox = Child(node.Arg0);
-        if (baseBox is BigOpScaffold scaffold && !scaffold.HasLower)
-            return scaffold.WithLower(ReBuild(node.Arg2, smaller));
-        return new SupSubBox(baseBox, sup: null, sub: ReBuild(node.Arg2, smaller), Style);
+        var baseBuilder = Builder(node.Arg0);
+        var subBuilder = Builder(node.Arg2);
+        return style =>
+        {
+            var baseBox = baseBuilder(style);
+            var smaller = style.Smaller();
+            if (baseBox is BigOpScaffold scaffold && !scaffold.HasLower)
+                return scaffold.WithLower(subBuilder(smaller));
+            return new SupSubBox(baseBox, sup: null, sub: subBuilder(smaller), style);
+        };
     }
 
-    public Box Visit(Number node)   => new GlyphBox((string)node.Arg0.Content, Style);
-    public Box Visit(Variable node) => new GlyphBox((string)node.Arg0.Content, Style);
+    public Func<BoxStyle, Box> Visit(Number node)
+    {
+        var text = (string)node.Arg0.Content;
+        return style => new GlyphBox(text, style);
+    }
+
+    public Func<BoxStyle, Box> Visit(Variable node)
+    {
+        var text = (string)node.Arg0.Content;
+        return style => new GlyphBox(text, style);
+    }
 
     /// <summary>
     /// \name commands. Greek + symbol lookups produce a single Unicode glyph;
     /// function names like \sin become an upright-style multi-letter atom;
     /// unknown commands fall back to the raw \name text so it's debuggable.
     /// </summary>
-    public Box Visit(Command node)
+    public Func<BoxStyle, Box> Visit(Command node)
     {
         var raw = (string)node.Arg0.Content;
         var name = raw.Length > 1 && raw[0] == '\\' ? raw.Substring(1) : raw;
@@ -122,43 +179,32 @@ internal sealed class BoxBuildingVisitor : IVisitor<Box>
             // Display-style big operator: render the glyph at 1.5x and wrap
             // in a scaffold so subsequent _/^ scripts fold into a LimitsBox
             // (limits above/below) instead of a SupSubBox (right-of).
-            return new BigOpScaffold(new GlyphBox(glyph, Style, Style.FontSize * 1.5f), null, null, Style);
+            return style => new BigOpScaffold(new GlyphBox(glyph, style, style.FontSize * 1.5f), null, null, style);
         }
-        return new GlyphBox(glyph, Style);
+        return style => new GlyphBox(glyph, style);
     }
 
     /// <summary>(E) — render a parenthesised expression with scalable parens.</summary>
-    public Box Visit(Paren node) => new BracketBox(Child(node.Arg1), BracketKind.Paren, Style);
+    public Func<BoxStyle, Box> Visit(Paren node)
+    {
+        var inner = Builder(node.Arg1);
+        return style => new BracketBox(inner(style), BracketKind.Paren, style);
+    }
 
     /// <summary>{ E } in LaTeX is an invisible group — render the inner E unchanged.</summary>
-    public Box Visit(Group node) => Child(node.Arg1);
+    public Func<BoxStyle, Box> Visit(Group node) => Builder(node.Arg1);
 
-    public Box Visit(Sqrt node) => new SqrtBox(Child(node.Arg1), Style);
-
-    public Box Visit(Frac node) => new FracBox(Child(node.Arg1), Child(node.Arg2), Style);
-
-    /// <summary>
-    /// Re-build a sub-tree at a smaller font size. The parser already turned
-    /// the inner sub-expression into a Box at the *outer* font size — for
-    /// scripts we want the sub-tree at a smaller size, so we rebuild from the
-    /// script's leaves. For atom scripts (digits, single letters, commands)
-    /// the parser-built Box is a single <see cref="GlyphBox"/>, which we
-    /// rebuild at the smaller style so the glyph itself shrinks — what TeX
-    /// does for x², n³ etc.
-    ///
-    /// For composite scripts (<c>x^{a+b}</c>) the parser-built Box is an
-    /// HBox whose children were also built at parent style; we'd need a
-    /// deeper rebuild from the AST to truly shrink them. The current
-    /// implementation passes composites through unchanged — accepting that
-    /// inner glyphs read slightly large until the visitor threads style
-    /// context through every Visit method. Good enough for the demo corpus.
-    /// </summary>
-    private static Box ReBuild(Item arg, BoxStyle smaller)
+    public Func<BoxStyle, Box> Visit(Sqrt node)
     {
-        var box = (Box)arg.Content;
-        if (box is GlyphBox gb)
-            return new GlyphBox(gb.Text, smaller);
-        return box;
+        var radicand = Builder(node.Arg1);
+        return style => new SqrtBox(radicand(style), style);
+    }
+
+    public Func<BoxStyle, Box> Visit(Frac node)
+    {
+        var num = Builder(node.Arg1);
+        var den = Builder(node.Arg2);
+        return style => new FracBox(num(style), den(style), style);
     }
 
     private static readonly Dictionary<string, string> Commands = new(System.StringComparer.Ordinal)

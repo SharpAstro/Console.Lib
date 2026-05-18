@@ -833,7 +833,8 @@ public static class MarkdownRenderer
             using var lexer = BytesLexer.FromString(source, MathLexerTable);
             using var tokens = new SyncLATokenIterator(lexer);
             var item = boxParser.ParseInput(tokens, debugger: null);
-            if (item.IsError || item.Content is not Box box) return false;
+            if (item.IsError || item.Content is not Func<BoxStyle, Box> builder) return false;
+            var box = builder(style);
 
             using var sw = new StringWriter();
             BoxRenderer.Render(box, style, mode, sw);
