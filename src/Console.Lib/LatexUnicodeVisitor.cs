@@ -124,6 +124,13 @@ internal sealed class LatexUnicodeVisitor : IVisitor<string>
         ["approx"] = "≈", ["equiv"] = "≡",
         ["in"] = "∈", ["notin"] = "∉", ["subset"] = "⊂",
         ["cup"] = "∪", ["cap"] = "∩",
+        // Arithmetic operators that the model often emits as commands inside
+        // math (\cdot and \times are also lexer-aliased to '*' but the model
+        // may end up here too).
+        ["div"] = "÷", ["cdot"] = "·",
+        // Spacing macros — render as plain spaces so juxtaposed atoms don't
+        // run together when the model used them as visual separators.
+        ["quad"] = "  ", ["qquad"] = "    ",
     };
 
     private static readonly Dictionary<char, char> Superscripts = new()

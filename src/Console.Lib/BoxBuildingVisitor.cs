@@ -176,6 +176,12 @@ internal sealed class BoxBuildingVisitor : IVisitor<Box>
         ["approx"] = "≈", ["equiv"] = "≡",
         ["in"] = "∈", ["notin"] = "∉", ["subset"] = "⊂",
         ["cup"] = "∪", ["cap"] = "∩",
+        // Arithmetic operators (\cdot / \times are also lexer-mapped to *).
+        ["div"] = "÷", ["cdot"] = "·",
+        // LaTeX spacing macros. Inside a box-rendered formula these become
+        // invisible kerns rather than literal spaces — the layout system
+        // already spaces atoms appropriately; just keep the glyph empty.
+        ["quad"] = " ", ["qquad"] = "  ",
     };
 
     /// <summary>

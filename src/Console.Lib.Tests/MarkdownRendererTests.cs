@@ -542,4 +542,209 @@ public sealed class MarkdownRendererTests
         var lines = MarkdownRenderer.RenderLines("$$x^2$$", 80, ColorMode.None);
         string.Join("", lines).ShouldContain("x²");
     }
+
+    // ── Real-world model output patterns ─────────────────────────────────
+
+    [Fact]
+    public void DisplayMath_InsideListItem_NoLiteralBracketsLeak()
+    {
+        // Mirrors what DeepSeek-R1 emits for "is 131 prime": a numbered list item
+        // whose body contains a display-math block. The \[ and \] markers must
+        // not survive into the rendered output.
+        var md = "- **7:**\n   \\[\n   131 ÷ 7 ≈ 18.714...\n   \\]\n   Not an integer.";
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.None);
+        var joined = string.Join("\n", lines);
+        joined.ShouldNotContain("\\[");
+        joined.ShouldNotContain("\\]");
+        joined.ShouldContain("131");
+    }
+
+    [Fact]
+    public void DisplayMath_InsideNestedListItem_NoLiteralBracketsLeak()
+    {
+        // The actual DeepSeek-R1 "is 131 prime" pattern: ordered top-level list
+        // containing nested unordered items whose body has \[ ... \] math.
+        // Indentation: ordered marker at col 0, continuation at col 3; nested
+        // unordered marker at col 3, continuation at col 5.
+        var md =
+            "1. **List Prime Numbers Up to the Square Root of 131:**\n" +
+            "\n" +
+            "   - **7:**\n" +
+            "     \\[\n" +
+            "     131 ÷ 7 ≈ 18.714...\n" +
+            "     \\]\n" +
+            "     Not an integer.\n";
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.None);
+        var joined = string.Join("\n", lines);
+        joined.ShouldNotContain("\\[");
+        joined.ShouldNotContain("\\]");
+        joined.ShouldContain("131");
+    }
+
+    [Fact]
+    public void BoxedMacro_StrippedFromRender()
+    {
+        // \boxed{X} is a LaTeX macro for drawing a border around X. The math
+        // grammar doesn't know it — must be pre-expanded before parsing or it
+        // surfaces as literal "\boxed" in the output.
+        var lines = MarkdownRenderer.RenderLines("$$\\boxed{x = 7}$$", 80, ColorMode.None);
+        var joined = string.Join("", lines);
+        joined.ShouldNotContain("\\boxed");
+        joined.ShouldContain("7");
+    }
+
+    [Fact]
+    public void TextMacro_PreservesSpacesInContent()
+    {
+        // \text{X} switches to text mode inside math. The grammar would otherwise
+        // tokenise each letter as a math-italic variable and lose the spaces.
+        var lines = MarkdownRenderer.RenderLines("$$\\text{is a prime number}$$", 80, ColorMode.None);
+        var joined = string.Join("", lines);
+        joined.ShouldNotContain("\\text");
+        joined.ShouldContain("is a prime number");
+    }
+
+    [Fact]
+    public void BoxedTextCombination_RendersCleanly()
+    {
+        // The end-of-DeepSeek-thinking-block answer pattern.
+        var lines = MarkdownRenderer.RenderLines("\\[\\boxed{131\\text{ is a prime number}}\\]", 80, ColorMode.None);
+        var joined = string.Join("", lines);
+        joined.ShouldNotContain("\\boxed");
+        joined.ShouldNotContain("\\text");
+        joined.ShouldContain("131");
+        joined.ShouldContain("is a prime number");
+    }
+
+    [Fact]
+    public void Sqrt_WithUnicodeOperators_StillRendersSqrtGlyph()
+    {
+        // Real-world output from a chain-of-thought model: "\sqrt{131} ≈ 11.45".
+        // The math grammar's lexer has no rule for U+2248 (≈), so a naive parse
+        // bails on it and \sqrt never gets to render. Pre-processing must
+        // substitute the unknown char with a placeholder so the rest of the
+        // expression (including \sqrt) renders normally.
+        var lines = MarkdownRenderer.RenderLines("$\\sqrt{131} ≈ 11.45$", 80, ColorMode.None);
+        var joined = string.Join("", lines);
+        joined.ShouldNotContain("\\sqrt");
+        joined.ShouldContain("√"); // √
+        joined.ShouldContain("131");
+        joined.ShouldContain("11.45");
+    }
+
+    [Fact]
+    public void Sqrt_StandaloneStillRenders()
+    {
+        var lines = MarkdownRenderer.RenderLines("$\\sqrt{131}$", 80, ColorMode.None);
+        var joined = string.Join("", lines);
+        joined.ShouldContain("√"); // √
+        joined.ShouldContain("131");
+    }
+
+    [Fact]
+    public void UnicodeOperators_PreservedInOutput()
+    {
+        // ÷ ≈ ≤ should survive an arithmetic expression and not abort the parse.
+        var lines = MarkdownRenderer.RenderLines("$131 ÷ 7 ≈ 18.71$", 80, ColorMode.None);
+        var joined = string.Join("", lines);
+        joined.ShouldContain("÷"); // ÷
+        joined.ShouldContain("≈"); // ≈
+        joined.ShouldContain("131");
+        joined.ShouldContain("18.71");
+    }
+
+    [Fact]
+    public void LooseLatexInProse_DivConvertedToUnicode()
+    {
+        // Model emits LaTeX commands without $…$ wrappers. The user shouldn't
+        // see "\div" — convert common math commands to their Unicode glyph
+        // in prose regions.
+        var lines = MarkdownRenderer.RenderLines("131\\div2 = 65.5", 80, ColorMode.None);
+        var joined = string.Join("", lines);
+        joined.ShouldNotContain("\\div");
+        joined.ShouldContain("÷");
+    }
+
+    [Fact]
+    public void LooseLatexInProse_QuadConvertedToSpace()
+    {
+        var lines = MarkdownRenderer.RenderLines("131/2 = 65.5\\quad(Not an integer)", 80, ColorMode.None);
+        var joined = string.Join("", lines);
+        joined.ShouldNotContain("\\quad");
+        joined.ShouldContain("(Not an integer)");
+    }
+
+    [Fact]
+    public void BackslashThinSpace_StrippedInMath()
+    {
+        // \boxed{131\,, prime} contains a LaTeX thin-space \, that the cmd
+        // rule can't tokenise. Without the \<non-letter> pre-pass, the whole
+        // boxed body falls back to literal.
+        var lines = MarkdownRenderer.RenderLines("\\[\\boxed{131\\,, prime}\\]", 80, ColorMode.None);
+        var joined = string.Join("", lines);
+        joined.ShouldNotContain("\\,");
+        joined.ShouldNotContain("\\boxed");
+        joined.ShouldContain("131");
+        joined.ShouldContain("prime");
+    }
+
+    [Fact]
+    public void MathRegion_LeavesCommandsAlone()
+    {
+        // Inside $…$ we must NOT prose-substitute \sum — the math renderer
+        // needs the original token to recognise it as a big operator and
+        // fold scripts as limits above/below.
+        var lines = MarkdownRenderer.RenderLines("$\\sum_{i=1}^{n} i$", 80, ColorMode.None);
+        var joined = string.Join("", lines);
+        joined.ShouldContain("∑"); // sum glyph
+    }
+
+    [Fact]
+    public void TextBody_ResolvesExplicitSpaceMacro()
+    {
+        // The DeepSeek "is 131 prime" final-answer pattern:
+        //   \[\boxed{\text{Yes,\ 131\ is\ a\ prime\ number}}\]
+        // `\ ` is LaTeX's explicit control-space macro — must render as a
+        // regular space inside the \text{} body, not survive as literal "\ ".
+        var lines = MarkdownRenderer.RenderLines(
+            "\\[\\boxed{\\text{Yes,\\ 131\\ is\\ a\\ prime\\ number}}\\]",
+            80, ColorMode.None);
+        var joined = string.Join("", lines);
+        joined.ShouldNotContain("\\ ");
+        joined.ShouldNotContain("\\,");
+        joined.ShouldContain("Yes, 131 is a prime number");
+    }
+
+    [Fact]
+    public void BeginArray_RendersAsMultilineTextBlock()
+    {
+        // Real DeepSeek output captured via /raw: list of continents inside
+        // a 2-column array, the whole thing wrapped in \boxed{}. The math
+        // grammar can't parse \begin{}/\end{} — the env must be expanded as
+        // a multi-line text block (rows preserved, \text{} bodies resolved).
+        // \[ and \] on their own lines so Markdig sees $$ as block math.
+        var md =
+            "\\[\n" +
+            "\\boxed{\n" +
+            "\\begin{array}{ll}\n" +
+            "1. & \\text{Asia} \\\\\n" +
+            "2. & \\text{Africa} \\\\\n" +
+            "3. & \\text{Europe} \\\\\n" +
+            "\\end{array}\n" +
+            "}\n" +
+            "\\]\n";
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.None);
+        var joined = string.Join("\n", lines);
+        joined.ShouldNotContain("\\begin");
+        joined.ShouldNotContain("\\end");
+        joined.ShouldNotContain("\\text");
+        joined.ShouldNotContain("&");
+        joined.ShouldContain("Asia");
+        joined.ShouldContain("Africa");
+        joined.ShouldContain("Europe");
+        // Each numbered row should land on its own output line, not be glued
+        // together by the math renderer's whitespace-skip.
+        lines.Count(l => l.Contains("Asia") || l.Contains("Africa") || l.Contains("Europe"))
+            .ShouldBe(3);
+    }
 }
