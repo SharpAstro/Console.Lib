@@ -32,6 +32,13 @@ internal sealed class LatexUnicodeVisitor : IVisitor<string>
     public string Visit(Juxt node)     => $"{node.Arg0.Content}{node.Arg1.Content}";
     public string Visit(Neg node)      => $"−{node.Arg1.Content}";
 
+    // Binary relations (\approx \leq \geq \neq \equiv \ll \gg \in \notin
+    // \subset \to \leftarrow \rightarrow \pm \mp). Arg1 is the rel token's
+    // raw bytes; RenderCommand looks up the bare glyph and the format
+    // string places the outer spaces structurally.
+    public string Visit(Rel node) =>
+        $"{node.Arg0.Content} {RenderCommand((string)node.Arg1.Content)} {node.Arg2.Content}";
+
     public string Visit(Sup node) =>
         TryUnicodeScript((string)node.Arg2.Content, Superscripts, out var sup)
             ? $"{node.Arg0.Content}{sup}"
@@ -116,22 +123,22 @@ internal sealed class LatexUnicodeVisitor : IVisitor<string>
         // Big operators
         ["sum"] = "∑", ["prod"] = "∏", ["int"] = "∫", ["oint"] = "∮",
         ["bigcup"] = "⋃", ["bigcap"] = "⋂",
-        // Standalone-symbol constants (no operand-like surrounding spaces —
-        // they read as nouns or unary modifiers, not binary operators).
+        // Standalone-symbol constants (no surrounding-space concern — these
+        // read as nouns or unary modifiers, never as binary operators).
         ["infty"] = "∞", ["partial"] = "∂", ["nabla"] = "∇",
         ["cup"] = "∪", ["cap"] = "∩",
-        // Binary relations / arrows / set operators. The grammar treats these
-        // as plain `cmd` atoms (no dedicated production), so the Juxt visitor
-        // would otherwise concatenate them with their operands and produce
-        // "γ≈1" instead of "γ ≈ 1". Embed the surrounding spaces in the glyph
-        // string itself — Juxt then sees " ≈ " as the atom's text and the
-        // concat naturally gives the right typography. Leading/trailing space
-        // at expression edges is harmless (e.g. "f: A → B" reads fine).
-        ["pm"] = " ± ", ["mp"] = " ∓ ",
-        ["to"] = " → ", ["leftarrow"] = " ← ", ["rightarrow"] = " → ",
-        ["leq"] = " ≤ ", ["geq"] = " ≥ ", ["neq"] = " ≠ ",
-        ["approx"] = " ≈ ", ["equiv"] = " ≡ ",
-        ["in"] = " ∈ ", ["notin"] = " ∉ ", ["subset"] = " ⊂ ",
+        // Binary relations / arrows / set operators. With LALR.CC 3.1+ these
+        // tokenise as `rel` and Visit(Rel) places the outer spaces
+        // structurally — so the dict here returns the bare glyph. (Pre-3.1
+        // shipped these as " X " strings to work around the cmd-juxt path;
+        // that hack is gone.) Visit(Command) still falls through to this
+        // dict when a rel-categorised glyph appears in a non-binary position
+        // (rare: e.g. `{\approx}` standalone), where bare glyph is correct.
+        ["pm"] = "±", ["mp"] = "∓",
+        ["to"] = "→", ["leftarrow"] = "←", ["rightarrow"] = "→",
+        ["leq"] = "≤", ["geq"] = "≥", ["neq"] = "≠",
+        ["approx"] = "≈", ["equiv"] = "≡",
+        ["in"] = "∈", ["notin"] = "∉", ["subset"] = "⊂",
         // Arithmetic operators that the model often emits as commands inside
         // math (\cdot and \times are also lexer-aliased to '*' but the model
         // may end up here too).
@@ -143,9 +150,10 @@ internal sealed class LatexUnicodeVisitor : IVisitor<string>
         // specific forms.
         ["dots"] = "…", ["ldots"] = "…", ["cdots"] = "⋯",
         ["vdots"] = "⋮", ["ddots"] = "⋱",
-        // Much-less-than / much-greater-than relations — same surrounding-
-        // space treatment as the other binary relations above.
-        ["ll"] = " ≪ ", ["gg"] = " ≫ ",
+        // Much-less-than / much-greater-than. Tokenise as `rel` in
+        // LALR.CC 3.1+, so this dict returns the bare glyph and the
+        // surrounding spaces come from Visit(Rel)'s format string.
+        ["ll"] = "≪", ["gg"] = "≫",
     };
 
     private static readonly Dictionary<char, char> Superscripts = new()

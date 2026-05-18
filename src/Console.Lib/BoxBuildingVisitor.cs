@@ -51,6 +51,23 @@ internal sealed class BoxBuildingVisitor : IVisitor<Box>
     public Box Visit(Mul node)      => BinaryOp(node.Arg0, "·", node.Arg2, 0.15f); // U+00B7 dot
     public Box Visit(Div node)      => BinaryOp(node.Arg0, "/", node.Arg2);
 
+    /// <summary>
+    /// Binary relation (\approx \leq \geq \neq \equiv \ll \gg \in \notin
+    /// \subset \to \leftarrow \rightarrow \pm \mp). Looks up the bare glyph
+    /// via <see cref="RenderCommand"/> then uses the standard relation
+    /// kerning of 0.35em (matching TeX's <c>\thickmuskip</c>-style
+    /// surrounding space for <c>\mathrel</c>). Falls back to the raw token
+    /// bytes for any rel name we haven't mapped, so a typo surfaces
+    /// visibly rather than rendering as a strange unicode glyph.
+    /// </summary>
+    public Box Visit(Rel node)
+    {
+        var raw = (string)node.Arg1.Content;
+        var name = raw.Length > 1 && raw[0] == '\\' ? raw.Substring(1) : raw;
+        var glyph = Commands.TryGetValue(name, out var g) ? g : raw;
+        return BinaryOp(node.Arg0, glyph, node.Arg2, 0.35f);
+    }
+
     /// <summary>Implicit multiplication ("xy", "n(n+1)") — a tiny kern, no operator.</summary>
     public Box Visit(Juxt node) =>
         new HBox(new KernBox(Style.FontSize * 0.05f), Child(node.Arg0), Child(node.Arg1));

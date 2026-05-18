@@ -716,6 +716,31 @@ public sealed class MarkdownRendererTests
     }
 
     [Fact]
+    public void BinaryRelations_HaveSurroundingSpaces()
+    {
+        // LALR.CC 3.1's `rel` token + E → E rel T production means \approx /
+        // \leq / \neq / \ll / \in / etc. now flow through Visit(Rel) instead
+        // of being juxtaposed cmd atoms. Output should contain "X ≈ Y" with
+        // single spaces around the glyph — no more "X≈Y" collapse.
+        foreach (var (src, sym) in new[] {
+            ("$\\gamma \\approx 1$", "≈"),
+            ("$a \\leq b$",          "≤"),
+            ("$a \\geq b$",          "≥"),
+            ("$a \\neq b$",          "≠"),
+            ("$v \\ll c$",           "≪"),
+            ("$a \\gg b$",           "≫"),
+            ("$x \\in S$",           "∈"),
+            ("$a \\equiv b$",        "≡"),
+            ("$A \\to B$",           "→"),
+            ("$a \\pm b$",           "±"),
+        })
+        {
+            var joined = string.Join("", MarkdownRenderer.RenderLines(src, 80, ColorMode.None));
+            joined.ShouldContain($" {sym} ", customMessage: $"expected ' {sym} ' with surrounding spaces in: {joined}");
+        }
+    }
+
+    [Fact]
     public void MathRegion_LeavesCommandsAlone()
     {
         // Inside $…$ we must NOT prose-substitute \sum — the math renderer
