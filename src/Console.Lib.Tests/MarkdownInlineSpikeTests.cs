@@ -157,6 +157,17 @@ public sealed class MarkdownInlineSpikeTests
     }
 
     [Fact]
+    public void DoubleBacktick_PreservesSingleBacktickInBody()
+    {
+        // ``foo `bar` baz`` — a 2-backtick fence lets a single ` survive
+        // inside the body. The lexer pops only on `` `` ``, not on a
+        // bare `, so the body is captured as the literal "foo `bar` baz".
+        var spans = _visitor.Parse("see ``foo `bar` baz`` end");
+        var code = spans.OfType<MdCodeInline>().Single();
+        code.Content.ShouldBe("foo `bar` baz");
+    }
+
+    [Fact]
     public void Backticks_EmptyBody_ParseFailsCleanly()
     {
         // `` (two adjacent backticks) is degenerate — the grammar requires
@@ -173,12 +184,12 @@ public sealed class MarkdownInlineSpikeTests
     {
         // `\*` in markdown source means "literal *" — the rendered text
         // should be just `*`. The grammar emits `\*` as an `escape`
-        // terminal and the visitor strips the backslash.
+        // terminal, the visitor strips the backslash, and the literal-
+        // merging post-pass collapses the resulting "a " + "*" + " b"
+        // run into a single MdLiteral.
         var spans = _visitor.Parse("a \\* b");
-        spans.Count.ShouldBe(3);
-        spans[0].ShouldBeOfType<MdLiteral>().Text.ShouldBe("a ");
-        spans[1].ShouldBeOfType<MdLiteral>().Text.ShouldBe("*");
-        spans[2].ShouldBeOfType<MdLiteral>().Text.ShouldBe(" b");
+        spans.Count.ShouldBe(1);
+        spans[0].ShouldBeOfType<MdLiteral>().Text.ShouldBe("a * b");
     }
 
     [Fact]
@@ -273,6 +284,93 @@ public sealed class MarkdownInlineSpikeTests
         // span and dangling `**` text.
         var spans = _visitor.Parse("*a **b* c**");
         spans.OfType<MdEmphasis>().Single().Level.ShouldBe(1);
+    }
+
+    // ── Links ────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Link_BasicTextAndUrl()
+    {
+        var spans = _visitor.Parse("see [example](https://example.com) here");
+        spans.Count.ShouldBe(3);
+        spans[0].ShouldBeOfType<MdLiteral>().Text.ShouldBe("see ");
+        var link = spans[1].ShouldBeOfType<MdLink>();
+        link.Url.ShouldBe("https://example.com");
+        link.Text.Count.ShouldBe(1);
+        link.Text[0].ShouldBeOfType<MdLiteral>().Text.ShouldBe("example");
+        spans[2].ShouldBeOfType<MdLiteral>().Text.ShouldBe(" here");
+    }
+
+    [Fact]
+    public void Link_TextCanContainEmphasis()
+    {
+        // `[**bold link**](url)` — the bracketed text is parsed by the
+        // full inline grammar, so emphasis (and math, code, etc.) all
+        // work inside link text.
+        var spans = _visitor.Parse("[**bold**](url)");
+        var link = spans[0].ShouldBeOfType<MdLink>();
+        link.Url.ShouldBe("url");
+        var em = link.Text[0].ShouldBeOfType<MdEmphasis>();
+        em.Level.ShouldBe(2);
+        em.Content[0].ShouldBeOfType<MdLiteral>().Text.ShouldBe("bold");
+    }
+
+    [Fact]
+    public void PlainBrackets_NotALink_StayLiteral()
+    {
+        // `[TODO]` with no `(` following — the grammar uses the
+        // rbracket production (not link_tail_open), and the visitor
+        // emits a transient MdGroup that Flatten resolves into
+        // literal-text spans `[ + content + ]`.
+        var spans = _visitor.Parse("a [TODO] item");
+        // After Flatten + merge: should be a single literal containing
+        // "a [TODO] item".
+        spans.Count.ShouldBe(1);
+        spans[0].ShouldBeOfType<MdLiteral>().Text.ShouldBe("a [TODO] item");
+    }
+
+    // ── Color inlines ────────────────────────────────────────────────
+
+    [Fact]
+    public void Color_BasicTextAndColor()
+    {
+        var spans = _visitor.Parse("[red text]{red}");
+        var color = spans[0].ShouldBeOfType<MdColor>();
+        color.Color.ShouldBe("red");
+        color.Text[0].ShouldBeOfType<MdLiteral>().Text.ShouldBe("red text");
+    }
+
+    [Fact]
+    public void Color_HexValueAccepted()
+    {
+        var spans = _visitor.Parse("[hot]{#ff0080}");
+        spans.OfType<MdColor>().Single().Color.ShouldBe("#ff0080");
+    }
+
+    // ── Line breaks ──────────────────────────────────────────────────
+
+    [Fact]
+    public void HardBreak_FromTrailingSpaces()
+    {
+        // Two-plus trailing spaces + newline → hard line break.
+        var spans = _visitor.Parse("line 1  \nline 2");
+        spans.OfType<MdLineBreak>().Single().Hard.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void HardBreak_FromTrailingBackslash()
+    {
+        // `\<newline>` → hard line break (CommonMark).
+        var spans = _visitor.Parse("line 1\\\nline 2");
+        spans.OfType<MdLineBreak>().Single().Hard.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void SoftBreak_FromLoneNewline()
+    {
+        // Lone newline within a paragraph → soft break.
+        var spans = _visitor.Parse("line 1\nline 2");
+        spans.OfType<MdLineBreak>().Single().Hard.ShouldBeFalse();
     }
 
     // ── Failure modes ────────────────────────────────────────────────

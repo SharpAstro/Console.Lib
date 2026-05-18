@@ -26,9 +26,9 @@ namespace Console.Lib;
 internal sealed class MarkdownInlineVisitor : MarkdownInline.IVisitor<object>
 {
     /// <summary>Parses an inline-only markdown string and returns the
-    /// produced span list with emphasis already paired up. Returns an
-    /// empty list on parse error so the caller can fall through to a
-    /// literal-text render of the source.</summary>
+    /// produced span list with transient nodes (MdGroup, MdStarMarker)
+    /// resolved. Returns an empty list on parse error so the caller
+    /// can fall through to a literal-text render of the source.</summary>
     public IReadOnlyList<MdInline> Parse(string source)
     {
         if (string.IsNullOrEmpty(source)) return Array.Empty<MdInline>();
@@ -40,12 +40,92 @@ internal sealed class MarkdownInlineVisitor : MarkdownInline.IVisitor<object>
             var result = s_parser.ParseInput(tokens, debugger: null);
             if (result.IsError) return Array.Empty<MdInline>();
             var flat = result.Content as IReadOnlyList<MdInline> ?? Array.Empty<MdInline>();
-            return PairEmphasis(flat);
+            return Process(flat);
         }
         catch (global::LALR.CC.ParseErrorException)
         {
             return Array.Empty<MdInline>();
         }
+    }
+
+    /// <summary>Post-pass over the raw span list: flatten <see cref="MdGroup"/>
+    /// wrappers (transient containers produced by plain-bracket spans)
+    /// into the parent sequence, then pair <see cref="MdStarMarker"/>
+    /// tokens into <see cref="MdEmphasis"/>. Run on every inline-content
+    /// region — top-level spans plus the inner content of link / color
+    /// containers. <see cref="MdEmphasis"/> nodes built inside this pass
+    /// already have processed content, so they don't get re-walked.</summary>
+    private static IReadOnlyList<MdInline> Process(IReadOnlyList<MdInline> spans) =>
+        MergeAdjacentLiterals(PairEmphasis(Flatten(spans)));
+
+    /// <summary>Coalesce adjacent <see cref="MdLiteral"/> spans into one,
+    /// recursively inside containers. The lexer emits separate text
+    /// tokens for non-space runs vs space runs (so the hard-break
+    /// rule's leading `  +` can win on longest match), which leaves
+    /// consumers with fragmented literals like [text("Hello"),
+    /// text(" "), text("world")] for plain prose. This pass stitches
+    /// them back together so downstream consumers see the natural
+    /// single literal. Recurses into <see cref="MdEmphasis.Content"/>
+    /// because nested emphasis is the most common place adjacent
+    /// literals stay split.</summary>
+    private static IReadOnlyList<MdInline> MergeAdjacentLiterals(IReadOnlyList<MdInline> spans)
+    {
+        // First pass: recurse into containers. Always do this because
+        // even when the top-level has no adjacent literals, inner
+        // contents might.
+        var recursed = new List<MdInline>(spans.Count);
+        bool changed = false;
+        foreach (var s in spans)
+        {
+            if (s is MdEmphasis em)
+            {
+                var inner = MergeAdjacentLiterals(em.Content);
+                if (!ReferenceEquals(inner, em.Content)) { changed = true; recursed.Add(new MdEmphasis(em.Level, inner)); }
+                else recursed.Add(em);
+            }
+            else
+            {
+                recursed.Add(s);
+            }
+        }
+        var src = changed ? (IReadOnlyList<MdInline>)recursed : spans;
+
+        bool hasAdjacent = false;
+        for (int i = 0; i + 1 < src.Count && !hasAdjacent; i++)
+            hasAdjacent = src[i] is MdLiteral && src[i + 1] is MdLiteral;
+        if (!hasAdjacent) return src;
+
+        var result = new List<MdInline>(src.Count);
+        foreach (var s in src)
+        {
+            if (s is MdLiteral lit
+                && result.Count > 0
+                && result[result.Count - 1] is MdLiteral prev)
+            {
+                result[result.Count - 1] = new MdLiteral(prev.Text + lit.Text);
+            }
+            else
+            {
+                result.Add(s);
+            }
+        }
+        return result;
+    }
+
+    private static IReadOnlyList<MdInline> Flatten(IReadOnlyList<MdInline> spans)
+    {
+        bool anyGroup = false;
+        for (int i = 0; i < spans.Count && !anyGroup; i++)
+            anyGroup = spans[i] is MdGroup;
+        if (!anyGroup) return spans;
+
+        var result = new List<MdInline>(spans.Count);
+        foreach (var s in spans)
+        {
+            if (s is MdGroup g) result.AddRange(Flatten(g.Children));
+            else result.Add(s);
+        }
+        return result;
     }
 
     /// <summary>
@@ -148,6 +228,18 @@ internal sealed class MarkdownInlineVisitor : MarkdownInline.IVisitor<object>
     public object Visit(MarkdownInline.CodeSpan node) =>
         new MdCodeInline((string)node.Arg1.Content);
 
+    public object Visit(MarkdownInline.CodeSpan2 node) =>
+        new MdCodeInline((string)node.Arg1.Content);
+
+    public object Visit(MarkdownInline.CodeBody2Empty node) => string.Empty;
+
+    public object Visit(MarkdownInline.CodeBody2Cons node)
+    {
+        var head = (string)node.Arg0.Content;
+        var tail = (string)node.Arg1.Content;
+        return head + tail;
+    }
+
     // ── Backslash escape (\* → *, \_ → _, \\ → \, …) ─────────────────
 
     public object Visit(MarkdownInline.EscapeSpan node)
@@ -165,6 +257,56 @@ internal sealed class MarkdownInlineVisitor : MarkdownInline.IVisitor<object>
 
     public object Visit(MarkdownInline.StarMarkerSpan node) => new MdStarMarker(Level: 1);
     public object Visit(MarkdownInline.Star2MarkerSpan node) => new MdStarMarker(Level: 2);
+
+    // ── Line breaks (soft / hard per CommonMark) ─────────────────────
+
+    public object Visit(MarkdownInline.SoftBreakSpan node) => new MdLineBreak(Hard: false);
+    public object Visit(MarkdownInline.HardBreakSpan node) => new MdLineBreak(Hard: true);
+
+    // ── Bracket constructs: link, color, plain ───────────────────────
+    //
+    // The grammar disambiguates via the `](` / `]{` compound tokens —
+    // the lexer emits link_tail_open or color_tail_open only when the
+    // matching follower is present, so a plain `[text]` (with no tail)
+    // tokenises as lbracket + Spans + rbracket and reduces here
+    // unchanged. Link and color bodies are captured by dedicated
+    // lexer states (url_body / color_body) that pop on the close
+    // delimiter; the visitor just receives the raw body string.
+
+    public object Visit(MarkdownInline.PlainBracketSpan node)
+    {
+        // `[text]` with no link/color tail — surface as literal text
+        // including the brackets. Inline content inside the brackets
+        // is preserved so e.g. `[**bold**]` still emphasises.
+        var inner = (IReadOnlyList<MdInline>)node.Arg1.Content;
+        var list = new List<MdInline>(inner.Count + 2)
+        {
+            new MdLiteral("["),
+        };
+        list.AddRange(inner);
+        list.Add(new MdLiteral("]"));
+        // Returning a list here would conflict with Span's expected
+        // single-inline shape — wrap in a synthetic single MdLink-like
+        // container? No: just return the inline list via a marker that
+        // gets flattened in SpansCons. Simpler: emit as a literal that
+        // re-stringifies the inner. For nested emphasis to survive,
+        // emit a Group container instead.
+        return new MdGroup(list);
+    }
+
+    public object Visit(MarkdownInline.LinkSpan node)
+    {
+        var text = Process((IReadOnlyList<MdInline>)node.Arg1.Content);
+        var url = (string)node.Arg3.Content;
+        return new MdLink(text, url);
+    }
+
+    public object Visit(MarkdownInline.ColorSpan node)
+    {
+        var text = Process((IReadOnlyList<MdInline>)node.Arg1.Content);
+        var color = (string)node.Arg3.Content;
+        return new MdColor(text, color);
+    }
 
     // ── Math: dollar forms ($..$, $$..$$) ─────────────────────────────
 

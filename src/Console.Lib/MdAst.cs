@@ -57,3 +57,33 @@ public sealed record MdEmphasis(int Level, System.Collections.Generic.IReadOnlyL
 /// text rather than a stray placeholder. Should not normally appear
 /// in the final span list returned to consumers.</summary>
 internal sealed record MdStarMarker(int Level) : MdInline;
+
+/// <summary>Transient container produced by the plain-bracket
+/// production (<c>[text]</c> with no link/color tail). The
+/// <see cref="MarkdownInlineVisitor.Parse"/> post-pass flattens
+/// <see cref="MdGroup"/> nodes into their parent span list so the
+/// final result is a flat sequence with no MdGroup wrappers. Useful
+/// when a grammar production needs to emit multiple inlines but the
+/// visitor surface returns a single MdInline.</summary>
+internal sealed record MdGroup(System.Collections.Generic.IReadOnlyList<MdInline> Children) : MdInline;
+
+/// <summary>Link inline — <c>[text](url)</c>. <see cref="Text"/> is the
+/// link's display content (parsed as inline spans by the same grammar,
+/// so the brackets can wrap bold/italic/math, etc.); <see cref="Url"/>
+/// is the raw URL string from the parens body.</summary>
+public sealed record MdLink(System.Collections.Generic.IReadOnlyList<MdInline> Text, string Url) : MdInline;
+
+/// <summary>Color inline — Console.Lib extension syntax
+/// <c>[text]{color}</c>. <see cref="Color"/> is the literal colour
+/// string from the brace body (validated by the renderer against
+/// <c>MarkdownTheme.TryParseColor</c>); invalid colours render as
+/// plain text with the brackets and braces stripped. <see cref="Text"/>
+/// is the bracketed inline content.</summary>
+public sealed record MdColor(System.Collections.Generic.IReadOnlyList<MdInline> Text, string Color) : MdInline;
+
+/// <summary>Line break — soft or hard per CommonMark. A soft break is
+/// a lone newline inside a paragraph and renders as a single space; a
+/// hard break is two-plus trailing spaces + newline (or trailing
+/// <c>\\</c> + newline) and renders as an actual line terminator in
+/// the output.</summary>
+public sealed record MdLineBreak(bool Hard) : MdInline;
