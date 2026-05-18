@@ -259,9 +259,10 @@ internal static class Program
 
     // ── Built-in samples ─────────────────────────────────────────────
     //
-    // Real-world model-output patterns that surface rendering bugs. Add
-    // more entries as new regressions show up — the cost is a few lines
-    // of source-embedded string, the payoff is a one-command repro.
+    // Real-world model-output patterns plus targeted demos of each
+    // capability the LALR.CC rewrite added. Add more entries as new
+    // regressions show up — the cost is a few lines of source-embedded
+    // string, the payoff is a one-command repro.
 
     private static readonly Dictionary<string, string> Samples = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -298,13 +299,47 @@ internal static class Program
             "|:------|------:|\n" +
             "| left  | right |\n",
 
+        // `fenced` used to demonstrate a known regression — the regex
+        // preprocessing pass rewrote `\[..\]` to `$$..$$` and substituted
+        // `\div` to `÷` *inside* fenced code blocks, corrupting the
+        // body. The LALR.CC parser doesn't have a global pre-pass, so
+        // fenced code content stays literal. This sample now shows the
+        // FIX: the LaTeX and `\div` inside the fence render verbatim,
+        // while the math after the fence renders normally.
         ["fenced"] =
-            "Here's a fenced code block — the math markers inside should NOT be rendered:\n\n" +
+            "Fenced code block — the math markers inside stay LITERAL (no rewrite):\n\n" +
             "```latex\n" +
             "\\[ E = mc^2 \\]\n" +
             "\\frac{1}{2}\\,m v^2\n" +
             "131 \\div 2 \\approx 65.5\n" +
             "```\n\n" +
             "After the fence, normal math: \\( e^{i\\pi} = -1 \\).\n",
+
+        // Phase-B-extension surface: color inlines (Console.Lib's own
+        // `[text]{color}` syntax), links with formatted text, multi-
+        // backtick code spans (so a single backtick can appear inside
+        // the body), backslash escapes, line breaks.
+        ["bext"] =
+            "## Inline extras\n\n" +
+            "Color inlines: [red text]{red}, [hex]{#5fafff}, [hot]{#ff0080}.\n\n" +
+            "Links with formatted text: [**bold link**](https://example.com), " +
+            "and a [link with `code`](https://docs.example.com/api).\n\n" +
+            "Multi-backtick code spans let single backticks live inside the body — " +
+            "``foo `bar` baz`` is one code span, not three.\n\n" +
+            "Backslash escapes: \\*literal asterisks\\*, \\_underscores\\_, and \\\\ for a backslash.\n\n" +
+            "Hard line breaks via two trailing spaces:  \n" +
+            "this line follows the break.\n",
+
+        // Tables get their own sample because the `mixed` one bundles
+        // too much. Column alignments via `:-` / `:-:` / `-:` markers
+        // each get a different MdTableAlignment value, which the
+        // renderer turns into left- / center- / right-padded cells.
+        ["table"] =
+            "## Table with column alignment\n\n" +
+            "| Default | Left | Center | Right |\n" +
+            "|---------|:-----|:------:|------:|\n" +
+            "| a       | b    |   c    |     d |\n" +
+            "| longer  | text |  here  |   123 |\n" +
+            "| α + β   | γ    |   ∞    |    π² |\n",
     };
 }
