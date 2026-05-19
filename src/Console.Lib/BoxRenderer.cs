@@ -69,12 +69,23 @@ public static class BoxRenderer
                 // "p ≈ mv"). Trailing newline below positions the cursor on
                 // the row after the image so subsequent text doesn't draw
                 // over it.
+                //
+                // Write the DCS payload THROUGH the caller's TextWriter (not
+                // a sideband raw stdout) so the image lands in the same
+                // ordering stream as the surrounding text. Callers that
+                // collect <c>output</c> into a list before flushing — e.g.
+                // <see cref="MarkdownRenderer.TryRenderMathBox"/> via a
+                // StringWriter — otherwise see every image emit during the
+                // build phase, before the queued text writes, and all images
+                // pile up at the top of the terminal. The Sixel payload is
+                // pure ASCII (ESC, digits, '#', '$', '-', '?'–'~'), so any
+                // ASCII-compatible Console.OutputEncoding (UTF-8 / UTF-16 /
+                // Latin-1 / the legacy code pages) round-trips it cleanly.
                 output.WriteLine();
-                output.Flush();
-                using (var stdout = System.Console.OpenStandardOutput())
+                using (var ms = new System.IO.MemoryStream())
                 {
-                    SixelEncoder.Encode(rgba, totalW, totalH, channels: 4, stdout);
-                    stdout.Flush();
+                    SixelEncoder.Encode(rgba, totalW, totalH, channels: 4, ms);
+                    output.Write(System.Text.Encoding.ASCII.GetString(ms.ToArray()));
                 }
                 output.WriteLine();
                 break;

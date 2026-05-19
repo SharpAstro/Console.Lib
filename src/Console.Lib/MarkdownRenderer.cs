@@ -72,6 +72,9 @@ public static partial class MarkdownRenderer
         // we can fix up source-side (rendered the same as Unicode path):
         //   - LaTeX aliases: \dfrac/\tfrac → \frac, \left[ → [, …
         //   - \boxed{X}     → X  (strip the wrapper; v1 has no boxed frame)
+        //   - \ce{X}        → Mhchem.ToLatex(X)  (chem → LaTeX math source,
+        //                     so chem picks up the same box layout as math —
+        //                     Phase-2 mhchem)
         //   - \, \; \! \\   → literal whitespace (lexer ignores it)
         //
         // Things we still can't do in box mode (visitor-side, would need new
@@ -83,7 +86,11 @@ public static partial class MarkdownRenderer
 
         source = MarkdownMacros.NormalizeLatexAliases(source);
         source = MarkdownMacros.ExpandBalancedMacro(source, "boxed", inner => inner);
-        // Recheck after \boxed strip — its body could have introduced \text.
+        source = MarkdownMacros.ExpandBalancedMacro(source, "ce", inner => Mhchem.ToLatex(inner));
+        // Recheck after \boxed / \ce expansion — either body could have
+        // introduced \text (chem doesn't today, but the door's open in
+        // case future Mhchem.ToLatex emits \text{l} / \text{aq} for
+        // state markers once \mathrm/\text gain box-visitor support).
         if (MarkdownMacros.ContainsMacro(source, "text") || source.Contains(@"\begin", StringComparison.Ordinal))
             return false;
         source = MarkdownMacros.ResolveBackslashEscapes(source);

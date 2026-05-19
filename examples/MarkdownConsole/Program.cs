@@ -362,26 +362,48 @@ internal static class Program
             "Otherwise the underlined+coloured label plus the `(url)` in dim text " +
             "is what you'll see.)\n",
 
-        // mhchem Phase-1 subset: \ce{...} renders chemistry markup through
-        // a hand-rolled state machine that pre-bakes Unicode super/sub
-        // digits + arrows, so isotope prefixes (^{238}U), ion charges
-        // (Fe^3+), auto-subscripted formulas (H2O), and reaction arrows
-        // (-> / <- / <=> / <->) all render without the math grammar's
-        // "base atom before ^" constraint biting. The state machine and
-        // its supported / unsupported matrix live upstream in
-        // DIR.Lib.Markdown.Mhchem.
+        // mhchem Phase-2 subset: \ce{...} bodies translate to LaTeX math
+        // source (Mhchem.ToLatex) so chem flows through the same parser +
+        // visitor pipeline as ordinary math — display chem inside $$...$$
+        // picks up real sub/super box layout under BoxBuildingVisitor and
+        // rasterises via the same Sixel / sextant / half-block dispatcher
+        // as the rest of math. Inline chem (\(\ce{...}\)) stays on the
+        // single-row Unicode path via LatexUnicodeVisitor.
+        //
+        // Limitation surfaced by the samples below: prefix isotope scripts
+        // (^{238}U) keep pre-baked Unicode because the math grammar has no
+        // representation for a script with no left operand — those still
+        // render correctly but on a single baseline regardless of mode.
+        // Element letters render math-italic in box mode (the visitor maps
+        // single letters to math-italic id glyphs).
         ["chem"] =
-            "## Chemistry via `\\ce{...}` (mhchem Phase-1 subset)\n\n" +
+            "## Chemistry via `\\ce{...}` (mhchem Phase-2 — box layout for free)\n\n" +
+            "### Inline math (single-row Unicode via `LatexUnicodeVisitor`)\n\n" +
             "Formulas auto-subscript trailing digits: \\(\\ce{H2O}\\), \\(\\ce{H2SO4}\\), " +
             "\\(\\ce{C6H12O6}\\), \\(\\ce{Ca(OH)2}\\).\n\n" +
-            "Reactions with coefficients and arrows: \\(\\ce{2H2 + O2 -> 2H2O}\\).\n\n" +
-            "Equilibria: \\(\\ce{N2 + 3H2 <=> 2NH3}\\).\n\n" +
             "Ions: \\(\\ce{Fe^3+}\\), \\(\\ce{SO4^{2-}}\\), \\(\\ce{NH4^+}\\), \\(\\ce{OH^-}\\).\n\n" +
-            "Isotope-prefix notation (the case that bare LaTeX `\\(^{238}U\\)` can't render — " +
-            "the math grammar needs a base atom before `^`): \\(\\ce{^{238}U}\\), " +
-            "\\(\\ce{^{14}_{6}C}\\), \\(\\ce{^{226}Ra}\\).\n\n" +
-            "Alpha decay as a full reaction: \\(\\ce{^{238}U -> ^{234}Th + ^{4}_{2}He}\\).\n\n" +
-            "State markers pass through: \\(\\ce{H2O(l) -> H2O(g)}\\), " +
-            "\\(\\ce{NaCl(s) + H2O(l) -> Na^+ (aq) + Cl^- (aq)}\\).\n",
+            "Isotope notation: \\(\\ce{^{238}U}\\), \\(\\ce{^{14}_{6}C}\\), \\(\\ce{^{226}Ra}\\).\n\n" +
+            "Reactions and equilibria: \\(\\ce{2H2 + O2 -> 2H2O}\\), \\(\\ce{N2 + 3H2 <=> 2NH3}\\).\n\n" +
+            "Alpha decay: \\(\\ce{^{238}U -> ^{234}Th + ^{4}_{2}He}\\).\n\n" +
+            "State markers: \\(\\ce{H2O(l) -> H2O(g)}\\), " +
+            "\\(\\ce{NaCl(s) + H2O(l) -> Na^+ (aq) + Cl^- (aq)}\\).\n\n" +
+            "### Display math (Sixel / sextant box layout via `BoxBuildingVisitor`)\n\n" +
+            "The block-parser classifies `$$ … $$` as display math only when the\n" +
+            "delimiters sit on their own lines (see `TryClassifyMathBlock`); the\n" +
+            "samples below follow that shape so they reach `TryRenderMathBox`.\n\n" +
+            "Auto-subscript formulas — subscripts drop to a smaller baseline under the script:\n\n" +
+            "$$\n\\ce{H2O}\n$$\n\n" +
+            "$$\n\\ce{C6H12O6}\n$$\n\n" +
+            "Combustion of hydrogen — coefficients stay full-size, subscripts shrink, the arrow gets relation kerning:\n\n" +
+            "$$\n\\ce{2H2 + O2 -> 2H2O}\n$$\n\n" +
+            "Haber process, equilibrium arrow (`\\rightleftharpoons` ⇌):\n\n" +
+            "$$\n\\ce{N2 + 3H2 <=> 2NH3}\n$$\n\n" +
+            "Ion charges — postfix superscripts via `\\plus` / `\\minus` so the math grammar's binary `+` / `-` doesn't bite inside the script group:\n\n" +
+            "$$\n\\ce{Fe^{3+} + 3OH^- -> Fe(OH)3}\n$$\n\n" +
+            "$$\n\\ce{SO4^{2-}}\n$$\n\n" +
+            "Calcium carbonate decomposition — the trailing digit on `(OH)2` subscripts the whole paren expression via the grammar's `P → P _ A` reduction:\n\n" +
+            "$$\n\\ce{Ca(OH)2 -> CaO + H2O}\n$$\n\n" +
+            "Prefix isotope scripts use the `\\null` zero-width atom (Phase-3) so the grammar's left-operand requirement on `^` is satisfied; the visitor's sub+sup merge collapses `\\null^{14}_{6}C` into a single stacked `SupSubBox` and juxtaposition glues the element on the right:\n\n" +
+            "$$\n\\ce{^{238}U -> ^{234}Th + ^{4}_{2}He}\n$$\n",
     };
 }
