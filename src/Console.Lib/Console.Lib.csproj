@@ -19,10 +19,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Console.Lib.Tests" />
-    <!-- The LatexConsole example (in this repo's examples/ tree) uses the
-         internal BoxBuildingVisitor to demonstrate pixel-rendered math in
-         isolation, separate from the markdown pipeline. -->
-    <InternalsVisibleTo Include="Examples.LatexConsole" />
   </ItemGroup>
 
   <ItemGroup>
