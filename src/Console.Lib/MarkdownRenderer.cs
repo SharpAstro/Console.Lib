@@ -203,6 +203,21 @@ public static partial class MarkdownRenderer
             return key;
         });
 
+        // \ce{X} → placeholder; replacement is the mhchem Phase-1 Unicode
+        // render of X (H₂O / ²³⁸U / Fe³⁺ / → / ⇌ / …). Solves the same class
+        // of problems \text{} does — the body must NOT flow back through
+        // the math grammar (digits would re-superscript, element-letter
+        // pairs would be treated as juxtaposed variables, etc.). The
+        // pre-baked Unicode lexes as `cmd`-atom placeholder bytes and the
+        // visitor emits it verbatim. See docs/MHCHEM.md for the supported
+        // subset.
+        source = ExpandBalancedMacro(source, "ce", inner =>
+        {
+            var key = NewPlaceholder();
+            replacements.Add(new KeyValuePair<string, string>(key, Mhchem.Render(inner)));
+            return key;
+        });
+
         // \boxed{X} → placeholder; replacement is "[X-rendered]" where X is
         // recursively run through RenderMathUnicode (so a nested \frac, \text,
         // etc. inside the box body still renders correctly).

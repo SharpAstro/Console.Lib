@@ -361,5 +361,26 @@ internal static class Program
             "kitty, mintty, GNOME, VS Code — the labels above are clickable. " +
             "Otherwise the underlined+coloured label plus the `(url)` in dim text " +
             "is what you'll see.)\n",
+
+        // mhchem Phase-1 subset: \ce{...} renders chemistry markup through
+        // a hand-rolled state machine that pre-bakes Unicode super/sub
+        // digits + arrows, so isotope prefixes (^{238}U), ion charges
+        // (Fe^3+), auto-subscripted formulas (H2O), and reaction arrows
+        // (-> / <- / <=> / <->) all render without the math grammar's
+        // "base atom before ^" constraint biting. See docs/MHCHEM.md
+        // for the full supported / unsupported list.
+        ["chem"] =
+            "## Chemistry via `\\ce{...}` (mhchem Phase-1 subset)\n\n" +
+            "Formulas auto-subscript trailing digits: \\(\\ce{H2O}\\), \\(\\ce{H2SO4}\\), " +
+            "\\(\\ce{C6H12O6}\\), \\(\\ce{Ca(OH)2}\\).\n\n" +
+            "Reactions with coefficients and arrows: \\(\\ce{2H2 + O2 -> 2H2O}\\).\n\n" +
+            "Equilibria: \\(\\ce{N2 + 3H2 <=> 2NH3}\\).\n\n" +
+            "Ions: \\(\\ce{Fe^3+}\\), \\(\\ce{SO4^{2-}}\\), \\(\\ce{NH4^+}\\), \\(\\ce{OH^-}\\).\n\n" +
+            "Isotope-prefix notation (the case that bare LaTeX `\\(^{238}U\\)` can't render — " +
+            "the math grammar needs a base atom before `^`): \\(\\ce{^{238}U}\\), " +
+            "\\(\\ce{^{14}_{6}C}\\), \\(\\ce{^{226}Ra}\\).\n\n" +
+            "Alpha decay as a full reaction: \\(\\ce{^{238}U -> ^{234}Th + ^{4}_{2}He}\\).\n\n" +
+            "State markers pass through: \\(\\ce{H2O(l) -> H2O(g)}\\), " +
+            "\\(\\ce{NaCl(s) + H2O(l) -> Na^+ (aq) + Cl^- (aq)}\\).\n",
     };
 }
