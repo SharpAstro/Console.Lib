@@ -6,7 +6,7 @@ using LALR.CC;
 using LALR.CC.LexicalGrammar;
 using DIR.Lib.MathLayout;
 using CL = global::Console.Lib;
-using static Console.Lib.Latex;
+using static DIR.Lib.Latex;
 
 // Console.Lib brings the `Console` namespace into scope, which would shadow
 // System.Console. Alias around it so we can still call System.Console.WriteLine.
@@ -15,8 +15,8 @@ using SysConsole = System.Console;
 namespace Examples.LatexConsole;
 
 /// <summary>
-/// Renders Wikipedia-style LaTeX math through Console.Lib's baked-in grammar
-/// pipeline (LALR.CC source generator emits <c>Console.Lib.Latex</c> at build
+/// Renders Wikipedia-style LaTeX math through DIR.Lib's baked-in grammar
+/// pipeline (LALR.CC source generator emits <c>DIR.Lib.Latex</c> at build
 /// time) into an RGBA pixel buffer using a TeX-lite Box engine, then ships
 /// pixels to the terminal as one of three encodings: Sixel (best fidelity,
 /// requires sixel-capable terminal), Unicode sextant blocks (2×3 sub-pixels
@@ -71,7 +71,7 @@ internal static class Program
             _ => 12f,
         };
 
-        var visitor = new CL.BoxBuildingVisitor(new BoxStyle(fontPath, fontSize));
+        var visitor = new DIR.Lib.Markdown.BoxBuildingVisitor(new BoxStyle(fontPath, fontSize));
         // Parser + lexer pre-baked by the LALR.CC source generator at build
         // time; constructing them here is just struct/array initialization,
         // no regex parsing or DFA construction at runtime.
