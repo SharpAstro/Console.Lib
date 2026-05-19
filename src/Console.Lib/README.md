@@ -35,13 +35,19 @@ classDiagram
         +HitTest(pixelX, pixelY)
     }
     class TextBar
+    class TextInputBar
     class ScrollableList~TItem~
     class TextArea
+    class TreeView~TItem~
+    class MarkdownWidget
     class Canvas~TSurface~ {
         +Render()*
         +Render(clip)
     }
     class IRowFormatter {
+        <<interface>>
+    }
+    class ITreeNode~TSelf~ {
         <<interface>>
     }
 
@@ -81,10 +87,14 @@ classDiagram
 
     Widget --> ITerminalViewport : viewport
     TextBar --|> Widget
+    TextInputBar --|> Widget
     ScrollableList --|> Widget
     TextArea --|> Widget
+    TreeView --|> Widget
+    MarkdownWidget --|> Widget
     Canvas --|> Widget
     ScrollableList ..> IRowFormatter : TItem
+    TreeView ..> ITreeNode : TItem
 
     Panel --> Widget : children
 
@@ -278,6 +288,30 @@ while (true)
 
 `TextAreaState` exposes the buffer contents as `ReadOnlySpan<byte>` (`SpanBeforeGap` / `SpanAfterGap`) and `ReadOnlyMemory<byte>` (`MemoryBeforeGap` / `MemoryAfterGap`) for zero-alloc consumers that want to feed the bytes into a lexer / pipe / encoder without materialising the whole text.
 
+### TextInputBar
+
+Single-line editable bar with a styled label, backed by `TextInputState` (cursor + insertion model, history-friendly). Navigation keys route to `TextInputState.HandleKey`; printable codepoints from `ConsoleInputEvent.KeyChar` route to `InsertText`. A reverse-video cursor is drawn at the insertion point.
+
+```csharp
+var prompt = new TextInputBar(viewport)
+    .Label(":")
+    .Style(new VtStyle(SgrColor.BrightWhite, SgrColor.Black));
+prompt.State = new TextInputState();
+prompt.HandleInput(term.TryReadInput());
+prompt.Render();
+```
+
+### TreeView\<TItem\>
+
+Scrollable tree widget for hierarchical data. Items implement `ITreeNode<TSelf>` (immediate children + an optional `EnsureChildrenLoaded` hook for lazy population). The widget materialises only the currently visible rows, draws a twirl glyph per expand/collapse state, and shares a scrollbar drag/page model with `ScrollableList<T>`.
+
+```csharp
+var tree = new TreeView<DirNode>(viewport)
+    .Header(" Files")
+    .Root(rootNode)
+    .Render();
+```
+
 ### Canvas\<TSurface\>
 
 A generic widget that owns a `SixelRenderer<TSurface>` and renders it to a viewport. Provides full and partial Sixel output:
@@ -358,7 +392,7 @@ terminal.Write($"{style.Apply(terminal.ColorMode)}Highlighted text{VtStyle.Reset
 
 ## Markdown rendering
 
-`MarkdownRenderer` converts Markdown to VT-styled terminal output using Markdig. Supports headings, bold, italic, links, tables, lists, horizontal rules, and inline colored text.
+`MarkdownRenderer` converts Markdown to VT-styled terminal output. Parsing is delegated to the LALR.CC inline + block grammars in **DIR.Lib.Markdown** (`MarkdownInline`, `MarkdownBlock`); Console.Lib walks the resulting `MdBlock` / `MdInline` trees and emits the styled lines. Supports headings, bold, italic, links (with OSC 8 hyperlinks for terminals that honour them), tables, lists, horizontal rules, fenced code, inline colored text, inline + display math, and `\ce{...}` chemistry notation inside math spans (via `DIR.Lib.Markdown.Mhchem`).
 
 Colors can be applied to individual words using `[text]{color}` syntax, where `color` is either a named `SgrColor` (e.g. `red`, `BrightCyan`) or a `#RRGGBB` hex literal:
 
@@ -367,6 +401,18 @@ This has a [warning]{red} and a [custom tint]{#FF8800}.
 ```
 
 Colors are resolved at render time based on the active `ColorMode` — in `None` mode, no escape sequences are emitted. Structural element colors (headings, links, bullets) are configurable via `MarkdownTheme`.
+
+### Math rendering
+
+Inline math (`\(...\)`, `$...$`) always renders as single-row Unicode. Display math (`$$...$$`, `\[...\]`) has three optional modes selectable via the `BoxRenderMode?` parameter on `RenderLines` / `Render`:
+
+| Mode | Density | Requirement |
+|---|---|---|
+| `Sixel` | True raster, 24-bit colour | Terminal supports Sixel (DA1 capability 4 — query `VirtualTerminal.HasSixelSupport`) |
+| `Sextant` | 2×3 sub-cell blocks via Unicode 13 | Modern terminal with sextant glyph coverage |
+| `HalfBlock` | 2-row half-blocks | Universal fallback |
+
+Leaving the mode `null` keeps display math on the same single-row Unicode path as inline. The pixel-rendered modes share `BoxRenderer`, which rasterises the LaTeX `Box` tree from `DIR.Lib.MathLayout` and ships it through one of the three encoders.
 
 `MarkdownWidget` wraps the renderer as a scrollable viewport widget with automatic re-rendering on resize.
 

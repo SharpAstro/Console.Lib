@@ -2,11 +2,13 @@ namespace Console.Lib;
 
 /// <summary>
 /// Widget that renders Markdown content to a terminal viewport with VT styling.
-/// Uses <see cref="MarkdownRenderer"/> for the actual Markdown-to-VT conversion.
+/// Uses <see cref="MarkdownRenderer"/> (and, transitively, the LALR.CC inline +
+/// block grammars in <c>DIR.Lib.Markdown</c>) for the actual Markdown-to-VT
+/// conversion.
 /// <para>
-/// The parsed Markdig AST is cached and reused across renders. The VT output lines
-/// are automatically re-rendered when the viewport width changes (e.g. on terminal resize),
-/// so word wrapping and table layout adapt to the new size.
+/// The fully wrapped VT output lines are cached and reused across renders. They
+/// are re-computed automatically when the viewport width changes (e.g. on
+/// terminal resize), so word wrapping and table layout adapt to the new size.
 /// </para>
 /// </summary>
 public class MarkdownWidget(ITerminalViewport viewport) : Widget(viewport)

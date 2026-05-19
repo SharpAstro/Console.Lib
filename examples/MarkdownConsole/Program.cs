@@ -367,8 +367,9 @@ internal static class Program
         // digits + arrows, so isotope prefixes (^{238}U), ion charges
         // (Fe^3+), auto-subscripted formulas (H2O), and reaction arrows
         // (-> / <- / <=> / <->) all render without the math grammar's
-        // "base atom before ^" constraint biting. See docs/MHCHEM.md
-        // for the full supported / unsupported list.
+        // "base atom before ^" constraint biting. The state machine and
+        // its supported / unsupported matrix live upstream in
+        // DIR.Lib.Markdown.Mhchem.
         ["chem"] =
             "## Chemistry via `\\ce{...}` (mhchem Phase-1 subset)\n\n" +
             "Formulas auto-subscript trailing digits: \\(\\ce{H2O}\\), \\(\\ce{H2SO4}\\), " +

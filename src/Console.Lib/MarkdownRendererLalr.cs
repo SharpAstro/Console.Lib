@@ -10,18 +10,14 @@ using DIR.Lib.Markdown;
 namespace Console.Lib;
 
 /// <summary>
-/// Phase D: LALR.CC-driven rendering path. Parallels the existing
-/// Markdig-based <see cref="MarkdownRenderer.RenderLines"/> but uses
-/// <see cref="MarkdownBlockVisitor"/> for block parsing and walks the
-/// resulting <see cref="MdBlock"/> / <see cref="MdInline"/> tree
-/// directly. Reuses the existing theme / VT / word-wrap helpers from
-/// the Markdig path (kept in the partial class) so the output should
-/// be byte-identical for the common-case inputs.
-///
-/// <para>Switch via <see cref="RenderLinesLalr"/> for now; Phase E
-/// runs the existing 327-test suite against this entry point to
-/// prove parity, then Phase F flips <see cref="MarkdownRenderer.RenderLines"/>
-/// to call this path by default and deletes the Markdig dependency.</para>
+/// LALR.CC-driven rendering path. <see cref="MarkdownRenderer.RenderLines"/>
+/// dispatches here unconditionally: the method parses the source via
+/// <see cref="MarkdownBlockVisitor"/> (from <c>DIR.Lib.Markdown</c>) and walks
+/// the resulting <see cref="MdBlock"/> / <see cref="MdInline"/> tree, emitting
+/// VT-styled lines via the helpers in the partial class. The legacy Markdig
+/// path was retired (Phase F cleanup) and the parser layer relocated to
+/// <c>DIR.Lib.Markdown</c> in v2.14.0 — this file is now the renderer
+/// implementation, not a parallel experiment.
 /// </summary>
 public static partial class MarkdownRenderer
 {
