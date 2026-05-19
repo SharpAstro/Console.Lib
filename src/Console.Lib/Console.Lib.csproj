@@ -6,8 +6,8 @@
     <Nullable>enable</Nullable>
     <IsAotCompatible>true</IsAotCompatible>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <VersionPrefix>2.13.0</VersionPrefix>
-    <AssemblyVersion>2.13.0.0</AssemblyVersion>
+    <VersionPrefix>2.14.0</VersionPrefix>
+    <AssemblyVersion>2.14.0.0</AssemblyVersion>
     <PackageID>Console.Lib</PackageID>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
@@ -47,43 +47,13 @@
   </ItemGroup>
 
   <!--
-    SharpAstro.LALR.CC drives the math-mode LaTeX parser baked into the
-    MarkdownRenderer. The Roslyn source generator runs at build time on
-    grammars/latex.lalr.yaml and emits a Latex partial class into this
-    assembly — no runtime parser construction, AOT-clean. Same sibling-
-    or-NuGet conditional pattern as DIR.Lib above.
+    The LALR.CC source generator + YamlDotNet build dependency + the
+    grammars/*.lalr.yaml moved to DIR.Lib.Markdown in v2.14. Console.Lib
+    consumes the generated parser classes (Latex, MarkdownInline,
+    MarkdownBlock — emitted into the DIR.Lib namespace) via the DIR.Lib
+    PackageReference / ProjectReference above; no grammar files or
+    source-generator wiring live here anymore.
   -->
-  <PropertyGroup>
-    <UseLocalLalrCc Condition="'$(UseLocalLalrCc)' == '' AND Exists('..\..\..\LALR.CC\LALR.CC\LALR.CC.csproj')">true</UseLocalLalrCc>
-  </PropertyGroup>
-  <ItemGroup Condition="'$(UseLocalLalrCc)' == 'true'">
-    <ProjectReference Include="..\..\..\LALR.CC\LALR.CC\LALR.CC.csproj" />
-    <ProjectReference Include="..\..\..\LALR.CC\LALR.CC.SourceGenerators\LALR.CC.SourceGenerators.csproj"
-                      OutputItemType="Analyzer"
-                      ReferenceOutputAssembly="false" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(UseLocalLalrCc)' != 'true'">
-    <PackageReference Include="SharpAstro.LALR.CC" />
-  </ItemGroup>
-
-  <!--
-    YamlDotNet is consumed only by the LALR.CC source generator (build-time)
-    to parse latex.lalr.yaml. PrivateAssets="all" keeps it out of the runtime
-    closure and out of the published package; the Analyzer item passes its
-    netstandard2.0 DLL into the analyzer load context next to the source
-    generator. The generated Latex partial class has no YamlDotNet references.
-  -->
-  <ItemGroup>
-    <PackageReference Include="YamlDotNet" GeneratePathProperty="true" PrivateAssets="all" />
-  </ItemGroup>
-  <ItemGroup>
-    <Analyzer Include="$(PkgYamlDotNet)\lib\netstandard2.0\YamlDotNet.dll" />
-  </ItemGroup>
-  <ItemGroup>
-    <AdditionalFiles Include="grammars\latex.lalr.yaml" Link="latex.lalr.yaml" />
-    <AdditionalFiles Include="grammars\markdown-inline.lalr.yaml" Link="markdown-inline.lalr.yaml" />
-    <AdditionalFiles Include="grammars\markdown-block.lalr.yaml" Link="markdown-block.lalr.yaml" />
-  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.SourceLink.GitHub">

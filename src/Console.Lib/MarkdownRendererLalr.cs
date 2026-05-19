@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using DIR.Lib;
 using DIR.Lib.MathLayout;
+using DIR.Lib.Markdown;
 
 namespace Console.Lib;
 
