@@ -7,11 +7,16 @@ on:
     branches: [ main ]
 
 env:
+  # 2.16 — MarkdownWidget gains MathMode + MathFontPath properties, so widget
+  # consumers can opt display-math blocks ($$ … $$) into the pixel-render path
+  # (Sixel / sextant / half-block) without bypassing the widget and reaching
+  # for MarkdownRenderer.RenderLines directly. Defaults stay at single-row
+  # Unicode, so existing callers are unaffected.
   # 2.15 — mhchem Phase-2 picks up box layout in display math. TryRenderMathBox
   # now expands \ce{...} via DIR.Lib.Markdown.Mhchem.ToLatex (paired with the
   # DIR.Lib 4.2 chem-to-LaTeX rewrite). Display chem inside $$ … $$ rasterises
   # via the same Sixel / sextant / half-block dispatcher as math.
-  VERSION_PREFIX: 2.15.${{ github.run_number }}
+  VERSION_PREFIX: 2.16.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release

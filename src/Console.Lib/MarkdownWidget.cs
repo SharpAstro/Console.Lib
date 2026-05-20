@@ -17,11 +17,42 @@ public class MarkdownWidget(ITerminalViewport viewport) : Widget(viewport)
     private List<string>? _renderedLines;
     private int _renderedWidth;
     private int _scrollOffset;
+    private BoxRenderMode? _mathMode;
+    private string? _mathFontPath;
 
     /// <summary>
     /// The color theme used for rendering. Defaults to <see cref="MarkdownTheme.Default"/>.
     /// </summary>
     public MarkdownTheme Theme { get; set; } = MarkdownTheme.Default;
+
+    /// <summary>
+    /// Pixel-render mode for display-math blocks (<c>$$…$$</c> / <c>\[…\]</c>).
+    /// <c>null</c> (default) keeps display math on the single-row Unicode path,
+    /// matching the pre-existing behaviour. Sextant and HalfBlock produce one
+    /// text row per encoded row and compose cleanly with the row-by-row writer
+    /// below; Sixel emits a DCS payload that extends downward across multiple
+    /// cell rows, so callers using Sixel should size the widget tall enough
+    /// that any lines following the math block sit below the image (the writer
+    /// will otherwise overwrite the image's tail rows when it positions back
+    /// to row+1). Setting this invalidates the line cache so the next render
+    /// re-walks the renderer with the new mode.
+    /// </summary>
+    public BoxRenderMode? MathMode
+    {
+        get => _mathMode;
+        set { if (_mathMode != value) { _mathMode = value; _renderedLines = null; } }
+    }
+
+    /// <summary>
+    /// Optional path to an OpenType math font used by the pixel-render path.
+    /// When <c>null</c> the renderer falls back to its built-in system-font
+    /// search. Has no effect when <see cref="MathMode"/> is <c>null</c>.
+    /// </summary>
+    public string? MathFontPath
+    {
+        get => _mathFontPath;
+        set { if (_mathFontPath != value) { _mathFontPath = value; _renderedLines = null; } }
+    }
 
     /// <summary>
     /// Sets the Markdown content to render.
@@ -88,7 +119,9 @@ public class MarkdownWidget(ITerminalViewport viewport) : Widget(viewport)
         if (_renderedLines is not null && _renderedWidth == currentWidth)
             return _renderedLines;
 
-        _renderedLines = MarkdownRenderer.RenderLines(_markdown, currentWidth, Viewport.ColorMode, Theme);
+        _renderedLines = MarkdownRenderer.RenderLines(
+            _markdown, currentWidth, Viewport.ColorMode, Theme,
+            mathMode: _mathMode, mathFontPath: _mathFontPath);
         _renderedWidth = currentWidth;
         return _renderedLines;
     }
