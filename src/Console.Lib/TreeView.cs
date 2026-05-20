@@ -237,6 +237,21 @@ public sealed class TreeView<TItem> : Widget where TItem : class, ITreeNode<TIte
         return _visible[idx].Item;
     }
 
+    /// <summary>
+    /// When <c>true</c>, <see cref="HandleMouse"/> auto-routes wheel events
+    /// (button 64 = up, 65 = down) into <see cref="HandleWheel"/> at the
+    /// <see cref="WheelStep"/> rate. Default <c>false</c> for backward
+    /// compatibility — hosts that want different semantics keep doing their
+    /// own dispatch.
+    /// </summary>
+    public bool AutoHandleWheel { get; set; }
+
+    /// <summary>
+    /// Rows scrolled per wheel notch when <see cref="AutoHandleWheel"/> is
+    /// <c>true</c>. Default <c>3</c>.
+    /// </summary>
+    public int WheelStep { get; set; } = 3;
+
     public bool HandleWheel(int delta)
     {
         EnsureVisible();
@@ -252,9 +267,16 @@ public sealed class TreeView<TItem> : Widget where TItem : class, ITreeNode<TIte
     /// elsewhere on a row moves the cursor (re-clicking the already-selected
     /// row toggles, which gives one-handed mouse drill-down). The scrollbar
     /// column drives drag/page exactly like <see cref="ScrollableList{T}"/>.
+    /// Wheel events (button 64/65) are routed to <see cref="HandleWheel"/>
+    /// when <see cref="AutoHandleWheel"/> is set; otherwise they fall through.
     /// </summary>
     public bool HandleMouse(MouseEvent m)
     {
+        // Wheel auto-routing (opt-in). Peeled off first because wheel events
+        // never carry IsRelease/IsMotion and shouldn't trip the drag path.
+        if (AutoHandleWheel && m.Button is 64 or 65)
+            return HandleWheel(m.Button == 64 ? WheelStep : -WheelStep);
+
         if (m.IsRelease)
         {
             var was = _isDragging;

@@ -7,6 +7,10 @@ on:
     branches: [ main ]
 
 env:
+  # 2.17 — ScrollableList and TreeView gain opt-in AutoHandleWheel / WheelStep
+  # properties. When set, HandleMouse auto-routes wheel events (button 64/65)
+  # into HandleWheel at the configured step. Default off keeps existing wheel
+  # consumers — which do their own button-64/65 dispatch — unaffected.
   # 2.16 — MarkdownWidget gains MathMode + MathFontPath properties, so widget
   # consumers can opt display-math blocks ($$ … $$) into the pixel-render path
   # (Sixel / sextant / half-block) without bypassing the widget and reaching
@@ -16,7 +20,7 @@ env:
   # now expands \ce{...} via DIR.Lib.Markdown.Mhchem.ToLatex (paired with the
   # DIR.Lib 4.2 chem-to-LaTeX rewrite). Display chem inside $$ … $$ rasterises
   # via the same Sixel / sextant / half-block dispatcher as math.
-  VERSION_PREFIX: 2.16.${{ github.run_number }}
+  VERSION_PREFIX: 2.17.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release
