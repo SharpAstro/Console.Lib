@@ -207,15 +207,21 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     public ScrollableList<TItem> ThumbStyle(VtStyle style) { _thumbStyle = style; return this; }
 
     /// <summary>
-    /// Dispatches a mouse event to the scrollbar. Returns <c>true</c> when the event
-    /// was consumed (click or drag over the scrollbar column), otherwise <c>false</c>
-    /// so the caller can continue its own hit-testing.
-    ///
-    /// Left-button press in the track above the thumb pages up; below pages down;
-    /// on the thumb starts a drag. Drag motion updates the offset proportionally;
-    /// release ends the drag. Wheel (button 64/65) is intentionally not handled
-    /// here — callers already have wheel hooks tied to their own semantics.
+    /// When <c>true</c>, <see cref="HandleMouse"/> auto-routes wheel events
+    /// (button 64 = up, 65 = down) into <see cref="HandleWheel"/> at the
+    /// <see cref="WheelStep"/> rate. Default <c>false</c> for backward
+    /// compatibility — hosts that want different semantics (e.g. wheel = zoom)
+    /// keep doing their own dispatch. Opt-in lets the common case stop
+    /// boilerplating a button-64/65 branch in every consumer.
     /// </summary>
+    public bool AutoHandleWheel { get; set; }
+
+    /// <summary>
+    /// Rows scrolled per wheel notch when <see cref="AutoHandleWheel"/> is
+    /// <c>true</c>. Default <c>3</c>, matching typical desktop conventions.
+    /// </summary>
+    public int WheelStep { get; set; } = 3;
+
     /// <summary>
     /// Scrolls the list by <paramref name="delta"/> rows. Positive <paramref name="delta"/>
     /// scrolls up (toward the list start). Returns <c>true</c> when the offset actually
@@ -230,8 +236,25 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
         return _scrollOffset != before;
     }
 
+    /// <summary>
+    /// Dispatches a mouse event to the scrollbar. Returns <c>true</c> when the event
+    /// was consumed (click or drag over the scrollbar column), otherwise <c>false</c>
+    /// so the caller can continue its own hit-testing.
+    ///
+    /// Left-button press in the track above the thumb pages up; below pages down;
+    /// on the thumb starts a drag. Drag motion updates the offset proportionally;
+    /// release ends the drag. Wheel (button 64/65) is routed to
+    /// <see cref="HandleWheel"/> when <see cref="AutoHandleWheel"/> is set;
+    /// otherwise wheel events fall through so the caller can attach its own
+    /// semantics.
+    /// </summary>
     public bool HandleMouse(MouseEvent mouse)
     {
+        // Wheel auto-routing (opt-in). Button 64 = up, 65 = down. Wheel events
+        // never carry IsRelease/IsMotion so they're safe to peel off first.
+        if (AutoHandleWheel && mouse.Button is 64 or 65)
+            return HandleWheel(mouse.Button == 64 ? WheelStep : -WheelStep);
+
         // End-of-drag on any release, even outside the track, so a fast flick
         // doesn't leave us stuck in drag state.
         if (mouse.IsRelease)

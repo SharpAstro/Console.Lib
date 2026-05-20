@@ -273,4 +273,76 @@ public sealed class ScrollableListTests
         // Cursor row: isSelected=true, selectedColumn=1, columnCount=2.
         rows[2].Calls.ShouldHaveSingleItem().ShouldBe((true, 1, 2));
     }
+
+    [Fact]
+    public void Wheel_NotRouted_WhenAutoHandleWheelDisabled()
+    {
+        // 20 items / 7 visible rows → scrollbar present. With AutoHandleWheel
+        // off (default), wheel events must NOT change the scroll offset; they
+        // fall through so the caller can attach its own semantics.
+        var list = NewList(itemCount: 20).ScrollTo(5);
+        list.AutoHandleWheel.ShouldBeFalse();
+
+        list.HandleMouse(new MouseEvent(Button: 64, X: 0, Y: 0, IsRelease: false))
+            .ShouldBeFalse();
+        list.ScrollOffset.ShouldBe(5);
+
+        list.HandleMouse(new MouseEvent(Button: 65, X: 0, Y: 0, IsRelease: false))
+            .ShouldBeFalse();
+        list.ScrollOffset.ShouldBe(5);
+    }
+
+    [Fact]
+    public void Wheel_AutoRoutes_WhenEnabled_ScrollsByWheelStep()
+    {
+        var list = NewList(itemCount: 20).ScrollTo(5);
+        list.AutoHandleWheel = true;
+
+        // Button 64 = wheel up → scroll toward list start → offset decreases by WheelStep (3).
+        list.HandleMouse(new MouseEvent(Button: 64, X: 0, Y: 0, IsRelease: false))
+            .ShouldBeTrue();
+        list.ScrollOffset.ShouldBe(2);
+
+        // Button 65 = wheel down → offset increases by WheelStep (3).
+        list.HandleMouse(new MouseEvent(Button: 65, X: 0, Y: 0, IsRelease: false))
+            .ShouldBeTrue();
+        list.ScrollOffset.ShouldBe(5);
+    }
+
+    [Fact]
+    public void Wheel_AutoRoutes_HonoursCustomWheelStep()
+    {
+        var list = NewList(itemCount: 20).ScrollTo(0);
+        list.AutoHandleWheel = true;
+        list.WheelStep = 5;
+
+        list.HandleMouse(new MouseEvent(Button: 65, X: 0, Y: 0, IsRelease: false))
+            .ShouldBeTrue();
+        list.ScrollOffset.ShouldBe(5);
+    }
+
+    [Fact]
+    public void Wheel_AutoRoutes_ReturnsFalseAtBoundary()
+    {
+        // Already at offset 0; wheeling up further shouldn't change state.
+        var list = NewList(itemCount: 20).ScrollTo(0);
+        list.AutoHandleWheel = true;
+
+        list.HandleMouse(new MouseEvent(Button: 64, X: 0, Y: 0, IsRelease: false))
+            .ShouldBeFalse();
+        list.ScrollOffset.ShouldBe(0);
+    }
+
+    [Fact]
+    public void Wheel_AutoRoutes_NoOpWhenListFitsInViewport()
+    {
+        // 3 items / 7 visible rows → no scrollbar → HandleWheel returns false
+        // even with AutoHandleWheel enabled (nothing to scroll).
+        var list = NewList(itemCount: 3);
+        list.AutoHandleWheel = true;
+
+        list.HandleMouse(new MouseEvent(Button: 65, X: 0, Y: 0, IsRelease: false))
+            .ShouldBeFalse();
+        list.ScrollOffset.ShouldBe(0);
+    }
 }
