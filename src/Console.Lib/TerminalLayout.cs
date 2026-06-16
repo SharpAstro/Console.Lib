@@ -41,48 +41,22 @@ public sealed class TerminalLayout
 
     private void ComputeGeometries()
     {
-        var rx = 0;
-        var ry = 0;
-        var rw = _lastWidth;
-        var rh = _lastHeight;
+        // The four-way edge arithmetic lives once in DockLayout<int> (cells); TerminalLayout keeps only the
+        // terminal-specific safety clamp (a strip never exceeds the cells still remaining) + the viewport wiring.
+        var layout = new DockLayout<int>(new Rect<int>(0, 0, _lastWidth, _lastHeight));
 
         foreach (var (dock, size, viewport) in _edgeDocked)
         {
-            switch (dock)
-            {
-                case DockStyle.Top:
-                {
-                    var panelHeight = Math.Min(size, rh);
-                    viewport.UpdateGeometry(rx, ry, rw, panelHeight);
-                    ry += panelHeight;
-                    rh -= panelHeight;
-                    break;
-                }
-                case DockStyle.Bottom:
-                {
-                    var panelHeight = Math.Min(size, rh);
-                    viewport.UpdateGeometry(rx, ry + rh - panelHeight, rw, panelHeight);
-                    rh -= panelHeight;
-                    break;
-                }
-                case DockStyle.Left:
-                {
-                    var panelWidth = Math.Min(size, rw);
-                    viewport.UpdateGeometry(rx, ry, panelWidth, rh);
-                    rx += panelWidth;
-                    rw -= panelWidth;
-                    break;
-                }
-                case DockStyle.Right:
-                {
-                    var panelWidth = Math.Min(size, rw);
-                    viewport.UpdateGeometry(rx + rw - panelWidth, ry, panelWidth, rh);
-                    rw -= panelWidth;
-                    break;
-                }
-            }
+            var remaining = layout.Fill();
+            var clamped = dock is DockStyle.Top or DockStyle.Bottom
+                ? Math.Min(size, remaining.Height)
+                : Math.Min(size, remaining.Width);
+
+            var r = layout.Dock(dock, clamped);
+            viewport.UpdateGeometry(r.X, r.Y, r.Width, r.Height);
         }
 
-        _fillViewport?.UpdateGeometry(rx, ry, rw, rh);
+        var fill = layout.Fill();
+        _fillViewport?.UpdateGeometry(fill.X, fill.Y, fill.Width, fill.Height);
     }
 }
