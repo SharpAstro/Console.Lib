@@ -41,8 +41,9 @@ public class CellLayoutTests
     private static string StripReset(string text) => text.Replace(VtStyle.Reset, "");
 
     private static LayoutNode.Leaf HitRow(string action) =>
-        new(new LayoutContent.Box(0, 0) { Hit = new HitResult.ButtonHit(action) })
+        new(new LayoutContent.Box(0, 0))
         {
+            Hit = new HitResult.ButtonHit(action),
             Height = Sizing.Fixed(1),
             Width = Sizing.Star(),
         };
@@ -101,8 +102,10 @@ public class CellLayoutTests
     public void CellLayout_HitTest_InvokesOnClickInsideRect()
     {
         var clicks = 0;
-        var leaf = new LayoutNode.Leaf(new LayoutContent.Box(0, 0) { Hit = new HitResult.ButtonHit("X"), OnClick = _ => clicks++ })
+        var leaf = new LayoutNode.Leaf(new LayoutContent.Box(0, 0))
         {
+            Hit = new HitResult.ButtonHit("X"),
+            OnClick = _ => clicks++,
             Height = Sizing.Fixed(2),
             Width = Sizing.Star(),
         };

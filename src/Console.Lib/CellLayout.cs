@@ -69,9 +69,9 @@ public static class CellLayout
         for (var i = arranged.Length - 1; i >= 0; i--)
         {
             var (node, rect) = arranged[i];
-            if (node is LayoutNode.Leaf { Content: { Hit: { } hit } content } && rect.Contains(column, row))
+            if (node.Hit is { } hit && rect.Contains(column, row))
             {
-                content.OnClick?.Invoke(modifiers);
+                node.OnClick?.Invoke(modifiers);
                 return hit;
             }
         }
