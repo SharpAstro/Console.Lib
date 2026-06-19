@@ -43,12 +43,26 @@ mdcat --plain README.md > out.txt # strip styling for plain capture
 | `1` | I/O error — file not found or unreadable input. |
 | `2` | Bad arguments. |
 
-## Math fonts
+## Math
 
-Display math (`$$...$$`, `\[...\]`) rasterizes through an OpenType math font.
-mdcat first looks for `Fonts/STIX2Math.otf` next to the executable, then falls
-back to `MarkdownRenderer`'s internal system-font search (STIX Two Math, Cambria
-Math, …). If none is found, math degrades to a Unicode-only approximation.
+Display math rasterizes (sixel / sextant / half-block per `--mode`) only when
+the delimiters sit on their **own lines** — i.e. a block:
+
+```
+$$
+\int_0^1 x^2\,dx = \frac{1}{3}
+$$
+```
+
+Single-line `$$...$$` and inline `$...$` always render as single-row Unicode,
+never rastered.
+
+Rastering needs an OpenType math font. mdcat **bundles** STIX Two Math
+(`Fonts/STIX2Math.otf`, SIL OFL — see `Fonts/STIX2-OFL.txt`) next to the
+executable, so math renders the same everywhere without relying on system
+fonts. If that file is ever missing, `MarkdownRenderer` falls back to an
+internal system-font search (STIX Two Math, Cambria Math, …) and, failing
+that, a Unicode-only approximation.
 
 ## Build & install
 

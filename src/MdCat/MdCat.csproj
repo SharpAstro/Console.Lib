@@ -15,4 +15,13 @@
     <ProjectReference Include="..\Console.Lib\Console.Lib.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Bundle the STIX Two Math font (OFL) next to the exe so display-math
+         rasterizes consistently without relying on system fonts. Program.cs's
+         ResolveMathFont() looks for Fonts/STIX2Math.otf under the app base dir.
+         Source of truth is DIR.Lib.Tests/Fonts; this is a copy so the tool
+         stays self-contained when packed as a global tool. -->
+    <Content Include="Fonts\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
