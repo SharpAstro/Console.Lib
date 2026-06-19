@@ -28,6 +28,15 @@
     <RepositoryUrl>https://github.com/SharpAstro/Console.Lib.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
 
+    <!-- Floor the framework-dependent tool at the 10.0 GA runtime so it runs on
+         ANY installed 10.0.x via roll-forward. Without this, the SDK pins the
+         runtimeconfig to whatever patch CI built with (e.g. 10.0.9), and roll-
+         forward never goes *down* — so users on an earlier 10.0 patch get
+         "You must install or update .NET". Gated on an empty RuntimeIdentifier
+         so the self-contained AOT publish (mdcat-release.yml, -r <rid>) keeps
+         bundling the latest runtime instead of 10.0.0. -->
+    <RuntimeFrameworkVersion Condition="'$(RuntimeIdentifier)' == ''">10.0.0</RuntimeFrameworkVersion>
+
     <!-- Released as native, self-contained per-platform binaries via
          .github/workflows/mdcat-release.yml (dotnet publish -r <rid>). AOT
          here also turns on the trim/AOT analyzers for the normal solution
