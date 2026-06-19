@@ -8,7 +8,26 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>mdcat</ToolCommandName>
     <AssemblyName>mdcat</AssemblyName>
-    <VersionPrefix>1.0.0</VersionPrefix>
+
+    <!-- mdcat's version is melded to Console.Lib's: CI passes -p:Version to the
+         whole solution, so the published tool tracks the library version. Keep
+         this X.Y in sync with Console.Lib's VersionPrefix (see ../../CLAUDE.md). -->
+    <VersionPrefix>2.18.0</VersionPrefix>
+
+    <!-- Published to nuget.org as a global tool (`dotnet tool install -g
+         mdcat`) by the CI pipeline. We do NOT set GeneratePackageOnBuild:
+         tool packaging needs the publish-gather that only `dotnet pack`
+         performs (a plain build emits a tools/ folder with no payload), so
+         dotnet.yml runs an explicit `dotnet pack src/MdCat` step. The same
+         -p:Version CI passes to the solution melds this with Console.Lib. -->
+    <PackageId>mdcat</PackageId>
+    <Description>A 'cat' for Markdown — render Markdown files (and stdin) to styled terminal output: headings, lists, code blocks, OSC 8 hyperlinks, and LaTeX math (sixel/sextant/half-block).</Description>
+    <PackageTags>markdown;cli;terminal;cat;renderer;tool;console;latex;math</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <RepositoryUrl>https://github.com/SharpAstro/Console.Lib.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+
     <!-- Released as native, self-contained per-platform binaries via
          .github/workflows/mdcat-release.yml (dotnet publish -r <rid>). AOT
          here also turns on the trim/AOT analyzers for the normal solution
@@ -21,6 +40,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Console.Lib\Console.Lib.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="/" />
   </ItemGroup>
 
   <ItemGroup>

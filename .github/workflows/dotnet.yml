@@ -39,6 +39,11 @@ jobs:
       run: dotnet build -c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
     - name: Test
       run: dotnet test -c $BUILD_CONF --no-build
+    # mdcat is a .NET tool (PackAsTool); tool packaging needs the publish-gather
+    # that only `dotnet pack` does, so it can't ride GeneratePackageOnBuild like
+    # Console.Lib. Same -p:Version melds its version with the library.
+    - name: Pack mdcat tool
+      run: dotnet pack src/MdCat/MdCat.csproj -c $BUILD_CONF -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
     - name: Upload NuGet package
       uses: actions/upload-artifact@v4
       with:
