@@ -19,12 +19,16 @@ mdcat [options] [file]
 |---|---|
 | `-h`, `--help` | Show help. |
 | `--mode <encoding>` | Display-math rendering: `unicode` \| `sixel` \| `sextant` \| `halfblock`. Default: auto-detect via DA1 (sixel on capable terminals, sextant otherwise). |
-| `--color <mode>` | `truecolor` \| `16` \| `none`. Default: `truecolor`, or `none` when `NO_COLOR` is set. |
+| `--color <mode>` | `truecolor` \| `16` \| `none`. Default: auto-detect. |
 | `--no-color`, `--plain` | Plain text, no escape sequences. Shorthand for `--color none`. |
 | `--width <N>` | Render width in columns. Default: console width, or 80. |
 
-`NO_COLOR` (see [no-color.org](https://no-color.org/)) is honored: any non-empty
-value disables color unless an explicit `--color` overrides it.
+**Color auto-detection.** With no `--color`, mdcat emits truecolor and, when it
+detects a 24-bit-capable terminal (`COLORTERM=truecolor`/`24bit`, or a known
+terminal via `WT_SESSION` / `TERM_PROGRAM`), switches to a richer GitHub-Dark
+palette; otherwise it uses the default 16-color-safe palette. An explicit
+`--color` overrides detection. `NO_COLOR` (see
+[no-color.org](https://no-color.org/)) disables color unless `--color` overrides it.
 
 ### Examples
 

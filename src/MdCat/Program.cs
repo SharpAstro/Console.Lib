@@ -53,6 +53,8 @@ internal static class Program
 
         int width = options.Width ?? GetConsoleWidth();
 
+        var (colorMode, theme) = ResolveColorAndTheme(options.Color);
+
         // Render into a buffer first, then flush. The renderer writes
         // incrementally, so catching around a direct-to-stdout render would
         // still leave half-rendered output before the throw. Buffering keeps
@@ -66,8 +68,8 @@ internal static class Program
                 content,
                 buffer,
                 width,
-                colorMode: options.Color,
-                theme: null,
+                colorMode: colorMode,
+                theme: theme,
                 mathMode: mathMode,
                 mathFontPath: ResolveMathFont());
         }
@@ -80,6 +82,39 @@ internal static class Program
 
         SysConsole.Out.Write(buffer.ToString());
         return 0;
+    }
+
+    /// <summary>
+    /// Resolves the effective <see cref="ColorMode"/> and theme. An explicit
+    /// <c>--color</c> / <c>--no-color</c> wins; otherwise NO_COLOR forces plain,
+    /// and we keep emitting truecolor escapes (unchanged) but only upgrade to
+    /// the richer <see cref="MarkdownTheme.Modern"/> palette when the terminal
+    /// is confirmed truecolor — a 16-colour terminal would mangle the hex tones.
+    /// </summary>
+    private static (ColorMode mode, MarkdownTheme? theme) ResolveColorAndTheme(ColorMode? explicitMode)
+    {
+        if (explicitMode is { } m)
+            return (m, m == ColorMode.TrueColor ? MarkdownTheme.Modern : null);
+
+        if (HasNoColorEnv())
+            return (ColorMode.None, null);
+
+        return (ColorMode.TrueColor, SupportsTrueColor() ? MarkdownTheme.Modern : null);
+    }
+
+    /// <summary>
+    /// Best-effort 24-bit-colour detection. There is no universally reliable
+    /// probe, so we use the de-facto conventions: COLORTERM=truecolor|24bit,
+    /// then known-terminal env markers (Windows Terminal sets WT_SESSION;
+    /// iTerm2 / WezTerm / VS Code set TERM_PROGRAM).
+    /// </summary>
+    private static bool SupportsTrueColor()
+    {
+        var colorTerm = Environment.GetEnvironmentVariable("COLORTERM");
+        if (colorTerm is "truecolor" or "24bit") return true;
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WT_SESSION"))) return true;
+        return Environment.GetEnvironmentVariable("TERM_PROGRAM")
+            is "iTerm.app" or "WezTerm" or "vscode";
     }
 
     private static async Task<BoxRenderMode?> DetectMathModeAsync()
@@ -117,16 +152,17 @@ internal static class Program
         }
     }
 
-    private record Options(string? FilePath, BoxRenderMode? Mode, int? Width, ColorMode Color, bool Help = false);
+    private record Options(string? FilePath, BoxRenderMode? Mode, int? Width, ColorMode? Color, bool Help = false);
 
     private static Options? ParseArgs(string[] args)
     {
         string? filePath = null;
         BoxRenderMode? mode = null;
         int? width = null;
-        // NO_COLOR (https://no-color.org/): any non-empty value disables color
-        // unless the user overrides it with an explicit --color.
-        var color = HasNoColorEnv() ? ColorMode.None : ColorMode.TrueColor;
+        // null = auto: ResolveColorAndTheme detects truecolor and honours
+        // NO_COLOR. An explicit --color / --no-color sets a non-null value
+        // that overrides detection.
+        ColorMode? color = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -212,8 +248,9 @@ internal static class Program
               --mode <encoding>     unicode | sixel | sextant | halfblock.
                                     Default: auto-detect (sixel on capable
                                     terminals, sextant otherwise).
-              --color <mode>        truecolor | 16 | none. Default: truecolor
-                                    (or none if NO_COLOR is set).
+              --color <mode>        truecolor | 16 | none. Default: auto-detect
+                                    (truecolor + modern palette on capable
+                                    terminals; honours NO_COLOR).
               --no-color, --plain   Plain text, no escape sequences.
               --width <N>           Render width. Default: console width or 80.
 
