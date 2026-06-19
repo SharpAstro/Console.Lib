@@ -9,6 +9,14 @@
     <ToolCommandName>mdcat</ToolCommandName>
     <AssemblyName>mdcat</AssemblyName>
     <VersionPrefix>1.0.0</VersionPrefix>
+    <!-- Released as native, self-contained per-platform binaries via
+         .github/workflows/mdcat-release.yml (dotnet publish -r <rid>). AOT
+         here also turns on the trim/AOT analyzers for the normal solution
+         build, so AOT regressions surface on PRs rather than at release time.
+         The whole dependency closure (Console.Lib + DIR.Lib + StbImageSharp)
+         is IsAotCompatible. -->
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>
