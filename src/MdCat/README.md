@@ -64,13 +64,41 @@ fonts. If that file is ever missing, `MarkdownRenderer` falls back to an
 internal system-font search (STIX Two Math, Cambria Math, …) and, failing
 that, a Unicode-only approximation.
 
-## Build & install
+## Install
+
+Download a prebuilt, self-contained binary from the
+[Releases](https://github.com/SharpAstro/Console.Lib/releases) page — no .NET
+runtime required. Native AOT builds are published for:
+
+| OS | x64 | arm64 |
+|---|---|---|
+| Linux | `linux-x64` | `linux-arm64` |
+| Windows | `win-x64` | `win-arm64` |
+| macOS | `osx-x64` | `osx-arm64` |
+
+Each archive contains the `mdcat` executable plus the `Fonts/` directory (the
+bundled math font must sit next to the binary). Extract it and put the folder
+on your `PATH`, e.g.:
 
 ```bash
-dotnet build src/MdCat               # build
-dotnet run --project src/MdCat -- README.md   # run in place
+tar -xzf mdcat-1.0.0-linux-x64.tar.gz
+sudo cp -r mdcat-1.0.0-linux-x64/* /usr/local/bin/   # mdcat + Fonts/
+```
 
-# install as a global tool from a local package
+Releases are cut by pushing a `mdcat-vX.Y.Z` tag, which runs
+[`.github/workflows/mdcat-release.yml`](../../.github/workflows/mdcat-release.yml).
+
+## Build from source
+
+```bash
+dotnet build src/MdCat                          # build
+dotnet run --project src/MdCat -- README.md     # run in place
+
+# native, self-contained binary for the current platform
+dotnet publish src/MdCat -c Release -r <rid> --self-contained -o out
+# (rid = linux-x64 | win-x64 | osx-arm64 | …; output in out/, with out/Fonts/)
+
+# or install as a .NET global tool from a local package
 dotnet pack src/MdCat -c Release
 dotnet tool install --global --add-source src/MdCat/bin/Release mdcat
 ```

@@ -1,0 +1,127 @@
+name: mdcat release
+
+# Builds native, self-contained mdcat binaries (Native AOT) for the common
+# desktop platforms and attaches them to a GitHub Release.
+#
+# Trigger: push a tag like `mdcat-v1.2.3`. The version is taken from the tag
+# (`mdcat-v` prefix stripped). `workflow_dispatch` builds the binaries without
+# cutting a release — handy for a dry run.
+#
+# NOTE: the linux-arm64 / win-arm64 rows use GitHub-hosted ARM64 runners, which
+# are free on public repos. If this repo is private without an ARM64 plan,
+# drop those two matrix rows (or switch them to x64-host cross-compilation).
+
+on:
+  push:
+    tags: [ 'mdcat-v*' ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 1.0.0). No release is created.'
+        required: true
+        default: '0.0.0-dev'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.rid }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    rid: linux-x64 }
+          - { os: ubuntu-24.04-arm, rid: linux-arm64 }
+          - { os: windows-latest,   rid: win-x64 }
+          - { os: windows-11-arm,   rid: win-arm64 }
+          - { os: macos-13,         rid: osx-x64 }
+          - { os: macos-latest,     rid: osx-arm64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # Native AOT on Linux links with clang and needs zlib headers.
+      - name: Install AOT prerequisites (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+
+      - name: Compute version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VER="${GITHUB_REF_NAME#mdcat-v}"
+          else
+            VER="${{ github.event.inputs.version }}"
+          fi
+          echo "VERSION=$VER" >> "$GITHUB_ENV"
+          echo "Building mdcat $VER for ${{ matrix.rid }}"
+
+      # No -p:UseLocalDirLib needed: the sibling DIR.Lib working copy doesn't
+      # exist on CI, so the csproj condition falls through to the NuGet package
+      # (which ships the pre-baked parser — no source-generator project, which
+      # would otherwise be un-AOT-able).
+      - name: Publish (Native AOT, self-contained)
+        shell: bash
+        run: |
+          dotnet publish src/MdCat/MdCat.csproj \
+            -c Release -r ${{ matrix.rid }} --self-contained \
+            -p:Version="$VERSION" \
+            -o publish
+
+      - name: Stage archive contents
+        shell: bash
+        run: |
+          STAGE="mdcat-$VERSION-${{ matrix.rid }}"
+          mkdir -p "$STAGE/Fonts"
+          if [ -f publish/mdcat.exe ]; then
+            cp publish/mdcat.exe "$STAGE/"
+          else
+            cp publish/mdcat "$STAGE/"
+            chmod +x "$STAGE/mdcat"
+          fi
+          cp publish/Fonts/STIX2Math.otf publish/Fonts/STIX2-OFL.txt "$STAGE/Fonts/"
+          cp src/MdCat/README.md "$STAGE/"
+          [ -f LICENSE ] && cp LICENSE "$STAGE/" || true
+          echo "STAGE=$STAGE" >> "$GITHUB_ENV"
+
+      - name: Archive (zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "$env:STAGE" -DestinationPath "$env:STAGE.zip"
+
+      - name: Archive (tar.gz)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: tar -czf "$STAGE.tar.gz" "$STAGE"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mdcat-${{ matrix.rid }}
+          path: |
+            mdcat-*.zip
+            mdcat-*.tar.gz
+          retention-days: 7
+
+  release:
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "mdcat ${GITHUB_REF_NAME#mdcat-v}" \
+            --generate-notes
