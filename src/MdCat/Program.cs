@@ -15,6 +15,7 @@ internal static class Program
 
         var options = ParseArgs(args);
         if (options is null) return 2;
+        if (options.Help) { PrintUsage(); return 0; }
 
         string content;
         try
@@ -56,7 +57,7 @@ internal static class Program
             content,
             SysConsole.Out,
             width,
-            colorMode: ColorMode.TrueColor,
+            colorMode: options.Color,
             theme: null,
             mathMode: mathMode,
             mathFontPath: ResolveMathFont());
@@ -99,13 +100,16 @@ internal static class Program
         }
     }
 
-    private record Options(string? FilePath, BoxRenderMode? Mode, int? Width);
+    private record Options(string? FilePath, BoxRenderMode? Mode, int? Width, ColorMode Color, bool Help = false);
 
     private static Options? ParseArgs(string[] args)
     {
         string? filePath = null;
         BoxRenderMode? mode = null;
         int? width = null;
+        // NO_COLOR (https://no-color.org/): any non-empty value disables color
+        // unless the user overrides it with an explicit --color.
+        var color = HasNoColorEnv() ? ColorMode.None : ColorMode.TrueColor;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -113,8 +117,7 @@ internal static class Program
             switch (a)
             {
                 case "-h" or "--help":
-                    PrintUsage();
-                    return null;
+                    return new Options(null, null, null, color, Help: true);
                 case "--mode" when i + 1 < args.Length:
                     mode = ParseMode(args[++i]);
                     if (mode == (BoxRenderMode)(-1))
@@ -123,6 +126,16 @@ internal static class Program
                         return null;
                     }
                     break;
+                case "--color" when i + 1 < args.Length:
+                    var c = ParseColor(args[++i]);
+                    if (c is null)
+                    {
+                        SysConsole.Error.WriteLine($"Unknown --color '{args[i]}'. Expected: truecolor | 16 | none.");
+                        return null;
+                    }
+                    color = c.Value; break;
+                case "--no-color" or "--plain":
+                    color = ColorMode.None; break;
                 case "--width" when i + 1 < args.Length:
                     if (!int.TryParse(args[++i], out var w) || w <= 0)
                     {
@@ -146,7 +159,7 @@ internal static class Program
             }
         }
 
-        return new Options(filePath, mode, width);
+        return new Options(filePath, mode, width, color);
     }
 
     private static BoxRenderMode? ParseMode(string s) => s.ToLowerInvariant() switch
@@ -157,6 +170,17 @@ internal static class Program
         "halfblock" => BoxRenderMode.HalfBlock,
         _ => (BoxRenderMode?)(-1),
     };
+
+    private static ColorMode? ParseColor(string s) => s.ToLowerInvariant() switch
+    {
+        "truecolor" or "true" or "24bit" => ColorMode.TrueColor,
+        "16" or "sgr16" or "ansi"        => ColorMode.Sgr16,
+        "none" or "off" or "plain"       => ColorMode.None,
+        _ => null,
+    };
+
+    private static bool HasNoColorEnv()
+        => !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NO_COLOR"));
 
     private static void PrintUsage()
     {
@@ -171,12 +195,16 @@ internal static class Program
               --mode <encoding>     unicode | sixel | sextant | halfblock.
                                     Default: auto-detect (sixel on capable
                                     terminals, sextant otherwise).
+              --color <mode>        truecolor | 16 | none. Default: truecolor
+                                    (or none if NO_COLOR is set).
+              --no-color, --plain   Plain text, no escape sequences.
               --width <N>           Render width. Default: console width or 80.
 
             Examples:
               mdcat README.md
               cat README.md | mdcat -
               mdcat --mode unicode README.md
+              mdcat --plain README.md > README.txt
             """);
     }
 }
