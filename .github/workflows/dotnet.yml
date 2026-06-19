@@ -20,7 +20,13 @@ env:
   # now expands \ce{...} via DIR.Lib.Markdown.Mhchem.ToLatex (paired with the
   # DIR.Lib 4.2 chem-to-LaTeX rewrite). Display chem inside $$ … $$ rasterises
   # via the same Sixel / sextant / half-block dispatcher as math.
-  VERSION_PREFIX: 3.0.${{ github.run_number }}
+  # 3.1 — markdown images. MarkdownRenderer gains a MarkdownImageOptions
+  # parameter: an image alone on its own line (![alt](src)) rasterises via the
+  # same Sixel / sextant / half-block path as display math (BoxRenderer.EncodeImage),
+  # decoding through StbImageSharp; inline / unresolvable images fall back to alt
+  # text. mdcat wires a local-file resolver (no network). Repins DIR.Lib -> 5.1.*
+  # for the new MdImage AST node.
+  VERSION_PREFIX: 3.1.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release

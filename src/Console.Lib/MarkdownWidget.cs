@@ -19,6 +19,7 @@ public class MarkdownWidget(ITerminalViewport viewport) : Widget(viewport)
     private int _scrollOffset;
     private BoxRenderMode? _mathMode;
     private string? _mathFontPath;
+    private MarkdownImageOptions? _images;
 
     /// <summary>
     /// The color theme used for rendering. Defaults to <see cref="MarkdownTheme.Default"/>.
@@ -52,6 +53,22 @@ public class MarkdownWidget(ITerminalViewport viewport) : Widget(viewport)
     {
         get => _mathFontPath;
         set { if (_mathFontPath != value) { _mathFontPath = value; _renderedLines = null; } }
+    }
+
+    /// <summary>
+    /// Image-rendering options (resolver + raster mode + cell pixel size). When
+    /// <c>null</c> (default) every Markdown image renders as its alt text; when
+    /// set, an image alone on its own line is rasterized. Hosts typically build
+    /// this from <see cref="ITerminalViewport.CellSize"/> for the pixel
+    /// dimensions and a resolver that loads local files. The same Sixel caveat
+    /// as <see cref="MathMode"/> applies — a rasterized image extends across
+    /// multiple cell rows, so size the widget so following lines sit below it.
+    /// Setting this invalidates the line cache.
+    /// </summary>
+    public MarkdownImageOptions? Images
+    {
+        get => _images;
+        set { if (!Equals(_images, value)) { _images = value; _renderedLines = null; } }
     }
 
     /// <summary>
@@ -121,7 +138,7 @@ public class MarkdownWidget(ITerminalViewport viewport) : Widget(viewport)
 
         _renderedLines = MarkdownRenderer.RenderLines(
             _markdown, currentWidth, Viewport.ColorMode, Theme,
-            mathMode: _mathMode, mathFontPath: _mathFontPath);
+            mathMode: _mathMode, mathFontPath: _mathFontPath, images: _images);
         _renderedWidth = currentWidth;
         return _renderedLines;
     }

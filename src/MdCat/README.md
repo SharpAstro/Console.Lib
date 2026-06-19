@@ -68,6 +68,28 @@ fonts. If that file is ever missing, `MarkdownRenderer` falls back to an
 internal system-font search (STIX Two Math, Cambria Math, …) and, failing
 that, a Unicode-only approximation.
 
+## Images
+
+An image that sits **alone on its own line** (`![alt](path)`) is rendered as a
+picture — Sixel on capable terminals, otherwise Unicode block characters
+(sextant / half-block), scaled to fit the render width. An image **inside a line
+of text**, or one that can't be displayed, renders as its alt text instead (the
+file name when the alt is empty).
+
+```markdown
+![architecture diagram](docs/arch.png)
+```
+
+Supported formats: **PNG** and **baseline JPEG** (plus BMP / GIF / TGA), via a
+pure-managed decoder. Progressive JPEG, SVG and WebP are not supported and fall
+back to alt text.
+
+**No network support.** mdcat does **not** download images. Only **local files**
+are read — relative paths resolve against the markdown file's directory (or the
+current directory when reading from stdin). Remote `http(s)://` and `data:` URLs
+are never fetched and render as their alt text. Add `--no-color` / `--plain` (or
+set `NO_COLOR`) to force every image to alt text.
+
 ## Install
 
 ### As a .NET global tool (needs the .NET 10 runtime)

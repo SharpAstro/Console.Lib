@@ -45,11 +45,16 @@ public static partial class MarkdownRenderer
     /// typically pass a path co-located with their executable. When null or
     /// not-found, the renderer falls back to a small system-font search and
     /// then Unicode rendering.</param>
+    /// <param name="images">When non-null, an image alone on its own line is
+    /// rasterized (Sixel / sextant / half-block per <see cref="MarkdownImageOptions.Mode"/>)
+    /// using the supplied resolver. Default null renders every image as alt text.
+    /// Images that appear mid-paragraph always render as alt text.</param>
     public static void Render(string markdown, TextWriter output, int width,
         ColorMode colorMode = ColorMode.TrueColor, MarkdownTheme? theme = null,
-        BoxRenderMode? mathMode = null, string? mathFontPath = null)
+        BoxRenderMode? mathMode = null, string? mathFontPath = null,
+        MarkdownImageOptions? images = null)
     {
-        foreach (var line in RenderLines(markdown, width, colorMode, theme, mathMode, mathFontPath))
+        foreach (var line in RenderLines(markdown, width, colorMode, theme, mathMode, mathFontPath, images))
             output.WriteLine(line);
     }
 
@@ -58,10 +63,12 @@ public static partial class MarkdownRenderer
     /// </summary>
     /// <param name="mathMode">See <see cref="Render"/> for the math-mode semantics.</param>
     /// <param name="mathFontPath">See <see cref="Render"/> for the math-font semantics.</param>
+    /// <param name="images">See <see cref="Render"/> for the image semantics.</param>
     public static List<string> RenderLines(string markdown, int width,
         ColorMode colorMode = ColorMode.TrueColor, MarkdownTheme? theme = null,
-        BoxRenderMode? mathMode = null, string? mathFontPath = null)
-        => RenderLinesLalr(markdown, width, colorMode, theme, mathMode, mathFontPath);
+        BoxRenderMode? mathMode = null, string? mathFontPath = null,
+        MarkdownImageOptions? images = null)
+        => RenderLinesLalr(markdown, width, colorMode, theme, mathMode, mathFontPath, images);
 
     private static bool TryRenderMathBox(string source, BoxRenderMode mode,
         string? callerFontPath, List<string> result)

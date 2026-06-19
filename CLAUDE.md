@@ -5,7 +5,14 @@
 ```bash
 dotnet build src/Console.Lib
 dotnet test src/Console.Lib.Tests
+dotnet run --project src/MdCat -- README.md   # build & run the mdcat CLI in place
 ```
+
+**mdcat** (`src/MdCat`) is a `cat`-for-Markdown CLI built on Console.Lib's `MarkdownRenderer`.
+It ships two ways: a .NET global tool (NuGet, version melded to Console.Lib — see Versioning)
+and per-platform native-AOT binaries (tag-driven via `mdcat-vX.Y.Z`, `mdcat-release.yml`). It
+bundles STIX Two Math (`src/MdCat/Fonts/`) so display math renders without system fonts. See
+`src/MdCat/README.md`.
 
 ## Versioning
 
@@ -63,6 +70,27 @@ What moved out (mention here so future-me doesn't go looking for it in this repo
 
 Bumping DIR.Lib past a minor that touches `DIR.Lib.Markdown` may require coordinated changes here — the `MarkdownRenderer` walks the public `MdBlock` / `MdInline` shape directly.
 
+## Layering: shared layout engine (DIR.Lib)
+
+The dock/box layout primitives are surface-neutral and live in **DIR.Lib**: `DockLayout<T>`
+(the four-way edge arithmetic), `LayoutNode` / `LayoutContent` (the arrangeable tree, with
+per-leaf `Hit` + `OnClick`), `LayoutEngine.Arrange` → `ArrangedNode<T>`, `IMeasureContext<T>`,
+and the menu model/view pair `MenuModel` + `MenuLayout.BuildTree` (`MenuColors`). DIR.Lib also
+has the pixel-surface `PixelMenuWidget<TSurface>`. Console.Lib supplies the **cell surface**:
+
+- `CellMeasureContext : IMeasureContext<int>` — text width = char count (one row tall),
+  design units round to whole cells. (Wide-char / East-Asian-width is a documented follow-up.)
+- `CellLayout` — static cell painter that walks the *same* arranged tree the pixel painter
+  uses (`CellLayout.Paint`) and a reverse-order `CellLayout.HitTest` mapping (col,row) → leaf
+  `Hit` (firing `OnClick`).
+- `MenuWidget` — cell-surface counterpart to `PixelMenuWidget<TSurface>`; wraps `MenuModel`
+  + `MenuLayout` via `CellLayout`.
+- `TerminalLayout` — now delegates the edge arithmetic to `DockLayout<int>` (cells), keeping
+  only the terminal-specific safety clamp (a strip never exceeds remaining cells) + viewport wiring.
+
+So a bump of DIR.Lib that touches `DockLayout` / `LayoutNode` / `MenuLayout` / `MenuModel` can
+require coordinated changes in `CellLayout` / `MenuWidget` / `TerminalLayout`.
+
 ## Key design notes
 
 - **Windows VT I/O** (`WindowsConsoleInput.EnableVirtualTerminalIO`) is only activated when entering alternate screen mode, not during `InitAsync()`. This keeps `Console.ReadKey` working correctly in normal (non-alternate) mode for ASCII/text-based UIs.
@@ -71,3 +99,4 @@ Bumping DIR.Lib past a minor that touches `DIR.Lib.Markdown` may require coordin
 - **`MenuBase<T>`** in normal mode shows a `> ` prompt and echoes the selected item on confirmation.
 - **`ColorMode` enum** has a `None` value (ordinal 0) before `Sgr16` and `TrueColor`. Code that persisted or compared `ColorMode` by integer value may need updating. `ColorMode.None` suppresses all escape sequences for plain-text capture.
 - **`MarkdownRenderer` math rendering** has three modes for display math (`$$...$$`, `\[...\]`) — Sixel (true raster), Unicode sextant (2×3 sub-cell blocks, no Sixel needed), and half-block (universal fallback). Inline math always renders as single-row Unicode. Callers pick the mode after probing terminal capability via DA1 (`HasSixelSupport`).
+- **`MarkdownRenderer` image rendering** (`![alt](src)`) is opt-in via the `MarkdownImageOptions? images` parameter on `RenderLines` / `Render`. An image alone on its own line block-rasters via the **same** emit path as display math (`BoxRenderer.EncodeImage` — the encoder switch extracted so any RGBA buffer reuses it); an image mid-paragraph, or any image when `images` is null/unresolvable, renders as alt text (empty alt → file name). The `MdImage` node lives in **DIR.Lib.Markdown** (grammar `![` opener + `imageSpan` production mirroring `linkSpan`). Decoding uses **StbImageSharp** (PNG / baseline JPEG / BMP / GIF), already transitive via DIR.Lib → SharpAstro.Fonts — no new package, AOT-safe. The renderer never fetches: the host's `Resolver` maps a `src` to bytes (mdcat reads local files relative to the doc dir and returns null for `http(s)`/`data:` — **no network**).
