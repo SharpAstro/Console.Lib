@@ -53,15 +53,32 @@ internal static class Program
 
         int width = options.Width ?? GetConsoleWidth();
 
-        MarkdownRenderer.Render(
-            content,
-            SysConsole.Out,
-            width,
-            colorMode: options.Color,
-            theme: null,
-            mathMode: mathMode,
-            mathFontPath: ResolveMathFont());
+        // Render into a buffer first, then flush. The renderer writes
+        // incrementally, so catching around a direct-to-stdout render would
+        // still leave half-rendered output before the throw. Buffering keeps
+        // mdcat cat-tolerant: if the markdown/LaTeX pipeline throws on some
+        // grammar edge case, we emit the raw file contents instead of crashing
+        // with a stack trace — you always get the document either way.
+        var buffer = new StringWriter();
+        try
+        {
+            MarkdownRenderer.Render(
+                content,
+                buffer,
+                width,
+                colorMode: options.Color,
+                theme: null,
+                mathMode: mathMode,
+                mathFontPath: ResolveMathFont());
+        }
+        catch (Exception ex)
+        {
+            SysConsole.Error.WriteLine($"mdcat: could not render markdown ({ex.Message}); emitting raw text.");
+            SysConsole.Out.Write(content);
+            return 0;
+        }
 
+        SysConsole.Out.Write(buffer.ToString());
         return 0;
     }
 
