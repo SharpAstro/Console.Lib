@@ -45,15 +45,23 @@ internal static class Program
             return 1;
         }
 
-        BoxRenderMode? mathMode = options.Mode;
-        if (mathMode == null)
-        {
-            mathMode = await DetectMathModeAsync();
-        }
-
         int width = options.Width ?? GetConsoleWidth();
 
         var (colorMode, theme) = ResolveColorAndTheme(options.Color);
+
+        // A single terminal probe drives both the math-raster mode and image
+        // rendering (cell pixel size + Sixel/blocks capability). Skip it only
+        // when math mode is already pinned and colour (hence images) is off.
+        BoxRenderMode? mathMode = options.Mode;
+        MarkdownImageOptions? images = null;
+        if (mathMode == null || colorMode != ColorMode.None)
+        {
+            var probe = await ProbeTerminalAsync();
+            if (mathMode == null && probe.Available)
+                mathMode = probe.Sixel ? BoxRenderMode.Sixel : BoxRenderMode.Sextant;
+            if (colorMode != ColorMode.None)
+                images = BuildImageOptions(probe, options.Mode, options.FilePath);
+        }
 
         // Render into a buffer first, then flush. The renderer writes
         // incrementally, so catching around a direct-to-stdout render would
@@ -71,7 +79,8 @@ internal static class Program
                 colorMode: colorMode,
                 theme: theme,
                 mathMode: mathMode,
-                mathFontPath: ResolveMathFont());
+                mathFontPath: ResolveMathFont(),
+                images: images);
         }
         catch (Exception ex)
         {
@@ -117,15 +126,79 @@ internal static class Program
             is "iTerm.app" or "WezTerm" or "vscode";
     }
 
-    private static async Task<BoxRenderMode?> DetectMathModeAsync()
+    private readonly record struct TerminalProbe(
+        bool Available, bool Sixel, ImageDisplayCapability ImageCap, int CellW, int CellH);
+
+    private static async Task<TerminalProbe> ProbeTerminalAsync()
     {
         try
         {
             await using var probe = new VirtualTerminal();
             await probe.InitAsync();
-            return probe.HasSixelSupport
-                ? BoxRenderMode.Sixel
-                : BoxRenderMode.Sextant;
+            var cell = probe.CellSize;
+            return new TerminalProbe(true, probe.HasSixelSupport, probe.ImageDisplayCapability, cell.Width, cell.Height);
+        }
+        catch
+        {
+            return default; // Available == false
+        }
+    }
+
+    /// <summary>
+    /// Builds image-rendering options from the terminal probe. Returns null
+    /// (→ alt text) when the terminal can't display images. An explicit
+    /// <c>--mode</c> raster choice overrides the detected capability so images
+    /// share the math encoding the user asked for.
+    /// </summary>
+    private static MarkdownImageOptions? BuildImageOptions(TerminalProbe probe, BoxRenderMode? explicitMode, string? filePath)
+    {
+        if (!probe.Available) return null;
+        var mode = explicitMode ?? probe.ImageCap switch
+        {
+            ImageDisplayCapability.Sixel => BoxRenderMode.Sixel,
+            ImageDisplayCapability.AsciiBlock => BoxRenderMode.Sextant,
+            _ => (BoxRenderMode?)null, // NoColor → no raster
+        };
+        if (mode is not { } m) return null;
+
+        var baseDir = ResolveImageBaseDir(filePath);
+        var cellW = probe.CellW > 0 ? probe.CellW : 10;
+        var cellH = probe.CellH > 0 ? probe.CellH : 20;
+        return new MarkdownImageOptions(src => LoadLocalImage(src, baseDir), m, cellW, cellH);
+    }
+
+    /// <summary>Directory image sources resolve against: the document's folder, else CWD (stdin).</summary>
+    private static string ResolveImageBaseDir(string? filePath)
+    {
+        if (filePath is not null && filePath != "-")
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(Path.GetFullPath(filePath));
+                if (!string.IsNullOrEmpty(dir)) return dir;
+            }
+            catch { /* fall through to CWD */ }
+        }
+        return Directory.GetCurrentDirectory();
+    }
+
+    /// <summary>
+    /// Loads a local image file for the renderer. mdcat does NOT fetch over the
+    /// network — remote (<c>http(s)://</c>) and <c>data:</c> URLs return null so
+    /// the image falls back to its alt text. Relative paths resolve against
+    /// <paramref name="baseDir"/>.
+    /// </summary>
+    private static byte[]? LoadLocalImage(string src, string baseDir)
+    {
+        if (string.IsNullOrWhiteSpace(src)) return null;
+        if (src.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            || src.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            || src.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            return null;
+        try
+        {
+            var path = Path.IsPathRooted(src) ? src : Path.Combine(baseDir, src);
+            return File.Exists(path) ? File.ReadAllBytes(path) : null;
         }
         catch
         {

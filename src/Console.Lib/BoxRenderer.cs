@@ -52,10 +52,20 @@ public static class BoxRenderer
     {
         var image = BoxRasterizer.RenderToRgba(box, style);
         if (image.Width <= 0 || image.Height <= 0) return;
+        EncodeImage(image.Pixels, image.Width, image.Height, mode, output);
+    }
 
-        var rgba = image.Pixels;
-        var totalW = image.Width;
-        var totalH = image.Height;
+    /// <summary>
+    /// Ship an already-rasterized RGBA buffer (4 bytes/pixel, row-major) to
+    /// <paramref name="output"/> in the chosen <paramref name="mode"/>. Shared
+    /// by <see cref="Render"/> (math boxes) and the Markdown image path —
+    /// neither the buffer's provenance nor its content matters here, only its
+    /// dimensions. Transparency-aware in every mode (zero-alpha pixels emit no
+    /// background).
+    /// </summary>
+    public static void EncodeImage(byte[] rgba, int width, int height, BoxRenderMode mode, TextWriter output)
+    {
+        if (width <= 0 || height <= 0) return;
 
         switch (mode)
         {
@@ -84,18 +94,18 @@ public static class BoxRenderer
                 output.WriteLine();
                 using (var ms = new System.IO.MemoryStream())
                 {
-                    SixelEncoder.Encode(rgba, totalW, totalH, channels: 4, ms);
+                    SixelEncoder.Encode(rgba, width, height, channels: 4, ms);
                     output.Write(System.Text.Encoding.ASCII.GetString(ms.ToArray()));
                 }
                 output.WriteLine();
                 break;
 
             case BoxRenderMode.Sextant:
-                EncodeSextant(rgba, totalW, totalH, output);
+                EncodeSextant(rgba, width, height, output);
                 break;
 
             case BoxRenderMode.HalfBlock:
-                EncodeHalfBlock(rgba, totalW, totalH, output);
+                EncodeHalfBlock(rgba, width, height, output);
                 break;
         }
     }

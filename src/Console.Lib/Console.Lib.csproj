@@ -6,8 +6,8 @@
     <Nullable>enable</Nullable>
     <IsAotCompatible>true</IsAotCompatible>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <VersionPrefix>3.0.0</VersionPrefix>
-    <AssemblyVersion>3.0.0.0</AssemblyVersion>
+    <VersionPrefix>3.1.0</VersionPrefix>
+    <AssemblyVersion>3.1.0.0</AssemblyVersion>
     <PackageID>Console.Lib</PackageID>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
@@ -41,6 +41,17 @@
   <ItemGroup Condition="'$(UseLocalDirLib)' != 'true'">
     <PackageReference Include="DIR.Lib" />
   </ItemGroup>
+
+  <!--
+    Markdown image decoding (StbImageSharp.ImageResult.FromMemory in
+    MarkdownRendererLalr) uses StbImageSharp, which is already in the closure
+    transitively via DIR.Lib -> SharpAstro.Fonts (used there for CBDT/sbix
+    bitmap-glyph PNGs). It is IsAotCompatible, so it composes with this
+    library's AOT contract. No explicit reference is added here to avoid a
+    project-vs-package clash in the local DIR.Lib dev setup above; the
+    transitive compile + runtime reference covers both modes.
+  -->
+
 
   <!--
     The LALR.CC source generator + YamlDotNet build dependency + the

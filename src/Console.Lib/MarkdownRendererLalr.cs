@@ -26,7 +26,8 @@ public static partial class MarkdownRenderer
     /// should match byte-for-byte for the cases both paths cover.</summary>
     public static List<string> RenderLinesLalr(string markdown, int width,
         ColorMode colorMode = ColorMode.TrueColor, MarkdownTheme? theme = null,
-        BoxRenderMode? mathMode = null, string? mathFontPath = null)
+        BoxRenderMode? mathMode = null, string? mathFontPath = null,
+        MarkdownImageOptions? images = null)
     {
         if (string.IsNullOrWhiteSpace(markdown)) return new List<string>();
 
@@ -38,7 +39,7 @@ public static partial class MarkdownRenderer
         foreach (var block in blocks)
         {
             if (!first) result.Add(string.Empty);
-            RenderMdBlock(block, width, colorMode, theme, result, mathMode, mathFontPath);
+            RenderMdBlock(block, width, colorMode, theme, result, mathMode, mathFontPath, images);
             first = false;
         }
 
@@ -51,7 +52,7 @@ public static partial class MarkdownRenderer
 
     private static void RenderMdBlock(MdBlock block, int width, ColorMode colorMode,
         MarkdownTheme theme, List<string> result,
-        BoxRenderMode? mathMode, string? mathFontPath)
+        BoxRenderMode? mathMode, string? mathFontPath, MarkdownImageOptions? images)
     {
         switch (block)
         {
@@ -63,6 +64,15 @@ public static partial class MarkdownRenderer
                 break;
             case MdParagraph p:
                 {
+                    // A paragraph that is just one image (its own line) rasters
+                    // as a block — mirroring display math. If raster is off or
+                    // fails, we fall through to the inline walker, which emits
+                    // the image's alt text via its MdImage case.
+                    if (images is not null && TrySingleImage(p.Content) is { } soleImage
+                        && TryRenderImage(soleImage, width, images, result))
+                    {
+                        break;
+                    }
                     var sb = new StringBuilder();
                     RenderMdInlines(p.Content, sb, bold: false, italic: false, colorMode, theme);
                     result.AddRange(WordWrap(sb.ToString(), width));
@@ -75,7 +85,7 @@ public static partial class MarkdownRenderer
                 RenderMdMathBlock(m, width, colorMode, theme, result, mathMode, mathFontPath);
                 break;
             case MdList l:
-                RenderMdList(l, width, colorMode, theme, result, mathMode, mathFontPath, nestLevel: 0);
+                RenderMdList(l, width, colorMode, theme, result, mathMode, mathFontPath, images, nestLevel: 0);
                 break;
             case MdTable t:
                 RenderMdTable(t, colorMode, theme, result);
@@ -139,7 +149,7 @@ public static partial class MarkdownRenderer
 
     private static void RenderMdList(MdList list, int width, ColorMode colorMode,
         MarkdownTheme theme, List<string> result,
-        BoxRenderMode? mathMode, string? mathFontPath, int nestLevel)
+        BoxRenderMode? mathMode, string? mathFontPath, MarkdownImageOptions? images, int nestLevel)
     {
         var bulletColor = Resolve(theme.Bullet, colorMode);
         var dimColor = Resolve(theme.Dim, colorMode);
@@ -172,7 +182,7 @@ public static partial class MarkdownRenderer
                 }
                 else if (body is MdList nestedList)
                 {
-                    RenderMdList(nestedList, width, colorMode, theme, result, mathMode, mathFontPath, nestLevel + 1);
+                    RenderMdList(nestedList, width, colorMode, theme, result, mathMode, mathFontPath, images, nestLevel + 1);
                 }
                 else
                 {
@@ -180,7 +190,7 @@ public static partial class MarkdownRenderer
                     // block dispatcher; the indentation isn't preserved
                     // perfectly here (the existing Markdig path has the
                     // same approximation) but the content surfaces.
-                    RenderMdBlock(body, width, colorMode, theme, result, mathMode, mathFontPath);
+                    RenderMdBlock(body, width, colorMode, theme, result, mathMode, mathFontPath, images);
                 }
                 firstBlock = false;
             }
@@ -336,6 +346,27 @@ public static partial class MarkdownRenderer
                         break;
                     }
 
+                case MdImage image:
+                    {
+                        // Inline (mid-text) images and the no-raster fallback
+                        // render the alt text. An empty alt shows the source
+                        // filename, dimmed, so the image isn't silently blank.
+                        var altSb = new StringBuilder();
+                        RenderMdInlines(image.Alt, altSb, bold, italic, colorMode, theme);
+                        if (VisibleLength(altSb.ToString()) == 0)
+                        {
+                            var dimColor = Resolve(theme.Dim, colorMode);
+                            sb.Append(rst).Append(dimColor).Append(ImageName(image.Url)).Append(rst);
+                            if (bold) sb.Append(boldAttr);
+                            if (italic) sb.Append(italicAttr);
+                        }
+                        else
+                        {
+                            sb.Append(altSb);
+                        }
+                        break;
+                    }
+
                 case MdColor color:
                     {
                         if (MarkdownTheme.TryParseColor(color.Color, out var rgba))
@@ -380,5 +411,151 @@ public static partial class MarkdownRenderer
                     }
             }
         }
+    }
+
+    // ── Image rasterization ───────────────────────────────────────────
+
+    /// <summary>
+    /// Returns the single image in <paramref name="content"/> when it holds
+    /// exactly one (ignoring whitespace-only literals and line breaks), else
+    /// null. This is the "image alone on its own line" test that promotes an
+    /// image to a rasterized block.
+    /// </summary>
+    private static MdImage? TrySingleImage(IReadOnlyList<MdInline> content)
+    {
+        MdImage? found = null;
+        foreach (var inline in content)
+        {
+            if (inline is MdImage img)
+            {
+                if (found is not null) return null; // more than one image
+                found = img;
+            }
+            else if (inline is MdLineBreak)
+            {
+                // ignore breaks around the image
+            }
+            else if (inline is MdLiteral lit && string.IsNullOrWhiteSpace(lit.Text))
+            {
+                // ignore surrounding whitespace
+            }
+            else
+            {
+                return null; // any other content → not image-only
+            }
+        }
+        return found;
+    }
+
+    /// <summary>
+    /// Resolves, decodes, scales and rasterizes <paramref name="img"/>, appending
+    /// the encoded rows to <paramref name="result"/>. Returns false (leaving
+    /// <paramref name="result"/> untouched) when the source can't be resolved or
+    /// decoded, so the caller can fall back to alt text. Never throws.
+    /// </summary>
+    private static bool TryRenderImage(MdImage img, int width, MarkdownImageOptions images, List<string> result)
+    {
+        byte[]? bytes;
+        try { bytes = images.Resolver(img.Url); }
+        catch { bytes = null; }
+        if (bytes is null || bytes.Length == 0) return false;
+
+        try
+        {
+            var decoded = StbImageSharp.ImageResult.FromMemory(bytes, StbImageSharp.ColorComponents.RedGreenBlueAlpha);
+            if (decoded is null || decoded.Width <= 0 || decoded.Height <= 0 || decoded.Data is null)
+                return false;
+
+            var rgba = decoded.Data;
+            int srcW = decoded.Width, srcH = decoded.Height;
+
+            // Bound the image to `width` columns and `MaxRows` rows, converting
+            // each to a pixel budget for the chosen encoding (HalfBlock packs
+            // 1×2 px/cell, Sextant 2×3, Sixel a full cell). Aspect preserved;
+            // never upscale.
+            var (maxPxW, maxPxH) = images.Mode switch
+            {
+                BoxRenderMode.Sixel     => (width * images.CellPixelWidth, images.MaxRows * images.CellPixelHeight),
+                BoxRenderMode.Sextant   => (width * 2, images.MaxRows * 3),
+                BoxRenderMode.HalfBlock => (width, images.MaxRows * 2),
+                _                       => (width, images.MaxRows * 2),
+            };
+            var (dstW, dstH) = FitWithin(srcW, srcH, Math.Max(1, maxPxW), Math.Max(1, maxPxH));
+            if (dstW != srcW || dstH != srcH)
+                rgba = Downscale(rgba, srcW, srcH, dstW, dstH);
+
+            using var sw = new StringWriter();
+            BoxRenderer.EncodeImage(rgba, dstW, dstH, images.Mode, sw);
+
+            // StringWriter.WriteLine emits the platform newline (\r\n on
+            // Windows), so trim the stray \r each split line would otherwise
+            // keep — it inflates visible width and, for Sixel, would surface
+            // the leading blank line as a lone-\r entry.
+            var any = false;
+            foreach (var raw in sw.ToString().Split('\n'))
+            {
+                var line = raw.TrimEnd('\r');
+                if (line.Length > 0) { result.Add(line); any = true; }
+            }
+            return any;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Largest (w,h) ≤ (maxW,maxH) keeping the source aspect ratio; only shrinks.</summary>
+    private static (int w, int h) FitWithin(int srcW, int srcH, int maxW, int maxH)
+    {
+        if (srcW <= maxW && srcH <= maxH) return (srcW, srcH);
+        var scale = Math.Min((double)maxW / srcW, (double)maxH / srcH);
+        return (Math.Max(1, (int)(srcW * scale)), Math.Max(1, (int)(srcH * scale)));
+    }
+
+    /// <summary>
+    /// Area-average box downscale of an RGBA buffer. Each destination pixel is
+    /// the mean of the source pixels it covers, so every source pixel is read
+    /// exactly once (O(srcW·srcH)). Downscale only — callers never enlarge.
+    /// </summary>
+    private static byte[] Downscale(byte[] src, int srcW, int srcH, int dstW, int dstH)
+    {
+        var dst = new byte[dstW * dstH * 4];
+        for (var dy = 0; dy < dstH; dy++)
+        {
+            var sy0 = dy * srcH / dstH;
+            var sy1 = Math.Max(sy0 + 1, (dy + 1) * srcH / dstH);
+            for (var dx = 0; dx < dstW; dx++)
+            {
+                var sx0 = dx * srcW / dstW;
+                var sx1 = Math.Max(sx0 + 1, (dx + 1) * srcW / dstW);
+                long r = 0, g = 0, b = 0, a = 0, n = 0;
+                for (var sy = sy0; sy < sy1; sy++)
+                {
+                    var rowBase = sy * srcW;
+                    for (var sx = sx0; sx < sx1; sx++)
+                    {
+                        var si = (rowBase + sx) * 4;
+                        r += src[si]; g += src[si + 1]; b += src[si + 2]; a += src[si + 3];
+                        n++;
+                    }
+                }
+                var di = (dy * dstW + dx) * 4;
+                dst[di]     = (byte)(r / n);
+                dst[di + 1] = (byte)(g / n);
+                dst[di + 2] = (byte)(b / n);
+                dst[di + 3] = (byte)(a / n);
+            }
+        }
+        return dst;
+    }
+
+    /// <summary>Last path segment of an image source, for the empty-alt fallback.</summary>
+    private static string ImageName(string url)
+    {
+        if (string.IsNullOrEmpty(url)) return "image";
+        var slash = url.LastIndexOfAny(['/', '\\']);
+        var name = slash >= 0 ? url[(slash + 1)..] : url;
+        return string.IsNullOrEmpty(name) ? url : name;
     }
 }

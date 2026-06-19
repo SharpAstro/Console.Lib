@@ -40,6 +40,7 @@ classDiagram
     class TextArea
     class TreeView~TItem~
     class MarkdownWidget
+    class MenuWidget
     class Canvas~TSurface~ {
         +Render()*
         +Render(clip)
@@ -92,6 +93,7 @@ classDiagram
     TextArea --|> Widget
     TreeView --|> Widget
     MarkdownWidget --|> Widget
+    MenuWidget --|> Widget
     Canvas --|> Widget
     ScrollableList ..> IRowFormatter : TItem
     TreeView ..> ITreeNode : TItem
@@ -148,8 +150,11 @@ Extends `ITerminalViewport` with full terminal lifecycle: initialization, input 
 public interface IVirtualTerminal : ITerminalViewport, IAsyncDisposable
 {
     Task InitAsync();
+    ImageDisplayCapability ImageDisplayCapability { get; }
     bool HasSixelSupport { get; }
     bool HasColorSupport { get; }
+    bool IsInputRedirected { get; }   // stdin piped rather than a real terminal
+    bool IsOutputRedirected { get; }  // stdout piped rather than a real terminal
     void EnterAlternateScreen();
     bool IsAlternateScreen { get; }
     void Clear();
@@ -157,6 +162,14 @@ public interface IVirtualTerminal : ITerminalViewport, IAsyncDisposable
     ConsoleInputEvent TryReadInput();
 }
 ```
+
+`ImageDisplayCapability` collapses the color + Sixel + `NO_COLOR` signals into a single "how can I show an image here" answer for callers that pick a rendering path:
+
+```csharp
+public enum ImageDisplayCapability : byte { NoColor, AsciiBlock, Sixel }
+```
+
+`NoColor` (`NO_COLOR` set or no color capability) → plain text; `AsciiBlock` (color but no Sixel) → ASCII/Unicode block characters; `Sixel` → true raster. It is independent of redirection — Sixel bytes can still be written to a pipe, only the `Console.Width`-style layout helpers go away.
 
 `VirtualTerminal` is the concrete implementation backed by `System.Console`. On initialization it:
 
@@ -192,6 +205,8 @@ public enum DockStyle { Top, Bottom, Left, Right, Fill }
 
 Computes viewport geometries using a dock-based algorithm. Edge-docked panels are allocated first in registration order, each consuming space from the remaining rectangle. The `Fill` panel receives whatever space remains.
 
+The edge arithmetic itself lives once in DIR.Lib's surface-neutral `DockLayout<int>` (measured in cells); `TerminalLayout` delegates to it and keeps only the terminal-specific safety clamp (a docked strip never exceeds the cells still remaining) plus the `TerminalViewport` wiring.
+
 ```csharp
 var layout = new TerminalLayout(terminal);
 var statusBar = layout.Dock(DockStyle.Bottom, 1);  // 1 row at bottom
@@ -222,6 +237,22 @@ panel.RenderAll(); // renders all widgets
 ```
 
 The two-step pattern (dock creates the viewport, then pass it to a widget constructor) keeps viewport ownership clear — each widget owns exactly one viewport from construction.
+
+### Cell-surface layout (CellLayout)
+
+Beyond docking, Console.Lib can render DIR.Lib's surface-neutral box-layout trees directly to character cells. The arrangeable tree (`LayoutNode` / `LayoutContent`, with per-leaf `Hit` + `OnClick`), the arrange pass (`LayoutEngine.Arrange` → `ArrangedNode<T>`), and the `IMeasureContext<T>` abstraction all live in **DIR.Lib** and are shared with the pixel painter. Console.Lib supplies the cell surface:
+
+- **`CellMeasureContext : IMeasureContext<int>`** — measures text width as character count (one row tall) and rounds design-unit scalars to whole cells.
+- **`CellLayout.Paint`** — walks the *same* arranged tree the pixel painter uses and writes character cells: `Background` / filled `Box` become runs of spaces with a background SGR (parent-before-children paint order), `Text` writes glyphs foreground-only so the painted background shows through, and `Fill` defers to an app callback.
+- **`CellLayout.HitTest`** — reverse-order (top-most wins) hit test mapping a `(column, row)` back to a leaf's `Hit`, firing its `OnClick`. The arranged rectangle *is* the hit region — the same auto-binding guarantee the pixel painter gives.
+
+```csharp
+var arranged = LayoutEngine.Arrange(tree, new Rect<int>(0, 0, w, h), new CellMeasureContext());
+CellLayout.Paint(viewport, arranged);
+var hit = CellLayout.HitTest(arranged, col, row);   // → leaf Hit or null
+```
+
+`MenuWidget` (below) is built on this path; it is the cell-surface counterpart to DIR.Lib's `PixelMenuWidget<TSurface>`.
 
 ## Widgets
 
@@ -326,6 +357,26 @@ canvas.Render(clip);   // partial blit for dirty region (pixel coordinates)
 
 `Render()` positions the cursor at (0, 0) and calls `renderer.EncodeSixel(stream)`. `Render(RectInt clip)` aligns the clip region's Y bounds to cell-height boundaries (since Sixel output must start at a character row), then calls `renderer.EncodeSixel(startY, cropHeight, stream)`. Only vertical clipping is performed — the full image width is always emitted, since the Sixel protocol is a left-to-right band-based format with no horizontal skip.
 
+### MenuWidget
+
+A cell-surface vertical "wizard" menu, built on the [cell-surface layout](#cell-surface-layout-celllayout) path. It wraps DIR.Lib's `MenuModel` (selection / input state) and `MenuLayout.BuildTree` (the layout tree) and paints them via `CellLayout`, retaining the arranged tree so mouse clicks hit-test against the same rects. It is the surface-neutral counterpart to DIR.Lib's `PixelMenuWidget<TSurface>`.
+
+```csharp
+var menu = new MenuWidget(viewport);
+menu.Reset("Setup", "Choose an option:", ["Quick", "Custom", "Cancel"]);
+
+while (!menu.IsConfirmed)
+{
+    menu.Render();
+    var ev = term.TryReadInput();
+    if (ev.Mouse is { } m) menu.HandleMouse(m);          // click to confirm an item
+    else menu.HandleKey(/* InputKey from ev */);          // Up/Down/Enter, D1..D9
+}
+int chosen = menu.SelectedIndex;
+```
+
+Use `MenuWidget` when you want an in-layout menu surface (it owns one viewport like any other widget); use [`MenuBase<T>`](#menubaset) for a fullscreen, await-driven prompt with normal-mode fallback.
+
 ## Sixel graphics
 
 ### SixelRenderer\<TSurface\>
@@ -392,7 +443,7 @@ terminal.Write($"{style.Apply(terminal.ColorMode)}Highlighted text{VtStyle.Reset
 
 ## Markdown rendering
 
-`MarkdownRenderer` converts Markdown to VT-styled terminal output. Parsing is delegated to the LALR.CC inline + block grammars in **DIR.Lib.Markdown** (`MarkdownInline`, `MarkdownBlock`); Console.Lib walks the resulting `MdBlock` / `MdInline` trees and emits the styled lines. Supports headings, bold, italic, links (with OSC 8 hyperlinks for terminals that honour them), tables, lists, horizontal rules, fenced code, inline colored text, inline + display math, and `\ce{...}` chemistry notation inside math spans (via `DIR.Lib.Markdown.Mhchem`).
+`MarkdownRenderer` converts Markdown to VT-styled terminal output. Parsing is delegated to the LALR.CC inline + block grammars in **DIR.Lib.Markdown** (`MarkdownInline`, `MarkdownBlock`); Console.Lib walks the resulting `MdBlock` / `MdInline` trees and emits the styled lines. Supports headings, bold, italic, links (with OSC 8 hyperlinks for terminals that honour them), tables, lists, horizontal rules, fenced code, inline colored text, inline + display math, `\ce{...}` chemistry notation inside math spans (via `DIR.Lib.Markdown.Mhchem`), and images (`![alt](src)` — see [Image rendering](#image-rendering)).
 
 Colors can be applied to individual words using `[text]{color}` syntax, where `color` is either a named `SgrColor` (e.g. `red`, `BrightCyan`) or a `#RRGGBB` hex literal:
 
@@ -400,7 +451,7 @@ Colors can be applied to individual words using `[text]{color}` syntax, where `c
 This has a [warning]{red} and a [custom tint]{#FF8800}.
 ```
 
-Colors are resolved at render time based on the active `ColorMode` — in `None` mode, no escape sequences are emitted. Structural element colors (headings, links, bullets) are configurable via `MarkdownTheme`.
+Colors are resolved at render time based on the active `ColorMode` — in `None` mode, no escape sequences are emitted. Structural element colors (headings, links, bullets, dim, code, math) are configurable via `MarkdownTheme`. Two palettes ship built-in: `MarkdownTheme.Default` (exact 16-color `SgrColor` values, safe everywhere) and `MarkdownTheme.Modern` (a 24-bit GitHub-Dark palette for truecolor terminals — on a 16-color terminal its exact hex tones snap to approximations, so prefer `Default` there). `mdcat` selects between them based on detected color support.
 
 ### Math rendering
 
@@ -412,9 +463,32 @@ Inline math (`\(...\)`, `$...$`) always renders as single-row Unicode. Display m
 | `Sextant` | 2×3 sub-cell blocks via Unicode 13 | Modern terminal with sextant glyph coverage |
 | `HalfBlock` | 2-row half-blocks | Universal fallback |
 
-Leaving the mode `null` keeps display math on the same single-row Unicode path as inline. The pixel-rendered modes share `BoxRenderer`, which rasterises the LaTeX `Box` tree from `DIR.Lib.MathLayout` and ships it through one of the three encoders.
+Leaving the mode `null` keeps display math on the same single-row Unicode path as inline. The pixel-rendered modes share `BoxRenderer`, which rasterises the LaTeX `Box` tree from `DIR.Lib.MathLayout` and ships it through one of the three encoders. The encoder switch is exposed as `BoxRenderer.EncodeImage(byte[] rgba, int w, int h, BoxRenderMode, TextWriter)`, so any RGBA buffer — math box or decoded image — reuses the same Sixel / sextant / half-block output path.
 
-`MarkdownWidget` wraps the renderer as a scrollable viewport widget with automatic re-rendering on resize.
+### Image rendering
+
+Markdown images (`![alt](src)`) are opt-in via the `MarkdownImageOptions? images` parameter on `RenderLines` / `Render`:
+
+```csharp
+public sealed record MarkdownImageOptions(
+    Func<string, byte[]?> Resolver,   // src -> encoded bytes (PNG/JPEG/…), or null to skip
+    BoxRenderMode Mode,               // Sixel | Sextant | HalfBlock
+    int CellPixelWidth = 10, int CellPixelHeight = 20,
+    int MaxRows = 20);
+```
+
+- **Standalone vs inline.** An image that is the sole content of a paragraph (on its own line) is rasterized as a block — mirroring how display math rasters while inline math stays text. An image that appears mid-paragraph renders its **alt text** (the line-list output can't splice a multi-row raster mid-line). When `images` is `null`, *every* image renders as alt text (empty alt → the source's file name).
+- **Resolution is the host's job.** The renderer never fetches anything; `Resolver` maps a `src` to encoded bytes (e.g. a local file relative to the document) or returns `null` to skip it. Decoding uses `StbImageSharp` (PNG, baseline JPEG, BMP, GIF, …) — already in the dependency closure via DIR.Lib. Unresolvable or undecodable images fall back to alt text and never throw.
+- **Sizing.** The image is scaled (aspect preserved, downscale only) to fit the render `width` and `MaxRows`, converted to a pixel budget per mode (`Mode` plus `CellPixelWidth/Height` from `ITerminalViewport.CellSize`).
+
+```csharp
+var images = new MarkdownImageOptions(
+    src => File.Exists(src) ? File.ReadAllBytes(src) : null,
+    BoxRenderMode.Sixel, cellPixelWidth, cellPixelHeight);
+var lines = MarkdownRenderer.RenderLines(markdown, width, terminal.ColorMode, images: images);
+```
+
+`MarkdownWidget` wraps the renderer as a scrollable viewport widget with automatic re-rendering on resize. It exposes `MathMode` / `MathFontPath` and an `Images` property for the same image options (the same Sixel "size the widget tall enough" caveat applies, since a rasterized image spans several cell rows).
 
 ## Input handling
 
