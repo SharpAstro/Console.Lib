@@ -66,9 +66,21 @@ that, a Unicode-only approximation.
 
 ## Install
 
-Download a prebuilt, self-contained binary from the
-[Releases](https://github.com/SharpAstro/Console.Lib/releases) page — no .NET
-runtime required. Native AOT builds are published for:
+### As a .NET global tool (needs the .NET 10 runtime)
+
+```bash
+dotnet tool install --global mdcat
+```
+
+Auto-updatable (`dotnet tool update -g mdcat`) and discoverable via
+`dotnet tool search mdcat`. The bundled math font ships inside the package, so
+display math works out of the box.
+
+### Prebuilt native binary (no runtime required)
+
+Download a self-contained binary from the
+[Releases](https://github.com/SharpAstro/Console.Lib/releases) page. Native AOT
+builds are published for:
 
 | OS | x64 | arm64 |
 |---|---|---|

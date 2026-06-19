@@ -27,15 +27,18 @@ These are passed to `dotnet build` as:
 
 ### Files to update when bumping the version
 
-Three values across two files must stay in sync:
+Four values across three files must stay in sync:
 
 | File | Property | Format | Example |
 |---|---|---|---|
 | `src/Console.Lib/Console.Lib.csproj` | `<VersionPrefix>` | `X.Y.Z` | `2.0.0` |
 | `src/Console.Lib/Console.Lib.csproj` | `<AssemblyVersion>` | `X.Y.0.0` | `2.0.0.0` |
+| `src/MdCat/MdCat.csproj` | `<VersionPrefix>` | `X.Y.Z` | `2.0.0` |
 | `.github/workflows/dotnet.yml` | `VERSION_PREFIX` | `X.Y.${{ github.run_number }}` | `2.0.${{ github.run_number }}` |
 
-`VersionPrefix` is the local/debug package version. `AssemblyVersion` governs .NET assembly binding. `VERSION_PREFIX` drives the CI-published NuGet version. All three must share the same `X.Y` major/minor.
+`VersionPrefix` is the local/debug package version. `AssemblyVersion` governs .NET assembly binding. `VERSION_PREFIX` drives the CI-published NuGet version. All must share the same `X.Y` major/minor.
+
+The **mdcat** global tool's version is melded to Console.Lib's: CI passes the same `-p:Version` to the whole solution, and a dedicated `dotnet pack src/MdCat` step (mdcat is `PackAsTool`, so it can't use `GeneratePackageOnBuild`) publishes it to nuget.org alongside the library. Keep its `VersionPrefix` `X.Y` in step. (mdcat *binaries* — the native AOT GitHub Releases from `mdcat-release.yml` — are independent, tag-driven via `mdcat-vX.Y.Z`.)
 
 ## DIR.Lib local-project reference
 
