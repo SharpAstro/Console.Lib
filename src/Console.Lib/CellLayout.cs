@@ -5,31 +5,31 @@ using DIR.Lib;
 namespace Console.Lib;
 
 /// <summary>
-/// The terminal-surface <see cref="IMeasureContext{T}"/>: text width is the character count (one row tall),
+/// The terminal-surface <see cref="Layout.IMeasureContext{T}"/>: text width is the character count (one row tall),
 /// and design-unit scalars are authored in cells for the TUI so they round to whole cells. (Wide-char /
 /// East-Asian-width measurement is a documented follow-up; v1 is char-count, matching the rest of Console.Lib.)
 /// </summary>
-public sealed class CellMeasureContext : IMeasureContext<int>
+public sealed class CellMeasureContext : Layout.IMeasureContext<int>
 {
-    public Size<int> MeasureText(ReadOnlySpan<char> text, float fontSize) => new(text.Length, 1);
+    public Layout.Size<int> MeasureText(ReadOnlySpan<char> text, float fontSize) => new(text.Length, 1);
 
     public int ToSurface(float designUnits) => (int)MathF.Round(designUnits);
 }
 
 /// <summary>
-/// Cell painter: walks the SAME arranged <see cref="LayoutNode"/> tree the pixel painter uses, but writes
-/// character cells to an <see cref="ITerminalViewport"/>. <see cref="LayoutNode.Background"/> + filled
-/// <see cref="LayoutContent.Box"/> become runs of spaces with a background SGR (parent-before-children =
-/// correct paint order); <see cref="LayoutContent.Text"/> writes glyphs foreground-only so the painted
-/// background shows through; <see cref="LayoutContent.Fill"/> defers to an app callback. <see cref="HitTest"/>
-/// maps a (column,row) back to a leaf's <see cref="LayoutContent.Hit"/>, so the arranged rect IS the hit region
+/// Cell painter: walks the SAME arranged <see cref="Layout.Node"/> tree the pixel painter uses, but writes
+/// character cells to an <see cref="ITerminalViewport"/>. <see cref="Layout.Node.Background"/> + filled
+/// <see cref="Layout.Content.Box"/> become runs of spaces with a background SGR (parent-before-children =
+/// correct paint order); <see cref="Layout.Content.Text"/> writes glyphs foreground-only so the painted
+/// background shows through; <see cref="Layout.Content.Fill"/> defers to an app callback. <see cref="HitTest"/>
+/// maps a (column,row) back to a leaf's <see cref="Layout.Content.Hit"/>, so the arranged rect IS the hit region
 /// -- the same auto-binding guarantee the pixel painter gives.
 /// </summary>
 public static class CellLayout
 {
     /// <summary>Paints the arranged tree to <paramref name="viewport"/> in cell coordinates (0-based within the viewport).</summary>
-    public static void Paint(ITerminalViewport viewport, ImmutableArray<ArrangedNode<int>> arranged,
-        Action<LayoutContent.Fill, Rect<int>>? drawFill = null)
+    public static void Paint(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
+        Action<Layout.Content.Fill, Rect<int>>? drawFill = null)
     {
         var mode = viewport.ColorMode;
         foreach (var (node, rect) in arranged)
@@ -39,20 +39,20 @@ public static class CellLayout
                 FillCells(viewport, rect, bg, mode);
             }
 
-            if (node is not LayoutNode.Leaf leaf)
+            if (node is not Layout.Node.Leaf leaf)
             {
                 continue;
             }
 
             switch (leaf.Content)
             {
-                case LayoutContent.Text text:
+                case Layout.Content.Text text:
                     DrawText(viewport, rect, text, mode);
                     break;
-                case LayoutContent.Box box when box.Color.Alpha > 0:
+                case Layout.Content.Box box when box.Color.Alpha > 0:
                     FillCells(viewport, rect, box.Color, mode);
                     break;
-                case LayoutContent.Fill fill:
+                case Layout.Content.Fill fill:
                     drawFill?.Invoke(fill, rect);
                     break;
             }
@@ -61,9 +61,9 @@ public static class CellLayout
 
     /// <summary>
     /// Reverse-order (top-most wins) hit test in cell coordinates: invokes the matched leaf's
-    /// <see cref="LayoutContent.OnClick"/> and returns its <see cref="LayoutContent.Hit"/>, or null.
+    /// <see cref="Layout.Content.OnClick"/> and returns its <see cref="Layout.Content.Hit"/>, or null.
     /// </summary>
-    public static HitResult? HitTest(ImmutableArray<ArrangedNode<int>> arranged, int column, int row,
+    public static HitResult? HitTest(ImmutableArray<Layout.ArrangedNode<int>> arranged, int column, int row,
         InputModifier modifiers = InputModifier.None)
     {
         for (var i = arranged.Length - 1; i >= 0; i--)
@@ -99,7 +99,7 @@ public static class CellLayout
         }
     }
 
-    private static void DrawText(ITerminalViewport viewport, Rect<int> rect, LayoutContent.Text text, ColorMode mode)
+    private static void DrawText(ITerminalViewport viewport, Rect<int> rect, Layout.Content.Text text, ColorMode mode)
     {
         var (vw, vh) = viewport.Size;
         if (rect.Width <= 0 || rect.Height <= 0)

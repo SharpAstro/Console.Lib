@@ -40,12 +40,12 @@ public class CellLayoutTests
 
     private static string StripReset(string text) => text.Replace(VtStyle.Reset, "");
 
-    private static LayoutNode.Leaf HitRow(string action) =>
-        new(new LayoutContent.Box(0, 0))
+    private static Layout.Node.Leaf HitRow(string action) =>
+        new(new Layout.Content.Box(0, 0))
         {
             Hit = new HitResult.ButtonHit(action),
-            Height = Sizing.Fixed(1),
-            Width = Sizing.Star(),
+            Height = Layout.Sizing.Fixed(1),
+            Width = Layout.Sizing.Star(),
         };
 
     // --- dock unification ---
@@ -91,7 +91,7 @@ public class CellLayoutTests
     {
         var a = HitRow("A");
         var b = HitRow("B");
-        var arranged = LayoutEngine.Arrange(new LayoutNode.Stack([a, b]), new Rect<int>(0, 0, 20, 4), new CellMeasureContext());
+        var arranged = Layout.Engine.Arrange(new Layout.Node.Stack([a, b]), new Rect<int>(0, 0, 20, 4), new CellMeasureContext());
 
         CellLayout.HitTest(arranged, 5, 0).ShouldBeOfType<HitResult.ButtonHit>().Action.ShouldBe("A");
         CellLayout.HitTest(arranged, 5, 1).ShouldBeOfType<HitResult.ButtonHit>().Action.ShouldBe("B");
@@ -102,14 +102,14 @@ public class CellLayoutTests
     public void CellLayout_HitTest_InvokesOnClickInsideRect()
     {
         var clicks = 0;
-        var leaf = new LayoutNode.Leaf(new LayoutContent.Box(0, 0))
+        var leaf = new Layout.Node.Leaf(new Layout.Content.Box(0, 0))
         {
             Hit = new HitResult.ButtonHit("X"),
             OnClick = _ => clicks++,
-            Height = Sizing.Fixed(2),
-            Width = Sizing.Star(),
+            Height = Layout.Sizing.Fixed(2),
+            Width = Layout.Sizing.Star(),
         };
-        var arranged = LayoutEngine.Arrange(new LayoutNode.Stack([leaf]), new Rect<int>(0, 0, 20, 4), new CellMeasureContext());
+        var arranged = Layout.Engine.Arrange(new Layout.Node.Stack([leaf]), new Rect<int>(0, 0, 20, 4), new CellMeasureContext());
 
         CellLayout.HitTest(arranged, 3, 1).ShouldNotBeNull();
         clicks.ShouldBe(1);
@@ -124,13 +124,13 @@ public class CellLayoutTests
     public void CellLayout_Paint_FillsBackgroundThenDrawsText()
     {
         var vp = new RecordingViewport(20, 3);
-        var label = new LayoutNode.Leaf(new LayoutContent.Text("Hi") { HAlign = TextAlign.Near })
+        var label = new Layout.Node.Leaf(new Layout.Content.Text("Hi") { HAlign = TextAlign.Near })
         {
-            Height = Sizing.Fixed(1),
-            Width = Sizing.Star(),
+            Height = Layout.Sizing.Fixed(1),
+            Width = Layout.Sizing.Star(),
         };
-        var panel = new LayoutNode.Stack([label]) { Background = new RGBAColor32(0x10, 0x10, 0x18, 0xff) };
-        var arranged = LayoutEngine.Arrange(panel, new Rect<int>(0, 0, 20, 3), new CellMeasureContext());
+        var panel = new Layout.Node.Stack([label]) { Background = new RGBAColor32(0x10, 0x10, 0x18, 0xff) };
+        var arranged = Layout.Engine.Arrange(panel, new Rect<int>(0, 0, 20, 3), new CellMeasureContext());
 
         CellLayout.Paint(vp, arranged);
 
@@ -149,12 +149,12 @@ public class CellLayoutTests
     public void CellLayout_Paint_CenterAlignsText()
     {
         var vp = new RecordingViewport(20, 1);
-        var label = new LayoutNode.Leaf(new LayoutContent.Text("Hi") { HAlign = TextAlign.Center })
+        var label = new Layout.Node.Leaf(new Layout.Content.Text("Hi") { HAlign = TextAlign.Center })
         {
-            Height = Sizing.Fixed(1),
-            Width = Sizing.Star(),
+            Height = Layout.Sizing.Fixed(1),
+            Width = Layout.Sizing.Star(),
         };
-        var arranged = LayoutEngine.Arrange(new LayoutNode.Stack([label]), new Rect<int>(0, 0, 20, 1), new CellMeasureContext());
+        var arranged = Layout.Engine.Arrange(new Layout.Node.Stack([label]), new Rect<int>(0, 0, 20, 1), new CellMeasureContext());
 
         CellLayout.Paint(vp, arranged);
 

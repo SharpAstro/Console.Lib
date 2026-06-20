@@ -34,13 +34,13 @@ public class MenuWidgetTests
     {
         // MenuLayout.BuildTree with 3 items = outer Stack containing:
         //   top spacer + title + prompt + gap box + 3 item leaves + bottom spacer = 8 children.
-        // LayoutEngine.Arrange flattens the tree into one ArrangedNode per LayoutNode visited.
+        // Layout.Engine.Arrange flattens the tree into one Layout.ArrangedNode per Layout.Node visited.
         var tree = MenuLayout.BuildTree(
             BuildModel("Title", "Pick:", ThreeItems),
             new MenuColors(),
             fontSize: 1f);
 
-        var arranged = LayoutEngine.Arrange(tree, new Rect<int>(0, 0, 40, 20), new CellMeasureContext());
+        var arranged = Layout.Engine.Arrange(tree, new Rect<int>(0, 0, 40, 20), new CellMeasureContext());
 
         // The outer Stack node + 8 children = 9 arranged nodes at minimum.
         arranged.Length.ShouldBeGreaterThanOrEqualTo(9);

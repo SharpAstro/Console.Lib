@@ -27,4 +27,9 @@
     <ProjectReference Include="..\Console.Lib\Console.Lib.csproj" />
   </ItemGroup>
 
+  <!-- Alias the DIR.Lib.Layout namespace so tests write the qualified `Layout.Node` form (see Console.Lib.csproj). -->
+  <ItemGroup>
+    <Using Include="DIR.Lib.Layout" Alias="Layout" />
+  </ItemGroup>
+
 </Project>
