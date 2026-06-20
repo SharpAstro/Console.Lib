@@ -17,7 +17,7 @@ public sealed class MenuWidget(ITerminalViewport viewport, MenuColors? colors = 
     private readonly MenuColors _colors = colors ?? new MenuColors();
 
     // Last arranged tree from Render, reused for mouse hit-testing.
-    private ImmutableArray<ArrangedNode<int>> _arranged = ImmutableArray<ArrangedNode<int>>.Empty;
+    private ImmutableArray<Layout.ArrangedNode<int>> _arranged = ImmutableArray<Layout.ArrangedNode<int>>.Empty;
 
     /// <summary>Zero-based index of the currently highlighted item.</summary>
     public int SelectedIndex => _model.SelectedIndex;
@@ -43,7 +43,7 @@ public sealed class MenuWidget(ITerminalViewport viewport, MenuColors? colors = 
         if (w <= 0 || h <= 0) return;
 
         var bounds = new Rect<int>(0, 0, w, h);
-        _arranged = LayoutEngine.Arrange(MenuLayout.BuildTree(_model, _colors, fontSize: 1f), bounds, MeasureCtx);
+        _arranged = Layout.Engine.Arrange(MenuLayout.BuildTree(_model, _colors, fontSize: 1f), bounds, MeasureCtx);
         CellLayout.Paint(Viewport, _arranged);
     }
 

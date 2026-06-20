@@ -26,7 +26,8 @@ env:
   # decoding through StbImageSharp; inline / unresolvable images fall back to alt
   # text. mdcat wires a local-file resolver (no network). Repins DIR.Lib -> 5.1.*
   # for the new MdImage AST node.
-  VERSION_PREFIX: 3.2.${{ github.run_number }}
+  # 3.3: lockstep rebuild against DIR.Lib 6.0 (layout namespace + Layout.Builder DSL).
+  VERSION_PREFIX: 3.3.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release
