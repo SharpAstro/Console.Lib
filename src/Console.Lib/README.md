@@ -245,11 +245,13 @@ Beyond docking, Console.Lib can render DIR.Lib's surface-neutral box-layout tree
 - **`CellMeasureContext : IMeasureContext<int>`** — measures text width as character count (one row tall) and rounds design-unit scalars to whole cells.
 - **`CellLayout.Paint`** — walks the *same* arranged tree the pixel painter uses and writes character cells: `Background` / filled `Box` become runs of spaces with a background SGR (parent-before-children paint order), `Text` writes glyphs foreground-only so the painted background shows through, and `Fill` defers to an app callback.
 - **`CellLayout.HitTest`** — reverse-order (top-most wins) hit test mapping a `(column, row)` back to a leaf's `Hit`, firing its `OnClick`. The arranged rectangle *is* the hit region — the same auto-binding guarantee the pixel painter gives.
+- **`CellLayout.Describe`** — serialises the arranged tree to an indented, one-line-per-node text dump (nesting reconstructed from `ArrangedNode<T>.Depth`), naming each node kind, leaf content, arranged rect, and `+bg` / `+hit` markers. The cell-surface counterpart to the pixel inspector's `describe_layout`; diagnostic only — keep it out of the per-frame paint path.
 
 ```csharp
 var arranged = LayoutEngine.Arrange(tree, new Rect<int>(0, 0, w, h), new CellMeasureContext());
 CellLayout.Paint(viewport, arranged);
 var hit = CellLayout.HitTest(arranged, col, row);   // → leaf Hit or null
+var dump = CellLayout.Describe(arranged);            // → indented layout-tree text (debug)
 ```
 
 `MenuWidget` (below) is built on this path; it is the cell-surface counterpart to DIR.Lib's `PixelMenuWidget<TSurface>`.

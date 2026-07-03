@@ -161,4 +161,53 @@ public class CellLayoutTests
         var textWrite = vp.Writes.First(w => StripReset(w.Text).Contains("Hi"));
         textWrite.Col.ShouldBe(9); // (20 - 2) / 2
     }
+
+    // --- Describe (cell-side counterpart to the pixel inspector's describe_layout) ---
+
+    [Fact]
+    public void CellLayout_Describe_IndentsChildrenByDepthAndNamesContent()
+    {
+        var a = new Layout.Node.Leaf(new Layout.Content.Text("A")) { Height = Layout.Sizing.Fixed(1), Width = Layout.Sizing.Star() };
+        var b = new Layout.Node.Leaf(new Layout.Content.Text("B")) { Height = Layout.Sizing.Fixed(1), Width = Layout.Sizing.Star() };
+        var arranged = Layout.Engine.Arrange(new Layout.Node.Stack([a, b]), new Rect<int>(0, 0, 20, 4), new CellMeasureContext());
+
+        var lines = CellLayout.Describe(arranged).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+        lines[0].ShouldBe("Stack[V] (0,0 20x4)");        // root, depth 0
+        lines[1].ShouldBe("  Leaf Text \"A\" (0,0 20x1)"); // depth 1 => 2-space indent
+        lines[2].ShouldBe("  Leaf Text \"B\" (0,1 20x1)");
+    }
+
+    [Fact]
+    public void CellLayout_Describe_MarksBackgroundAndHit()
+    {
+        var hitLeaf = new Layout.Node.Leaf(new Layout.Content.Box(0, 0))
+        {
+            Hit = new HitResult.ButtonHit("go"),
+            Height = Layout.Sizing.Fixed(1),
+            Width = Layout.Sizing.Star(),
+        };
+        var panel = new Layout.Node.Stack([hitLeaf]) { Background = new RGBAColor32(0x10, 0x10, 0x18, 0xff) };
+        var arranged = Layout.Engine.Arrange(panel, new Rect<int>(0, 0, 10, 2), new CellMeasureContext());
+
+        var dump = CellLayout.Describe(arranged);
+
+        dump.ShouldContain("Stack[V] (0,0 10x2) +bg");        // container paints a background
+        dump.ShouldContain("Leaf Box(spacer) (0,0 10x1) +hit"); // transparent Box + click binding
+    }
+
+    [Fact]
+    public void CellLayout_Describe_DistinguishesFilledBoxAndKeyedFill()
+    {
+        var swatch = new Layout.Node.Leaf(new Layout.Content.Box(0, 0) { Color = new RGBAColor32(0xff, 0x00, 0x00, 0xff) })
+            { Height = Layout.Sizing.Fixed(1), Width = Layout.Sizing.Star() };
+        var canvas = new Layout.Node.Leaf(new Layout.Content.Fill(Key: "chart"))
+            { Height = Layout.Sizing.Star(), Width = Layout.Sizing.Star() };
+        var arranged = Layout.Engine.Arrange(new Layout.Node.Stack([swatch, canvas]), new Rect<int>(0, 0, 8, 4), new CellMeasureContext());
+
+        var dump = CellLayout.Describe(arranged);
+
+        dump.ShouldContain("Leaf Box(filled)");
+        dump.ShouldContain("Leaf Fill(\"chart\")");
+    }
 }

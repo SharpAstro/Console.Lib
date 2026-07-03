@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Text;
 using DIR.Lib;
 
 namespace Console.Lib;
@@ -78,6 +79,58 @@ public static class CellLayout
 
         return null;
     }
+
+    /// <summary>
+    /// Serialises the arranged tree to an indented, one-line-per-node text dump — the cell-surface
+    /// counterpart to the pixel inspector's <c>describe_layout</c>. Each line is indented by the node's
+    /// <see cref="Layout.ArrangedNode{T}.Depth"/> (the flat pre-order list is nested back into a tree),
+    /// then names the node kind, its leaf content, its arranged rect <c>(x,y wxh)</c>, and <c>+bg</c> /
+    /// <c>+hit</c> markers when the node paints a background or binds a click. Purely diagnostic: it does
+    /// not touch the viewport and allocates a fresh string, so keep it out of the per-frame paint path.
+    /// </summary>
+    public static string Describe(ImmutableArray<Layout.ArrangedNode<int>> arranged)
+    {
+        var sb = new StringBuilder();
+        foreach (var an in arranged)
+        {
+            var node = an.Node;
+            var rect = an.Bounds;
+            sb.Append(' ', an.Depth * 2);
+            sb.Append(DescribeNode(node));
+            sb.Append(" (").Append(rect.X).Append(',').Append(rect.Y)
+              .Append(' ').Append(rect.Width).Append('x').Append(rect.Height).Append(')');
+            if (node.Background is not null)
+            {
+                sb.Append(" +bg");
+            }
+            if (node.Hit is not null)
+            {
+                sb.Append(" +hit");
+            }
+            sb.Append('\n');
+        }
+
+        return sb.ToString();
+    }
+
+    private static string DescribeNode(Layout.Node node) => node switch
+    {
+        Layout.Node.Stack s => $"Stack[{(s.Axis == Layout.Axis.Horizontal ? "H" : "V")}]",
+        Layout.Node.Dock => "Dock",
+        Layout.Node.Grid g => $"Grid[{g.Columns}col]",
+        Layout.Node.Overlay => "Overlay",
+        Layout.Node.Split sp => $"Split[{(sp.Axis == Layout.Axis.Horizontal ? "H" : "V")}]",
+        Layout.Node.Leaf leaf => $"Leaf {DescribeContent(leaf.Content)}",
+        _ => "Node?",
+    };
+
+    private static string DescribeContent(Layout.Content content) => content switch
+    {
+        Layout.Content.Text t => $"Text \"{t.Value}\"",
+        Layout.Content.Box b => b.Color.Alpha > 0 ? "Box(filled)" : "Box(spacer)",
+        Layout.Content.Fill f => f.Key is { } key ? $"Fill(\"{key}\")" : "Fill",
+        _ => "Content?",
+    };
 
     private static void FillCells(ITerminalViewport viewport, Rect<int> rect, RGBAColor32 color, ColorMode mode)
     {
