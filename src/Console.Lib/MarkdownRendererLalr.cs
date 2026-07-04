@@ -462,12 +462,10 @@ public static partial class MarkdownRenderer
 
         try
         {
-            var decoded = StbImageSharp.ImageResult.FromMemory(bytes, StbImageSharp.ColorComponents.RedGreenBlueAlpha);
-            if (decoded is null || decoded.Width <= 0 || decoded.Height <= 0 || decoded.Data is null)
+            // Sniff PNG/JPEG by magic bytes and decode to RGBA via the focused
+            // SharpAstro codecs; unsupported formats fall back to alt-text.
+            if (!ImageDecoder.TryDecodeRgba(bytes, out var rgba, out var srcW, out var srcH))
                 return false;
-
-            var rgba = decoded.Data;
-            int srcW = decoded.Width, srcH = decoded.Height;
 
             // Bound the image to `width` columns and `MaxRows` rows, converting
             // each to a pixel budget for the chosen encoding (HalfBlock packs

@@ -6,8 +6,8 @@
     <Nullable>enable</Nullable>
     <IsAotCompatible>true</IsAotCompatible>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <VersionPrefix>3.4.0</VersionPrefix>
-    <AssemblyVersion>3.4.0.0</AssemblyVersion>
+    <VersionPrefix>3.5.0</VersionPrefix>
+    <AssemblyVersion>3.5.0.0</AssemblyVersion>
     <PackageID>Console.Lib</PackageID>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
@@ -49,14 +49,17 @@
   </ItemGroup>
 
   <!--
-    Markdown image decoding (StbImageSharp.ImageResult.FromMemory in
-    MarkdownRendererLalr) uses StbImageSharp, which is already in the closure
-    transitively via DIR.Lib -> SharpAstro.Fonts (used there for CBDT/sbix
-    bitmap-glyph PNGs). It is IsAotCompatible, so it composes with this
-    library's AOT contract. No explicit reference is added here to avoid a
-    project-vs-package clash in the local DIR.Lib dev setup above; the
-    transitive compile + runtime reference covers both modes.
+    Markdown image decoding (ImageDecoder in MarkdownRendererLalr) sniffs the
+    format by magic bytes and dispatches to the focused SharpAstro codecs. These
+    are referenced DIRECTLY (not relied on transitively via DIR.Lib -> Fonts) so
+    the compile can't break when an unrelated dependency stops pulling them in.
+    Both are IsAotCompatible, composing with this library's AOT contract.
+    Inline markdown images are PNG/JPEG; other formats fall back to alt-text.
   -->
+  <ItemGroup>
+    <PackageReference Include="SharpAstro.Png" />
+    <PackageReference Include="SharpAstro.Jpeg" />
+  </ItemGroup>
 
 
   <!--
