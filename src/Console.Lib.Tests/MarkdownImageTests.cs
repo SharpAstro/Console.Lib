@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Console.Lib;
+using SharpAstro.Png;
 using Shouldly;
 using Xunit;
 
@@ -47,7 +48,7 @@ public sealed class MarkdownImageTests
     {
         // An image inside a line of text is never promoted to a raster block;
         // it renders its alt text inline even when raster options are present.
-        var bmp = MakeSolidBmp(4, 4, 10, 20, 30);
+        var bmp = MakeSolidPng(4, 4, 10, 20, 30);
         var opts = new MarkdownImageOptions(_ => bmp, BoxRenderMode.HalfBlock);
         var lines = MarkdownRenderer.RenderLines("see ![x](a.bmp) now", 40, ColorMode.None, images: opts);
         var text = string.Join("\n", lines);
@@ -60,7 +61,7 @@ public sealed class MarkdownImageTests
     [Fact]
     public void Image_StandaloneLine_RastersWhenResolved()
     {
-        var bmp = MakeSolidBmp(4, 4, 0x80, 0x40, 0x20);
+        var bmp = MakeSolidPng(4, 4, 0x80, 0x40, 0x20);
         var opts = new MarkdownImageOptions(_ => bmp, BoxRenderMode.HalfBlock, CellPixelWidth: 10, CellPixelHeight: 20);
         var lines = MarkdownRenderer.RenderLines("![cat](cat.bmp)", width: 40, ColorMode.TrueColor, images: opts);
 
@@ -74,7 +75,7 @@ public sealed class MarkdownImageTests
     [Fact]
     public void Image_WiderThanWidth_ScalesDownToFit()
     {
-        var bmp = MakeSolidBmp(100, 4, 200, 100, 50);
+        var bmp = MakeSolidPng(100, 4, 200, 100, 50);
         var opts = new MarkdownImageOptions(_ => bmp, BoxRenderMode.HalfBlock, CellPixelWidth: 10, CellPixelHeight: 20);
         var lines = MarkdownRenderer.RenderLines("![big](big.bmp)", width: 10, ColorMode.TrueColor, images: opts);
 
@@ -83,50 +84,18 @@ public sealed class MarkdownImageTests
         lines.ShouldAllBe(l => MarkdownRenderer.VisibleLength(l) <= 10);
     }
 
-    // ── Fixture: a minimal 24-bit uncompressed BMP (decoded by StbImageSharp) ──
+    // ── Fixture: a solid-colour RGBA PNG (decoded by SharpAstro.Png via ImageDecoder) ──
 
-    private static byte[] MakeSolidBmp(int w, int h, byte r, byte g, byte b)
+    private static byte[] MakeSolidPng(int w, int h, byte r, byte g, byte b)
     {
-        var rowStride = ((w * 3 + 3) / 4) * 4;
-        var imageSize = rowStride * h;
-        var fileSize = 54 + imageSize;
-        var bytes = new byte[fileSize];
-
-        // BITMAPFILEHEADER
-        bytes[0] = (byte)'B';
-        bytes[1] = (byte)'M';
-        WriteI32(bytes, 2, fileSize);
-        WriteI32(bytes, 10, 54); // pixel-data offset
-
-        // BITMAPINFOHEADER
-        WriteI32(bytes, 14, 40); // header size
-        WriteI32(bytes, 18, w);
-        WriteI32(bytes, 22, h);
-        bytes[26] = 1;  // planes
-        bytes[28] = 24; // bits per pixel
-        WriteI32(bytes, 34, imageSize);
-
-        // Pixel data — bottom-up rows, BGR, padded to 4 bytes.
-        const int off = 54;
-        for (var y = 0; y < h; y++)
+        var rgba = new byte[w * h * 4];
+        for (var i = 0; i < w * h; i++)
         {
-            var rowStart = off + y * rowStride;
-            for (var x = 0; x < w; x++)
-            {
-                var p = rowStart + x * 3;
-                bytes[p] = b;
-                bytes[p + 1] = g;
-                bytes[p + 2] = r;
-            }
+            rgba[i * 4] = r;
+            rgba[i * 4 + 1] = g;
+            rgba[i * 4 + 2] = b;
+            rgba[i * 4 + 3] = 255;
         }
-        return bytes;
-    }
-
-    private static void WriteI32(byte[] b, int o, int v)
-    {
-        b[o] = (byte)(v & 0xFF);
-        b[o + 1] = (byte)((v >> 8) & 0xFF);
-        b[o + 2] = (byte)((v >> 16) & 0xFF);
-        b[o + 3] = (byte)((v >> 24) & 0xFF);
+        return PngWriter.Encode(rgba, w, h);
     }
 }
