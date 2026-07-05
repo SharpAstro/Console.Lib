@@ -6,6 +6,7 @@ using System.Text;
 using DIR.Lib;
 using DIR.Lib.MathLayout;
 using DIR.Lib.Markdown;
+using SharpAstro.Codecs;
 
 namespace Console.Lib;
 
@@ -462,9 +463,15 @@ public static partial class MarkdownRenderer
 
         try
         {
-            // Sniff PNG/JPEG by magic bytes and decode to RGBA via the focused
-            // SharpAstro codecs; unsupported formats fall back to alt-text.
-            if (!ImageDecoder.TryDecodeRgba(bytes, out var rgba, out var srcW, out var srcH))
+            // Sniff PNG/JPEG by magic bytes and decode to RGBA via the SharpAstro.Codecs
+            // facade; unsupported formats fall back to alt-text. Decode straight into a
+            // destination sized from the header (zero-copy - no intermediate RGBA buffer).
+            if (!ImageCodecs.TryReadInfo(bytes, out var info))
+                return false;
+            var srcW = info.Width;
+            var srcH = info.Height;
+            var rgba = new byte[srcW * srcH * 4];
+            if (!ImageCodecs.TryDecodeIntoRgba8(bytes, rgba))
                 return false;
 
             // Bound the image to `width` columns and `MaxRows` rows, converting
