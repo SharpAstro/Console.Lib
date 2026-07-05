@@ -49,16 +49,27 @@
   </ItemGroup>
 
   <!--
-    Markdown image decoding (ImageDecoder in MarkdownRendererLalr) sniffs the
-    format by magic bytes and dispatches to the focused SharpAstro codecs. These
-    are referenced DIRECTLY (not relied on transitively via DIR.Lib -> Fonts) so
-    the compile can't break when an unrelated dependency stops pulling them in.
-    Both are IsAotCompatible, composing with this library's AOT contract.
-    Inline markdown images are PNG/JPEG; other formats fall back to alt-text.
+    Markdown image decoding (MarkdownRendererLalr.TryRenderImage) sniffs the
+    format by magic bytes and decodes via the SharpAstro.Codecs facade
+    (ImageCodecs), which pulls the individual codecs (PNG/JPEG) in lockstep.
+    Referenced DIRECTLY (not relied on transitively via DIR.Lib -> Fonts) so the
+    compile can't break when an unrelated dependency stops pulling it in.
+    IsAotCompatible, composing with this library's AOT contract. Inline markdown
+    images are PNG/JPEG; other formats fall back to alt-text.
+
+    Referenced via ProjectReference when the StbImageSharp sibling working copy
+    exists (so codec changes can be iterated in-tree); CI / package builds fall
+    through to PackageReference automatically. The switch probes SharpAstro.Png
+    (present iff the StbImageSharp repo is checked out).
   -->
-  <ItemGroup>
-    <PackageReference Include="SharpAstro.Png" />
-    <PackageReference Include="SharpAstro.Jpeg" />
+  <PropertyGroup>
+    <UseLocalSharpAstroCodecs Condition="'$(UseLocalSharpAstroCodecs)' == '' AND Exists('..\..\..\StbImageSharp\src\SharpAstro.Png\SharpAstro.Png.csproj')">true</UseLocalSharpAstroCodecs>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(UseLocalSharpAstroCodecs)' == 'true'">
+    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Codecs\SharpAstro.Codecs.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSharpAstroCodecs)' != 'true'">
+    <PackageReference Include="SharpAstro.Codecs" />
   </ItemGroup>
 
 

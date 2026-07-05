@@ -84,7 +84,7 @@ public sealed class MarkdownImageTests
         lines.ShouldAllBe(l => MarkdownRenderer.VisibleLength(l) <= 10);
     }
 
-    // ── Fixture: a solid-colour RGBA PNG (decoded by SharpAstro.Png via ImageDecoder) ──
+    // ── Fixture: a solid-colour RGBA PNG (decoded via the SharpAstro.Codecs facade) ──
 
     private static byte[] MakeSolidPng(int w, int h, byte r, byte g, byte b)
     {

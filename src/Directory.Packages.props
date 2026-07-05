@@ -13,9 +13,8 @@
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.5.1" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.300" />
     <PackageVersion Include="SharpAstro.LALR.CC" Version="3.1.*" />
-    <!-- Focused image codecs for markdown inline-image decode (ImageDecoder). -->
-    <PackageVersion Include="SharpAstro.Png" Version="3.4.*" />
-    <PackageVersion Include="SharpAstro.Jpeg" Version="3.4.*" />
+    <!-- Image-codec facade for markdown inline-image decode (ImageCodecs); pulls PNG/JPEG in lockstep. -->
+    <PackageVersion Include="SharpAstro.Codecs" Version="3.4.*" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
