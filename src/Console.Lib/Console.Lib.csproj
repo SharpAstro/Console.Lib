@@ -57,16 +57,16 @@
     IsAotCompatible, composing with this library's AOT contract. Inline markdown
     images are PNG/JPEG; other formats fall back to alt-text.
 
-    Referenced via ProjectReference when the StbImageSharp sibling working copy
+    Referenced via ProjectReference when the Codecs sibling working copy
     exists (so codec changes can be iterated in-tree); CI / package builds fall
     through to PackageReference automatically. The switch probes SharpAstro.Png
-    (present iff the StbImageSharp repo is checked out).
+    (present iff the Codecs repo is checked out).
   -->
   <PropertyGroup>
-    <UseLocalSharpAstroCodecs Condition="'$(UseLocalSharpAstroCodecs)' == '' AND Exists('..\..\..\StbImageSharp\src\SharpAstro.Png\SharpAstro.Png.csproj')">true</UseLocalSharpAstroCodecs>
+    <UseLocalSharpAstroCodecs Condition="'$(UseLocalSharpAstroCodecs)' == '' AND Exists('..\..\..\Codecs\src\SharpAstro.Png\SharpAstro.Png.csproj')">true</UseLocalSharpAstroCodecs>
   </PropertyGroup>
   <ItemGroup Condition="'$(UseLocalSharpAstroCodecs)' == 'true'">
-    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Codecs\SharpAstro.Codecs.csproj" />
+    <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Codecs\SharpAstro.Codecs.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSharpAstroCodecs)' != 'true'">
     <PackageReference Include="SharpAstro.Codecs" />
