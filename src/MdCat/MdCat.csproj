@@ -12,7 +12,7 @@
     <!-- mdcat's version is melded to Console.Lib's: CI passes -p:Version to the
          whole solution, so the published tool tracks the library version. Keep
          this X.Y in sync with Console.Lib's VersionPrefix (see ../../CLAUDE.md). -->
-    <VersionPrefix>3.4.0</VersionPrefix>
+    <VersionPrefix>3.6.0</VersionPrefix>
 
     <!-- Published to nuget.org as a global tool (`dotnet tool install -g
          mdcat`) by the CI pipeline. We do NOT set GeneratePackageOnBuild:
