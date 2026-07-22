@@ -9,7 +9,7 @@
 
   <ItemGroup>
     <PackageVersion Include="coverlet.collector" Version="10.0.0" />
-    <PackageVersion Include="DIR.Lib" Version="6.15.*" />
+    <PackageVersion Include="DIR.Lib" Version="6.16.*" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.5.1" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.300" />
     <PackageVersion Include="SharpAstro.LALR.CC" Version="3.1.*" />
