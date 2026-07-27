@@ -309,12 +309,34 @@ public static class SixelEncoder
                 w.WriteByte((byte)'#');
                 w.WriteInt(ci);
 
-                // RLE-encode from the contiguous sixel grid slice
+                // RLE-encode from the contiguous sixel grid slice.
+                //
+                // Only the span between this colour's first and last set column carries information;
+                // outside it the slice is all-zero and RLE-collapses to a single empty run. Walking
+                // the full width byte-by-byte to rediscover that is what made encode time scale with
+                // palette size rather than with picture content -- a glyph colour touching 12 columns
+                // still cost a full-width pass, and a 254-colour surface paid that 254 times per band.
+                // IndexOfAnyExcept/LastIndexOfAnyExcept are vectorised, so the empty margins are
+                // skipped at SIMD width and re-emitted arithmetically below. Byte-for-byte identical
+                // output: the loop would have produced exactly these two runs for the margins.
                 var colorSlice = sixelGrid.AsSpan(ci * width, width);
+                var first = colorSlice.IndexOfAnyExcept((byte)0);
+                var last = colorSlice.LastIndexOfAnyExcept((byte)0);
+
+                // A colour is only marked present when a bit was set, so an all-zero slice is
+                // unreachable; guard anyway rather than emit a negative-length run.
+                if (first < 0)
+                {
+                    continue;
+                }
+
+                // Leading empty columns: one run of the zero sixel ('?' == 0x3F + 0).
+                FlushRun(ref w, 0x3F, first);
+
                 byte prevChar = 0;
                 var runLen = 0;
 
-                for (var col = 0; col < width; col++)
+                for (var col = first; col <= last; col++)
                 {
                     var ch = (byte)(colorSlice[col] + 0x3F);
 
@@ -331,6 +353,9 @@ public static class SixelEncoder
                 }
 
                 FlushRun(ref w, prevChar, runLen);
+
+                // Trailing empty columns, likewise collapsed without scanning them.
+                FlushRun(ref w, 0x3F, width - 1 - last);
             }
 
             // LF — advance to next 6-pixel band (skip after the last band)
