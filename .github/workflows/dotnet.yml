@@ -58,6 +58,20 @@ env:
   # like any other column, so a host dividing a row into fields by Viewport.Size.Width treats clicks on
   # the track as content -- and whether a scrollbar shows depends on the item count, so it changes under
   # the caller. Returning the content width alongside the column is what keeps them out of it.
+  # 4.0! - a layout tree can finally cross surface kinds. CellMeasureContext hardcoded one design unit =
+  # one cell, which is right for every hand-written TUI tree (RowH(1) is one row) and wrong for a tree
+  # authored on a pixel surface (RowH(16) is one line of text). The convention belongs to the TREE, so it
+  # is now a constructor parameter with two presets: CellAuthored (1:1, the default) and PixelAuthored (a
+  # nominal 8x16 cell). MAJOR because this is the capability the layout stack had been claiming without
+  # delivering -- Layout.Node was always shared and Engine.Arrange always generic, but no tree had ever
+  # crossed between a pixel surface and a terminal, since a 250-unit card became 250 COLUMNS: type-correct
+  # and geometrically meaningless. Needs DIR.Lib 6.23 because the conventions differ by a DIFFERENT factor
+  # PER AXIS (250 units is 31 columns across but 8 rows down) and one scalar could not say that, hence
+  # ToSurfaceX / ToSurfaceY; the axis-free ToSurface (corner radius) resolves against the COLUMN size, the
+  # finer of a terminal's two resolutions. Proven end to end by TianWen's home board: one HomeBoardLayout
+  # tree, one palette, one card projection, rendered by both the GPU tab and the TUI tab. Existing callers
+  # are unaffected -- the default is still 1:1 -- so the break is in what the type MEANS, not in what
+  # compiles.
   VERSION_PREFIX: 4.0.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
