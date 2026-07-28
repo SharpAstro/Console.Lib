@@ -1,4 +1,4 @@
-﻿name: CI/CD
+name: CI/CD
 
 on:
   push:
@@ -58,6 +58,18 @@ env:
   # like any other column, so a host dividing a row into fields by Viewport.Size.Width treats clicks on
   # the track as content -- and whether a scrollbar shows depends on the item count, so it changes under
   # the caller. Returning the content width alongside the column is what keeps them out of it.
+  # 4.1 - ConsoleInputMapping stops classifying mouse MOTION as a press. xterm mode 1002 reports pointer
+  # movement with the HELD BUTTON still in the button field and IsRelease false, and ToInputEvent asked only
+  # "is this a release?", so every motion report became an InputEvent.MouseDown at the pointer. MouseEvent has
+  # documented IsMotion as a drag report since it was added; the mapping simply never consulted it, and
+  # InputEvent.MouseMove existed in DIR.Lib and was never produced. For a consumer that acts on MouseDown this
+  # is not cosmetic: a click whose pointer drifts one pixel is delivered TWICE, and a drag is delivered as a
+  # click on every cell crossed. Found in Chess.Console, where the second delivery landed after the engine had
+  # already replied and so re-selected the piece the player had just moved (legal-move hints and all), and
+  # where dragging with a piece selected would play a move at whatever square the pointer passed over.
+  # Thumb-drag consumers improve too: ListScrollController wants MouseMove and was never getting it in a
+  # terminal. Motion now maps to MouseMove; the wheel check still comes first, so a wheel report carrying the
+  # motion bit stays a Scroll.
   # 4.0! - a layout tree can finally cross surface kinds. CellMeasureContext hardcoded one design unit =
   # one cell, which is right for every hand-written TUI tree (RowH(1) is one row) and wrong for a tree
   # authored on a pixel surface (RowH(16) is one line of text). The convention belongs to the TREE, so it
@@ -72,7 +84,7 @@ env:
   # tree, one palette, one card projection, rendered by both the GPU tab and the TUI tab. Existing callers
   # are unaffected -- the default is still 1:1 -- so the break is in what the type MEANS, not in what
   # compiles.
-  VERSION_PREFIX: 4.0.${{ github.run_number }}
+  VERSION_PREFIX: 4.1.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release

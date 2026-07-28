@@ -96,9 +96,18 @@ public static class ConsoleInputMapping
                         _ => MouseButton.Left
                     };
 
-                    return mouse.IsRelease
-                        ? new InputEvent.MouseUp(mouse.X, mouse.Y, button)
-                        : new InputEvent.MouseDown(mouse.X, mouse.Y, button, modifiers);
+                    // Motion is its OWN event, never a press. SGR tracking reports pointer movement with
+                    // the held button still in the button field, so a mapping that only asks "is this a
+                    // release?" turns every wobble of the mouse into a fresh click at the pointer. For a
+                    // consumer that acts on MouseDown this is not cosmetic: a click whose pointer drifts by
+                    // one pixel is delivered twice, and dragging with the button down is delivered as a
+                    // click on every square crossed.
+                    return mouse switch
+                    {
+                        { IsRelease: true } => new InputEvent.MouseUp(mouse.X, mouse.Y, button),
+                        { IsMotion: true } => new InputEvent.MouseMove(mouse.X, mouse.Y),
+                        _ => new InputEvent.MouseDown(mouse.X, mouse.Y, button, modifiers),
+                    };
                 }
 
                 if (evt.Key is not ConsoleKey.None)
