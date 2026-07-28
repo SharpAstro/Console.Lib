@@ -256,6 +256,27 @@ var dump = CellLayout.Describe(arranged);            // → indented layout-tree
 
 `MenuWidget` (below) is built on this path; it is the cell-surface counterpart to DIR.Lib's `PixelMenuWidget<TSurface>`.
 
+#### Rounded corners on a character grid
+
+`Layout.Node.Radius(designUnits)` (DIR.Lib 6.21+) rounds a node's background, and `CellLayout` honours
+it — so one tree renders rounded on both the pixel and the cell surface:
+
+```csharp
+Layout.Builder.VStack(rows).Pad(1).Bg(panelBg).Radius(1f)
+```
+
+The approximation is one arc glyph per corner (`╭ ╮ ╰ ╯`), drawn foreground-only so the curve reads in
+the fill colour against whatever the parent painted underneath.
+
+**The radius *magnitude* is deliberately ignored here.** A grid cannot round by fractions of a cell, so
+any non-zero radius knocks exactly one cell off each corner. Scaling the bite would need multi-cell
+arcs, and Unicode has arc forms for **corners only** — there is no rounded tee or cross — so a larger
+arc cannot be drawn without inventing it out of quadrant blocks. One cell is the honest approximation,
+which is also why `Radius` is documented upstream as a *hint* rather than a guarantee.
+
+Rounding is skipped entirely below 3×3, where the corners are the whole shape and knocking cells out
+would erase the fill rather than soften it.
+
 #### Hosting a behaviour widget in the tree
 
 The tree can place a widget it cannot describe. A `ScrollableList<T>` (scroll state, thumb), a `Canvas`
@@ -330,6 +351,30 @@ var list = new ScrollableList<MyRow>(viewport)
 
 int visibleRows = list.VisibleRows; // data rows (excludes header)
 ```
+
+#### Clickable rows: let the list bind them
+
+`RegisterRowHits` registers a clickable region per visible row against a `ClickableRegionTracker`, so a
+host never reconstructs the widget's geometry:
+
+```csharp
+list.RegisterRowHits(Tracker,
+    hitFor: (itemIndex, item) => item.IsGroupHeader ? null : new HitResult.ListItemHit("row", itemIndex),
+    onClick: (itemIndex, _) => Select(itemIndex));
+```
+
+Returning `null` from `hitFor` leaves that row unclickable — group headers, separators.
+
+**Do not hand-roll this.** Four things have to be right at once, and each one fails quietly:
+
+- The pixel origin is the viewport **`Offset` times `CellSize`**, not the viewport rect.
+- Visible row 0 is item **`ScrollOffset`**, not item 0 — get this wrong and the list selects the right
+  row until someone scrolls, then silently selects the wrong item.
+- A header steals a row, so data rows start one cell lower.
+- The rightmost column belongs to the **scrollbar** whenever one is showing. A row region drawn across
+  it wins the hit test, and the thumb can never be grabbed again.
+
+The widget owns the scroll state, so it is the only thing that knows all four without being told.
 
 ### TextArea
 

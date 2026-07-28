@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Immutable;
 using System.Text;
 using DIR.Lib;
@@ -35,9 +35,13 @@ public static class CellLayout
         var mode = viewport.ColorMode;
         foreach (var (node, rect) in arranged)
         {
+            // A grid cannot round by fractions of a cell, so any non-zero radius means the same thing
+            // here: knock one cell off each corner and draw an arc glyph. See RoundCorners.
+            var rounded = node.CornerRadius > 0f;
+
             if (node.Background is { } bg)
             {
-                FillCells(viewport, rect, bg, mode);
+                FillCells(viewport, rect, bg, mode, rounded);
             }
 
             if (node is not Layout.Node.Leaf leaf)
@@ -51,7 +55,7 @@ public static class CellLayout
                     DrawText(viewport, rect, text, mode);
                     break;
                 case Layout.Content.Box box when box.Color.Alpha > 0:
-                    FillCells(viewport, rect, box.Color, mode);
+                    FillCells(viewport, rect, box.Color, mode, rounded);
                     break;
                 case Layout.Content.Fill fill:
                     drawFill?.Invoke(fill, rect);
@@ -132,7 +136,8 @@ public static class CellLayout
         _ => "Content?",
     };
 
-    private static void FillCells(ITerminalViewport viewport, Rect<int> rect, RGBAColor32 color, ColorMode mode)
+    private static void FillCells(ITerminalViewport viewport, Rect<int> rect, RGBAColor32 color, ColorMode mode,
+        bool rounded = false)
     {
         var (vw, vh) = viewport.Size;
         var x = Math.Max(0, rect.X);
@@ -150,6 +155,51 @@ public static class CellLayout
             viewport.SetCursorPosition(x, row);
             viewport.Write($"{esc}{spaces}{VtStyle.Reset}");
         }
+
+        if (rounded)
+        {
+            RoundCorners(viewport, rect, color, mode, x, width, yEnd);
+        }
+    }
+
+    /// <summary>
+    /// Approximates a rounded corner on a character grid by replacing the four corner CELLS of an
+    /// already-filled rect with arc glyphs (U+256D..U+2570) drawn foreground-only, so the curve reads in
+    /// the fill colour against whatever the parent painted underneath.
+    /// <para>
+    /// A grid cannot round by fractions of a cell, so the <i>magnitude</i> of
+    /// <see cref="Layout.Node.CornerRadius"/> is deliberately ignored here -- any non-zero radius knocks
+    /// exactly one cell off each corner. Scaling the bite with the radius would need multi-cell arcs, and
+    /// Unicode has arc forms for corners ONLY (there is no rounded tee or cross), so a larger arc cannot
+    /// be drawn without inventing it out of quadrant blocks. One cell is the honest approximation.
+    /// </para>
+    /// Skipped entirely for a rect too small to have distinct corners, where knocking out cells would
+    /// erase most of the fill rather than soften it.
+    /// </summary>
+    private static void RoundCorners(ITerminalViewport viewport, Rect<int> rect, RGBAColor32 color, ColorMode mode,
+        int x, int width, int yEnd)
+    {
+        var top = Math.Max(0, rect.Y);
+        var bottom = yEnd - 1;
+        var right = x + width - 1;
+
+        // Below 3x3 the corners are the whole shape; rounding would eat it.
+        if (width < 3 || bottom - top < 2)
+        {
+            return;
+        }
+
+        var fg = new VtStyle(color, color).ApplyFg(mode);
+        WriteGlyph(viewport, x, top, '╭', fg);      // top-left
+        WriteGlyph(viewport, right, top, '╮', fg);  // top-right
+        WriteGlyph(viewport, x, bottom, '╰', fg);   // bottom-left
+        WriteGlyph(viewport, right, bottom, '╯', fg); // bottom-right
+    }
+
+    private static void WriteGlyph(ITerminalViewport viewport, int column, int row, char glyph, string fg)
+    {
+        viewport.SetCursorPosition(column, row);
+        viewport.Write($"{VtStyle.Reset}{fg}{glyph}{VtStyle.Reset}");
     }
 
     private static void DrawText(ITerminalViewport viewport, Rect<int> rect, Layout.Content.Text text, ColorMode mode)

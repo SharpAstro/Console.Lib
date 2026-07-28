@@ -1,4 +1,4 @@
-using Console.Lib;
+﻿using Console.Lib;
 using DIR.Lib;
 using Shouldly;
 using Xunit;
@@ -344,5 +344,120 @@ public sealed class ScrollableListTests
         list.HandleMouse(new MouseEvent(Button: 65, X: 0, Y: 0, IsRelease: false))
             .ShouldBeFalse();
         list.ScrollOffset.ShouldBe(0);
+    }
+
+    // ---- RegisterRowHits ----
+
+    /// <summary>Builds a list at a known viewport offset so the pixel origin is not trivially (0,0).</summary>
+    private static ScrollableList<Row> NewOffsetList(int itemCount, int col, int row, int width = 20, int height = 8)
+    {
+        var terminal = new FakeTerminal(new Queue<ConsoleInputEvent>(), col + width, row + height);
+        var viewport = new TerminalViewport(terminal, col, row, width, height);
+        var list = new ScrollableList<Row>(viewport).Header(" idx");
+        list.Items(Enumerable.Range(0, itemCount).Select(i => new Row(i)).ToList());
+        return list;
+    }
+
+    [Fact]
+    public void RegisterRowHits_BindsOneRegionPerVisibleRow_BelowTheHeader()
+    {
+        var list = NewOffsetList(itemCount: 3, col: 0, row: 0);
+        var tracker = new ClickableRegionTracker();
+        tracker.BeginFrame();
+
+        list.RegisterRowHits(tracker, (i, _) => new HitResult.ListItemHit("row", i));
+
+        var regions = tracker.GetRegisteredRegions();
+        regions.Length.ShouldBe(3);
+        var cell = list.Viewport.CellSize;
+        // Header occupies row 0, so the first item starts one cell down.
+        regions[0].Y.ShouldBe(cell.Height);
+        regions[1].Y.ShouldBe(cell.Height * 2);
+    }
+
+    /// <summary>
+    /// The trap this API exists to remove: once scrolled, visible row 0 is item ScrollOffset, not item 0.
+    /// A host doing its own arithmetic against the item list selects the wrong item after any scroll.
+    /// </summary>
+    [Fact]
+    public void RegisterRowHits_MapsRowsToScrolledItemIndices()
+    {
+        var list = NewOffsetList(itemCount: 50, col: 0, row: 0);
+        list.ScrollTo(10);
+        var tracker = new ClickableRegionTracker();
+        tracker.BeginFrame();
+
+        var clicked = -1;
+        list.RegisterRowHits(tracker, (i, _) => new HitResult.ListItemHit("row", i), (i, _) => clicked = i);
+
+        // Click the top visible row; it must resolve to item 10, not item 0.
+        var cell = list.Viewport.CellSize;
+        tracker.HitTestAndDispatch(1f, cell.Height + 1f).ShouldBe(new HitResult.ListItemHit("row", 10));
+        clicked.ShouldBe(10);
+    }
+
+    /// <summary>
+    /// The other trap: a row region drawn across the scrollbar column wins the hit test, so the thumb
+    /// can never be grabbed. The regions must stop one column short whenever a scrollbar is showing.
+    /// </summary>
+    [Fact]
+    public void RegisterRowHits_LeavesTheScrollbarColumnAlone()
+    {
+        var scrolling = NewOffsetList(itemCount: 100, col: 0, row: 0, width: 20, height: 8);
+        var fitting = NewOffsetList(itemCount: 2, col: 0, row: 0, width: 20, height: 8);
+
+        var a = new ClickableRegionTracker();
+        a.BeginFrame();
+        scrolling.RegisterRowHits(a, (i, _) => new HitResult.ListItemHit("row", i));
+
+        var b = new ClickableRegionTracker();
+        b.BeginFrame();
+        fitting.RegisterRowHits(b, (i, _) => new HitResult.ListItemHit("row", i));
+
+        var cell = scrolling.Viewport.CellSize;
+        a.GetRegisteredRegions()[0].Width.ShouldBe(19 * cell.Width, "a scrolling list yields the last column to the scrollbar");
+        b.GetRegisteredRegions()[0].Width.ShouldBe(20 * cell.Width, "a list that fits has no scrollbar, so rows span the full width");
+    }
+
+    /// <summary>A null hit leaves that row unclickable -- group headers and separators.</summary>
+    [Fact]
+    public void RegisterRowHits_SkipsRowsWithNoHit()
+    {
+        var list = NewOffsetList(itemCount: 6, col: 0, row: 0);
+        var tracker = new ClickableRegionTracker();
+        tracker.BeginFrame();
+
+        list.RegisterRowHits(tracker, (i, _) => i % 2 == 0 ? new HitResult.ListItemHit("row", i) : null);
+
+        tracker.GetRegisteredRegions().Length.ShouldBe(3);
+    }
+
+    /// <summary>The origin is the viewport OFFSET times cell size, not the viewport rect.</summary>
+    [Fact]
+    public void RegisterRowHits_OriginFollowsTheViewportOffset()
+    {
+        var list = NewOffsetList(itemCount: 3, col: 4, row: 2);
+        var tracker = new ClickableRegionTracker();
+        tracker.BeginFrame();
+
+        list.RegisterRowHits(tracker, (i, _) => new HitResult.ListItemHit("row", i));
+
+        var cell = list.Viewport.CellSize;
+        var first = tracker.GetRegisteredRegions()[0];
+        first.X.ShouldBe(4 * cell.Width);
+        first.Y.ShouldBe((2 + 1) * cell.Height, "offset row plus the header row");
+    }
+
+    [Fact]
+    public void RegisterRowHits_EmptyList_RegistersNothing()
+    {
+        var terminal = new FakeTerminal(new Queue<ConsoleInputEvent>(), 20, 8);
+        var list = new ScrollableList<Row>(new TerminalViewport(terminal, 0, 0, 20, 8));
+        var tracker = new ClickableRegionTracker();
+        tracker.BeginFrame();
+
+        list.RegisterRowHits(tracker, (i, _) => new HitResult.ListItemHit("row", i));
+
+        tracker.GetRegisteredRegions().ShouldBeEmpty();
     }
 }
