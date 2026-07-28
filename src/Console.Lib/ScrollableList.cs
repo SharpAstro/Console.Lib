@@ -1,3 +1,5 @@
+using DIR.Lib;
+
 namespace Console.Lib;
 
 /// <summary>
@@ -396,6 +398,64 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
                 var glyph = onThumb ? '\u2588' : '\u2502'; // █ on thumb, │ on track
                 Viewport.Write($"{style.Apply(colorMode)}{glyph}{VtStyle.Reset}");
             }
+        }
+    }
+
+    /// <summary>
+    /// Registers a clickable region for each visible row against <paramref name="tracker"/>, so a host
+    /// binds "clicking this row selects that item" without reconstructing the widget's geometry.
+    /// <para>
+    /// The arithmetic being replaced is worth naming, because every host got it slightly differently:
+    /// the pixel origin is the viewport <b>offset times cell size</b> (not the viewport rect), the first
+    /// visible row is <see cref="ScrollOffset"/> and NOT 0, the header steals a row when one is set, and
+    /// the rightmost column belongs to the scrollbar whenever one is showing -- a region drawn over it
+    /// swallows the drag before <see cref="HandleMouse"/> ever sees it. Getting any of those wrong gives
+    /// a list that selects the wrong item once scrolled, or a scrollbar that cannot be grabbed.
+    /// </para>
+    /// <paramref name="hitFor"/> receives the ITEM index and the item, and returns the hit to bind, or
+    /// null to leave that row unclickable (group headers, separators). <paramref name="onClick"/> is
+    /// invoked with the same item index.
+    /// </summary>
+    public void RegisterRowHits(ClickableRegionTracker tracker,
+        Func<int, TItem, HitResult?> hitFor, Action<int, InputModifier>? onClick = null)
+    {
+        if (_items.Count == 0 || VisibleRows <= 0)
+        {
+            return;
+        }
+
+        var cell = Viewport.CellSize;
+        var offset = Viewport.Offset;
+        var originX = (float)(offset.Column * cell.Width);
+        var originY = (float)(offset.Row * cell.Height);
+
+        // Leave the scrollbar column to the scrollbar: a row region drawn across it would win the hit
+        // test and the thumb could never be grabbed.
+        var contentColumns = HasScrollBar ? Viewport.Size.Width - 1 : Viewport.Size.Width;
+        var rowWidth = (float)(contentColumns * cell.Width);
+        var rowHeight = (float)cell.Height;
+        if (rowWidth <= 0f || rowHeight <= 0f)
+        {
+            return;
+        }
+
+        for (var visible = 0; visible < VisibleRows; visible++)
+        {
+            var itemIndex = _scrollOffset + visible;
+            if (itemIndex >= _items.Count)
+            {
+                break;
+            }
+
+            if (hitFor(itemIndex, _items[itemIndex]) is not { } hit)
+            {
+                continue;
+            }
+
+            var captured = itemIndex;
+            var y = originY + (HeaderRows + visible) * rowHeight;
+            tracker.Register(originX, y, rowWidth, rowHeight, hit,
+                onClick is null ? null : m => onClick(captured, m));
         }
     }
 

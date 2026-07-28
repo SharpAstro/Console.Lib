@@ -1,4 +1,4 @@
-using System.Collections.Immutable;
+﻿using System.Collections.Immutable;
 using System.Linq;
 using Console.Lib;
 using DIR.Lib;
@@ -209,5 +209,81 @@ public class CellLayoutTests
 
         dump.ShouldContain("Leaf Box(filled)");
         dump.ShouldContain("Leaf Fill(\"chart\")");
+    }
+
+    // ---- Node.Radius on a cell surface ----
+
+    private static ImmutableArray<Layout.ArrangedNode<int>> ArrangePanel(float radius, int w, int h) =>
+        Layout.Engine.Arrange(
+            new Layout.Node.Leaf(new Layout.Content.Box(0, 0))
+            {
+                Background = new RGBAColor32(0x20, 0x30, 0x40, 0xff),
+                CornerRadius = radius,
+                Width = Layout.Sizing.Star(),
+                Height = Layout.Sizing.Star(),
+            },
+            new Rect<int>(0, 0, w, h), new CellMeasureContext());
+
+    /// <summary>
+    /// A grid cannot round by fractions of a cell, so the approximation is one arc glyph per corner.
+    /// This asserts the four glyphs land on the four corner cells and nowhere else.
+    /// </summary>
+    [Fact]
+    public void Radius_DrawsArcGlyphsAtTheFourCorners()
+    {
+        var vp = new RecordingViewport(10, 4);
+
+        CellLayout.Paint(vp, ArrangePanel(radius: 2f, 10, 4));
+
+        var glyphs = vp.Writes
+            .Select(w => (w.Col, w.Row, Text: StripReset(w.Text)))
+            .Where(w => w.Text is "╭" or "╮" or "╰" or "╯")
+            .ToList();
+
+        glyphs.Count.ShouldBe(4);
+        glyphs.ShouldContain((0, 0, "╭"));
+        glyphs.ShouldContain((9, 0, "╮"));
+        glyphs.ShouldContain((0, 3, "╰"));
+        glyphs.ShouldContain((9, 3, "╯"));
+    }
+
+    /// <summary>Zero radius must leave the fill exactly as it was before the feature existed.</summary>
+    [Fact]
+    public void Radius_Zero_PaintsNoArcGlyphs()
+    {
+        var rounded = new RecordingViewport(10, 4);
+        var square = new RecordingViewport(10, 4);
+
+        CellLayout.Paint(rounded, ArrangePanel(radius: 0f, 10, 4));
+        CellLayout.Paint(square, Layout.Engine.Arrange(
+            new Layout.Node.Leaf(new Layout.Content.Box(0, 0))
+            {
+                Background = new RGBAColor32(0x20, 0x30, 0x40, 0xff),
+                Width = Layout.Sizing.Star(),
+                Height = Layout.Sizing.Star(),
+            },
+            new Rect<int>(0, 0, 10, 4), new CellMeasureContext()));
+
+        rounded.Writes.ShouldBe(square.Writes);
+    }
+
+    /// <summary>
+    /// Below 3x3 the corners ARE the shape, so rounding would erase most of the fill rather than
+    /// soften it. The fill is left square instead.
+    /// </summary>
+    [Theory]
+    [InlineData(2, 4)]
+    [InlineData(10, 2)]
+    [InlineData(1, 1)]
+    public void Radius_IsSkippedWhenTheRectIsTooSmallToHaveCorners(int w, int h)
+    {
+        var vp = new RecordingViewport(w, h);
+
+        CellLayout.Paint(vp, ArrangePanel(radius: 2f, w, h));
+
+        var arcs = vp.Writes.Select(x => StripReset(x.Text))
+            .Where(t => t == "╭" || t == "╮" || t == "╰" || t == "╯")
+            .ToList();
+        arcs.ShouldBeEmpty();
     }
 }

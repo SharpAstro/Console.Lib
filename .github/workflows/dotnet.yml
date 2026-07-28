@@ -1,4 +1,4 @@
-name: CI/CD
+﻿name: CI/CD
 
 on:
   push:
@@ -34,7 +34,17 @@ env:
   # via VisibleLength, so SGR escapes in a cell do not inflate the column. TerminalViewport.UpdateGeometry
   # widens internal -> public so a layout tree can host a widget at a Fill leaf and re-point it
   # per frame. Lockstep rebuild against DIR.Lib 6.20.
-  VERSION_PREFIX: 3.13.${{ github.run_number }}
+  # 3.14 - CellLayout honours DIR.Lib 6.21's Layout.Node.CornerRadius: a non-zero radius knocks one
+  # cell off each corner of a background fill and draws an arc glyph there (U+256D..U+2570), so one
+  # tree renders rounded on both the pixel and cell surfaces. The radius MAGNITUDE is ignored -- a grid
+  # cannot round by fractions of a cell, and Unicode has arc forms for corners only (no rounded tee or
+  # cross), so one cell is the honest approximation; skipped below 3x3 where the corners are the shape.
+  # ScrollableList.RegisterRowHits binds a clickable region per visible row, so a host stops
+  # reconstructing the widget's geometry: the pixel origin is viewport OFFSET x cell size, row 0 is
+  # ScrollOffset and not item 0, the header steals a row, and the scrollbar column must be left alone
+  # or the thumb can never be grabbed. Every host had a slightly different version of that arithmetic.
+  # Lockstep rebuild against DIR.Lib 6.21.
+  VERSION_PREFIX: 3.14.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release
