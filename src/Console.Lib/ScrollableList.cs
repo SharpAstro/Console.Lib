@@ -1,6 +1,14 @@
-using DIR.Lib;
+﻿using DIR.Lib;
 
 namespace Console.Lib;
+
+/// <summary>
+/// A clickable span within a list row, in COLUMNS relative to the row's left edge -- an inline button
+/// on a row rather than the whole row. <see cref="ColumnEnd"/> is exclusive and is clamped to the row's
+/// content width by <see cref="ScrollableList{TItem}.RegisterRowSpanHits"/>, so a caller may pass
+/// <see cref="int.MaxValue"/> to mean "to the end of the row".
+/// </summary>
+public readonly record struct RowSpan(int ColumnStart, int ColumnEnd, HitResult Hit, Action<InputModifier>? OnClick = null);
 
 /// <summary>
 /// Multi-row scrollable list with a header row.
@@ -418,6 +426,60 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     /// </summary>
     public void RegisterRowHits(ClickableRegionTracker tracker,
         Func<int, TItem, HitResult?> hitFor, Action<int, InputModifier>? onClick = null)
+        => ForEachVisibleRow((itemIndex, item, geometry, y) =>
+        {
+            if (hitFor(itemIndex, item) is not { } hit)
+            {
+                return;
+            }
+
+            var captured = itemIndex;
+            tracker.Register(geometry.OriginX, y, geometry.RowWidth, geometry.RowHeight, hit,
+                onClick is null ? null : m => onClick(captured, m));
+        });
+
+    /// <summary>
+    /// Registers clickable regions for spans WITHIN each visible row -- inline buttons on a row, rather
+    /// than the whole row. Shares every piece of geometry <see cref="RegisterRowHits"/> gets right
+    /// (origin from the viewport offset, the header row, the scrolled item index, the scrollbar column)
+    /// and adds column clamping on top, so a span running past the content width is trimmed instead of
+    /// overlapping the scrollbar.
+    /// <para>
+    /// <paramref name="spansFor"/> receives the item index and item, and returns the spans in COLUMNS
+    /// relative to the row's left edge. Return an empty list for a row with no buttons.
+    /// </para>
+    /// </summary>
+    public void RegisterRowSpanHits(ClickableRegionTracker tracker,
+        Func<int, TItem, IReadOnlyList<RowSpan>> spansFor)
+        => ForEachVisibleRow((itemIndex, item, geometry, y) =>
+        {
+            var spans = spansFor(itemIndex, item);
+            for (var i = 0; i < spans.Count; i++)
+            {
+                var span = spans[i];
+                var startCol = Math.Max(0, span.ColumnStart);
+                var endCol = Math.Min(span.ColumnEnd, geometry.ContentColumns);
+                if (startCol >= endCol)
+                {
+                    continue;
+                }
+
+                var x = geometry.OriginX + startCol * geometry.CellWidth;
+                var w = (endCol - startCol) * geometry.CellWidth;
+                tracker.Register(x, y, w, geometry.RowHeight, span.Hit, span.OnClick);
+            }
+        });
+
+    /// <summary>The per-frame geometry both registration helpers derive from, computed once.</summary>
+    private readonly record struct RowGeometry(
+        float OriginX, float CellWidth, float RowWidth, float RowHeight, int ContentColumns);
+
+    /// <summary>
+    /// Walks the visible rows, handing each one its item index, its item, the shared geometry and its
+    /// pixel top. The single place that knows visible row N is item <see cref="ScrollOffset"/> + N, that
+    /// a header displaces the first row, and that the scrollbar owns the last column.
+    /// </summary>
+    private void ForEachVisibleRow(Action<int, TItem, RowGeometry, float> forRow)
     {
         if (_items.Count == 0 || VisibleRows <= 0)
         {
@@ -426,19 +488,23 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
 
         var cell = Viewport.CellSize;
         var offset = Viewport.Offset;
-        var originX = (float)(offset.Column * cell.Width);
-        var originY = (float)(offset.Row * cell.Height);
 
-        // Leave the scrollbar column to the scrollbar: a row region drawn across it would win the hit
-        // test and the thumb could never be grabbed.
+        // Leave the scrollbar column to the scrollbar: a region drawn across it would win the hit test
+        // and the thumb could never be grabbed.
         var contentColumns = HasScrollBar ? Viewport.Size.Width - 1 : Viewport.Size.Width;
-        var rowWidth = (float)(contentColumns * cell.Width);
-        var rowHeight = (float)cell.Height;
-        if (rowWidth <= 0f || rowHeight <= 0f)
+        var geometry = new RowGeometry(
+            OriginX: offset.Column * cell.Width,
+            CellWidth: cell.Width,
+            RowWidth: contentColumns * cell.Width,
+            RowHeight: cell.Height,
+            ContentColumns: contentColumns);
+
+        if (geometry.RowWidth <= 0f || geometry.RowHeight <= 0f)
         {
             return;
         }
 
+        var originY = (float)(offset.Row * cell.Height);
         for (var visible = 0; visible < VisibleRows; visible++)
         {
             var itemIndex = _scrollOffset + visible;
@@ -447,15 +513,7 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
                 break;
             }
 
-            if (hitFor(itemIndex, _items[itemIndex]) is not { } hit)
-            {
-                continue;
-            }
-
-            var captured = itemIndex;
-            var y = originY + (HeaderRows + visible) * rowHeight;
-            tracker.Register(originX, y, rowWidth, rowHeight, hit,
-                onClick is null ? null : m => onClick(captured, m));
+            forRow(itemIndex, _items[itemIndex], geometry, originY + (HeaderRows + visible) * geometry.RowHeight);
         }
     }
 

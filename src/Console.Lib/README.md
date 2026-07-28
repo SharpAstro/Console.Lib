@@ -376,6 +376,18 @@ Returning `null` from `hitFor` leaves that row unclickable — group headers, se
 
 The widget owns the scroll state, so it is the only thing that knows all four without being told.
 
+For **inline buttons on a row** rather than the whole row, `RegisterRowSpanHits` takes column ranges
+and shares all of the above:
+
+```csharp
+list.RegisterRowSpanHits(Tracker, (itemIndex, item) => item.Buttons
+    .Select(b => new RowSpan(b.ColStart, b.ColEnd, new HitResult.ListItemHit("row", itemIndex), b.OnClick))
+    .ToArray());
+```
+
+`RowSpan.ColumnEnd` is exclusive and clamped to the content width, so `int.MaxValue` is a usable
+"to the end of the row" and a span can never spill onto the scrollbar.
+
 ### TextArea
 
 Multi-line editable text widget backed by a UTF-8 gap buffer (`GapBuffer`) and editable state (`TextAreaState`). Supports cursor navigation (arrows / Home / End / PgUp / PgDn / Ctrl+Home / Ctrl+End), insertion / Backspace / Delete, sticky desired column for vertical motion, and an optional left-side line-number gutter with vim-style `~` markers past the end of buffer. Cursor moves are codepoint-aware so the cursor never lands mid-UTF-8-sequence.

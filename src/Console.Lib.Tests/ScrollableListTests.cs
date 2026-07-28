@@ -460,4 +460,82 @@ public sealed class ScrollableListTests
 
         tracker.GetRegisteredRegions().ShouldBeEmpty();
     }
+
+    // ---- RegisterRowSpanHits ----
+
+    [Fact]
+    public void RegisterRowSpanHits_PlacesSpansAtTheirColumnOffsets()
+    {
+        var list = NewOffsetList(itemCount: 3, col: 0, row: 0);
+        var tracker = new ClickableRegionTracker();
+        tracker.BeginFrame();
+
+        list.RegisterRowSpanHits(tracker, (i, _) => i == 0
+            ? [new RowSpan(2, 6, new HitResult.ButtonHit("dec")), new RowSpan(8, 12, new HitResult.ButtonHit("inc"))]
+            : []);
+
+        var cell = list.Viewport.CellSize;
+        var regions = tracker.GetRegisteredRegions();
+        regions.Length.ShouldBe(2);
+        regions[0].X.ShouldBe(2 * cell.Width);
+        regions[0].Width.ShouldBe(4 * cell.Width);
+        regions[1].X.ShouldBe(8 * cell.Width);
+        // Header row displaces the first data row, exactly as for whole-row hits.
+        regions[0].Y.ShouldBe(cell.Height);
+    }
+
+    /// <summary>
+    /// A span running past the row is trimmed to the content width rather than overlapping the
+    /// scrollbar -- so int.MaxValue is a usable "to the end of the row".
+    /// </summary>
+    [Fact]
+    public void RegisterRowSpanHits_ClampsASpanToTheContentWidth()
+    {
+        var list = NewOffsetList(itemCount: 100, col: 0, row: 0, width: 20, height: 8);
+        var tracker = new ClickableRegionTracker();
+        tracker.BeginFrame();
+
+        list.RegisterRowSpanHits(tracker, (i, _) => i == list.ScrollOffset
+            ? [new RowSpan(0, int.MaxValue, new HitResult.ButtonHit("all"))]
+            : []);
+
+        var cell = list.Viewport.CellSize;
+        // 20 columns minus the scrollbar column.
+        tracker.GetRegisteredRegions()[0].Width.ShouldBe(19 * cell.Width);
+    }
+
+    /// <summary>
+    /// Spans follow the scroll like whole rows do. The hand-rolled version this replaced hardcoded a
+    /// zero scroll offset, which was correct only for as long as the list never scrolled.
+    /// </summary>
+    [Fact]
+    public void RegisterRowSpanHits_FollowsTheScrollOffset()
+    {
+        var list = NewOffsetList(itemCount: 50, col: 0, row: 0);
+        list.ScrollTo(12);
+        var tracker = new ClickableRegionTracker();
+        tracker.BeginFrame();
+
+        var seen = new List<int>();
+        list.RegisterRowSpanHits(tracker, (i, _) =>
+        {
+            seen.Add(i);
+            return [new RowSpan(0, 4, new HitResult.ListItemHit("row", i))];
+        });
+
+        seen[0].ShouldBe(12, "the top visible row is the scrolled item, not item 0");
+    }
+
+    [Fact]
+    public void RegisterRowSpanHits_SkipsDegenerateSpans()
+    {
+        var list = NewOffsetList(itemCount: 2, col: 0, row: 0);
+        var tracker = new ClickableRegionTracker();
+        tracker.BeginFrame();
+
+        list.RegisterRowSpanHits(tracker, (_, _) =>
+            [new RowSpan(5, 5, new HitResult.ButtonHit("empty")), new RowSpan(9, 3, new HitResult.ButtonHit("inverted"))]);
+
+        tracker.GetRegisteredRegions().ShouldBeEmpty();
+    }
 }
