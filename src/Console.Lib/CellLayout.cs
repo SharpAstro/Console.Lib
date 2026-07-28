@@ -6,15 +6,46 @@ using DIR.Lib;
 namespace Console.Lib;
 
 /// <summary>
-/// The terminal-surface <see cref="Layout.IMeasureContext{T}"/>: text width is the character count (one row tall),
-/// and design-unit scalars are authored in cells for the TUI so they round to whole cells. (Wide-char /
-/// East-Asian-width measurement is a documented follow-up; v1 is char-count, matching the rest of Console.Lib.)
+/// The terminal-surface <see cref="Layout.IMeasureContext{T}"/>: text width is the character count (one row
+/// tall), and design-unit scalars round to whole cells. (Wide-char / East-Asian-width measurement is a
+/// documented follow-up; v1 is char-count, matching the rest of Console.Lib.)
+/// <para>
+/// <b>The unit convention belongs to the TREE, so it is a parameter here.</b> A tree written for the TUI
+/// counts in cells (<c>RowH(1)</c> means one row), while a tree written for a pixel surface counts in
+/// pixel-ish units (<c>RowH(16)</c> means one line of text). The same numbers cannot mean both, so the
+/// context has to be told which convention the tree it is arranging was authored in -- see
+/// <see cref="CellAuthored"/> and <see cref="PixelAuthored"/>.
+/// </para>
 /// </summary>
-public sealed class CellMeasureContext : Layout.IMeasureContext<int>
+/// <param name="designUnitsPerColumn">Design units spanned by one character cell horizontally.</param>
+/// <param name="designUnitsPerRow">Design units spanned by one character cell vertically.</param>
+public sealed class CellMeasureContext(float designUnitsPerColumn = 1f, float designUnitsPerRow = 1f)
+    : Layout.IMeasureContext<int>
 {
+    /// <summary>
+    /// One design unit is one cell -- the convention every hand-written TUI tree already uses, and the
+    /// default, so existing callers are unchanged.
+    /// </summary>
+    public static CellMeasureContext CellAuthored { get; } = new CellMeasureContext();
+
+    /// <summary>
+    /// For a tree authored in pixel-ish design units (a shared tree that also renders on a GPU surface),
+    /// mapped onto a nominal 8x16 cell. This is the case that needs the axes to differ: the same 250-unit
+    /// card is 31 columns across but only 8 rows down.
+    /// </summary>
+    public static CellMeasureContext PixelAuthored { get; } = new CellMeasureContext(8f, 16f);
+
     public Layout.Size<int> MeasureText(ReadOnlySpan<char> text, float fontSize) => new(text.Length, 1);
 
-    public int ToSurface(float designUnits) => (int)MathF.Round(designUnits);
+    /// <summary>
+    /// The axis-free mapping, used for genuinely axis-free scalars such as a corner radius. Resolved against
+    /// the COLUMN size, since a terminal's horizontal resolution is the finer of the two.
+    /// </summary>
+    public int ToSurface(float designUnits) => (int)MathF.Round(designUnits / designUnitsPerColumn);
+
+    public int ToSurfaceX(float designUnits) => (int)MathF.Round(designUnits / designUnitsPerColumn);
+
+    public int ToSurfaceY(float designUnits) => (int)MathF.Round(designUnits / designUnitsPerRow);
 }
 
 /// <summary>
