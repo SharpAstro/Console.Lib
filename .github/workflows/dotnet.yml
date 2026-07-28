@@ -44,7 +44,13 @@ env:
   # ScrollOffset and not item 0, the header steals a row, and the scrollbar column must be left alone
   # or the thumb can never be grabbed. Every host had a slightly different version of that arithmetic.
   # Lockstep rebuild against DIR.Lib 6.21.
-  VERSION_PREFIX: 3.14.${{ github.run_number }}
+  # 3.15 - ScrollableList.RegisterRowSpanHits: clickable spans WITHIN a row (inline buttons), the
+  # column-range counterpart to 3.14's whole-row RegisterRowHits. Both now share one ForEachVisibleRow
+  # walk, so the four things that must be right (origin from the viewport OFFSET, the header row, the
+  # SCROLLED item index, the scrollbar column) are computed once instead of per call site. Spans clamp
+  # to the content width, so int.MaxValue means "to the end of the row" and cannot overlap the
+  # scrollbar. New public RowSpan record struct.
+  VERSION_PREFIX: 3.15.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release
