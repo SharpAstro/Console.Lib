@@ -410,6 +410,43 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     }
 
     /// <summary>
+    /// Resolves a pixel point to the row under it: the ITEM index (not the visible row), the item, and the
+    /// column <b>within the content area</b> together with how many content columns there are.
+    ///
+    /// <para>The same knowledge <see cref="RegisterRowHits"/> encapsulates, read in the opposite direction
+    /// — for a host that resolves a click when one arrives rather than registering regions up front, and so
+    /// has nowhere to put a <see cref="ClickableRegionTracker"/>. Prefer the registration helpers when
+    /// there is a tracker; reach for this when the host owns dispatch.</para>
+    ///
+    /// <para>Null when the point falls outside the viewport, on the header, on the scrollbar column, or
+    /// past the last item. That third one is the reason this exists rather than being left to callers:
+    /// <see cref="Widget.HitTest"/> reports every column including the scrollbar's, so a host splitting a
+    /// row into fields by <c>Viewport.Size.Width</c> silently treats clicks on the track as content.</para>
+    ///
+    /// <para>Reporting the content width alongside the column keeps the caller out of that trap without
+    /// having to know whether a scrollbar is showing — which depends on the item count, so it changes
+    /// under the caller's feet.</para>
+    /// </summary>
+    public (int ItemIndex, TItem Item, int Column, int Columns)? HitTestRow(int pixelX, int pixelY)
+    {
+        if (HitTest(pixelX, pixelY) is not (var column, var row))
+        {
+            return null;
+        }
+
+        var contentColumns = HasScrollBar ? Viewport.Size.Width - 1 : Viewport.Size.Width;
+        if (column >= contentColumns || row < HeaderRows)
+        {
+            return null;
+        }
+
+        var itemIndex = _scrollOffset + (row - HeaderRows);
+        return itemIndex >= 0 && itemIndex < _items.Count
+            ? (itemIndex, _items[itemIndex], column, contentColumns)
+            : null;
+    }
+
+    /// <summary>
     /// Registers a clickable region for each visible row against <paramref name="tracker"/>, so a host
     /// binds "clicking this row selects that item" without reconstructing the widget's geometry.
     /// <para>

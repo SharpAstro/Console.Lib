@@ -461,6 +461,94 @@ public sealed class ScrollableListTests
         tracker.GetRegisteredRegions().ShouldBeEmpty();
     }
 
+    // ---- HitTestRow ----
+
+    [Fact]
+    public void HitTestRow_ResolvesTheItemUnderThePoint_BelowTheHeader()
+    {
+        var list = NewOffsetList(itemCount: 3, col: 0, row: 0);
+        var cell = list.Viewport.CellSize;
+
+        // Row 0 is the header, so the first item sits one cell down.
+        list.HitTestRow(1, (int)cell.Height + 1).ShouldNotBeNull().ItemIndex.ShouldBe(0);
+        list.HitTestRow(1, (int)(cell.Height * 2) + 1).ShouldNotBeNull().ItemIndex.ShouldBe(1);
+    }
+
+    [Fact]
+    public void HitTestRow_OnTheHeader_IsNotARow()
+    {
+        var list = NewOffsetList(itemCount: 3, col: 0, row: 0);
+
+        list.HitTestRow(1, 1).ShouldBeNull();
+    }
+
+    /// <summary>Once scrolled, the top visible row is item ScrollOffset — the trap a host re-deriving
+    /// this from its own scroll state falls into.</summary>
+    [Fact]
+    public void HitTestRow_MapsToScrolledItemIndices()
+    {
+        var list = NewOffsetList(itemCount: 50, col: 0, row: 0);
+        list.ScrollTo(10);
+        var cell = list.Viewport.CellSize;
+
+        list.HitTestRow(1, (int)cell.Height + 1).ShouldNotBeNull().ItemIndex.ShouldBe(10);
+    }
+
+    /// <summary>
+    /// The defect this API removes: <see cref="Widget.HitTest"/> reports the scrollbar's column like any
+    /// other, so a host that splits a row by the viewport width treats a click on the track as content.
+    /// </summary>
+    [Fact]
+    public void HitTestRow_OnTheScrollbarColumn_IsNotARow()
+    {
+        var scrolling = NewOffsetList(itemCount: 100, col: 0, row: 0, width: 20, height: 8);
+        var fitting = NewOffsetList(itemCount: 2, col: 0, row: 0, width: 20, height: 8);
+        var cell = scrolling.Viewport.CellSize;
+        var y = (int)cell.Height + 1;
+        var lastColumnX = (int)(19 * cell.Width) + 1;
+
+        scrolling.HitTestRow(lastColumnX, y).ShouldBeNull("the scrollbar owns the last column");
+        fitting.HitTestRow(lastColumnX, y).ShouldNotBeNull().Column.ShouldBe(19, "a list that fits has no scrollbar, so every column is content");
+    }
+
+    /// <summary>
+    /// Content width comes back with the column so a caller can divide the row into fields without
+    /// knowing whether a scrollbar is showing — which depends on the item count, so it moves under them.
+    /// </summary>
+    [Fact]
+    public void HitTestRow_ReportsContentWidthExcludingTheScrollbar()
+    {
+        var cell = NewOffsetList(1, 0, 0).Viewport.CellSize;
+        var y = (int)cell.Height + 1;
+
+        NewOffsetList(itemCount: 100, col: 0, row: 0, width: 20, height: 8)
+            .HitTestRow(1, y).ShouldNotBeNull().Columns.ShouldBe(19);
+        NewOffsetList(itemCount: 2, col: 0, row: 0, width: 20, height: 8)
+            .HitTestRow(1, y).ShouldNotBeNull().Columns.ShouldBe(20);
+    }
+
+    [Fact]
+    public void HitTestRow_PastTheLastItem_IsNotARow()
+    {
+        var list = NewOffsetList(itemCount: 2, col: 0, row: 0, width: 20, height: 8);
+        var cell = list.Viewport.CellSize;
+
+        // Visible rows 1 and 2 hold the two items; row 3 is empty space below them.
+        list.HitTestRow(1, (int)(cell.Height * 3) + 1).ShouldBeNull();
+    }
+
+    /// <summary>The origin is the viewport OFFSET times cell size, not the viewport rect.</summary>
+    [Fact]
+    public void HitTestRow_OriginFollowsTheViewportOffset()
+    {
+        var list = NewOffsetList(itemCount: 3, col: 4, row: 2);
+        var cell = list.Viewport.CellSize;
+
+        // Offset row plus the header row is where item 0 lives; anything above it is not a row.
+        list.HitTestRow((int)(4 * cell.Width) + 1, (int)(3 * cell.Height) + 1).ShouldNotBeNull().ItemIndex.ShouldBe(0);
+        list.HitTestRow(1, (int)(3 * cell.Height) + 1).ShouldBeNull("left of the viewport");
+    }
+
     // ---- RegisterRowSpanHits ----
 
     [Fact]
