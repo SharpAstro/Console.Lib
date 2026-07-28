@@ -198,86 +198,52 @@ public static partial class MarkdownRenderer
         }
     }
 
+    /// <summary>
+    /// Flattens the table's inline runs to styled strings and hands the geometry to
+    /// <see cref="TextTable"/>. Everything Markdown-specific stays here (inline formatting, the bold
+    /// header, the theme's dim border colour, the alignment enum); the borders, junctions, column widths
+    /// and padding are the shared renderer's job.
+    /// <para>
+    /// Header cells are bolded <i>before</i> measuring, which is safe because the width function ignores
+    /// SGR -- so a bold header still sizes its column by the text a reader sees.
+    /// </para>
+    /// </summary>
     private static void RenderMdTable(MdTable t, ColorMode colorMode,
         MarkdownTheme theme, List<string> result)
     {
-        var dimColor = Resolve(theme.Dim, colorMode);
         var rst = Rst(colorMode);
         var bold = BoldAttr(colorMode);
 
-        // Column widths derived from header + body cell visible widths.
-        int columns = t.Headers.Count;
-        int[] widths = new int[columns];
-        for (int c = 0; c < columns; c++)
-            widths[c] = VisibleLength(FormatInlinesToString(t.Headers[c], colorMode, theme));
+        var headers = new string[t.Headers.Count];
+        for (var c = 0; c < headers.Length; c++)
+        {
+            headers[c] = $"{bold}{FormatInlinesToString(t.Headers[c], colorMode, theme)}{rst}";
+        }
+
+        var rows = new List<IReadOnlyList<string>>(t.Rows.Count);
         foreach (var row in t.Rows)
         {
-            for (int c = 0; c < columns && c < row.Count; c++)
+            var cells = new string[row.Count];
+            for (var c = 0; c < cells.Length; c++)
             {
-                var w = VisibleLength(FormatInlinesToString(row[c], colorMode, theme));
-                if (w > widths[c]) widths[c] = w;
+                cells[c] = FormatInlinesToString(row[c], colorMode, theme);
             }
+            rows.Add(cells);
         }
 
-        result.Add(BuildTableBorder(widths, dimColor, rst, top: true));
-        result.Add(BuildTableRow(t.Headers, widths, t.Alignments, dimColor, rst, bold, isHeader: true, colorMode, theme));
-        result.Add(BuildTableSeparator(widths, t.Alignments, dimColor, rst));
-        foreach (var row in t.Rows)
-            result.Add(BuildTableRow(row, widths, t.Alignments, dimColor, rst, bold: string.Empty, isHeader: false, colorMode, theme));
-        result.Add(BuildTableBorder(widths, dimColor, rst, top: false));
-    }
-
-    private static string BuildTableBorder(int[] widths, string dimColor, string rst, bool top)
-    {
-        var sb = new StringBuilder();
-        sb.Append(dimColor).Append(top ? '┌' : '└');
-        for (int i = 0; i < widths.Length; i++)
+        var alignments = new CellAlignment[t.Alignments.Count];
+        for (var c = 0; c < alignments.Length; c++)
         {
-            sb.Append(new string('─', widths[i] + 2));
-            sb.Append(i < widths.Length - 1 ? (top ? '┬' : '┴') : (top ? '┐' : '┘'));
+            alignments[c] = t.Alignments[c] switch
+            {
+                MdTableAlignment.Right => CellAlignment.Right,
+                MdTableAlignment.Center => CellAlignment.Center,
+                _ => CellAlignment.Left,
+            };
         }
-        sb.Append(rst);
-        return sb.ToString();
-    }
 
-    private static string BuildTableSeparator(int[] widths, IReadOnlyList<MdTableAlignment> alignments, string dimColor, string rst)
-    {
-        var sb = new StringBuilder();
-        sb.Append(dimColor).Append('├');
-        for (int i = 0; i < widths.Length; i++)
-        {
-            sb.Append(new string('─', widths[i] + 2));
-            sb.Append(i < widths.Length - 1 ? '┼' : '┤');
-        }
-        sb.Append(rst);
-        return sb.ToString();
-    }
-
-    private static string BuildTableRow(IReadOnlyList<IReadOnlyList<MdInline>> cells, int[] widths,
-        IReadOnlyList<MdTableAlignment> alignments, string dimColor, string rst, string bold,
-        bool isHeader, ColorMode colorMode, MarkdownTheme theme)
-    {
-        var sb = new StringBuilder();
-        sb.Append(dimColor).Append('│').Append(rst);
-        for (int i = 0; i < widths.Length; i++)
-        {
-            var raw = i < cells.Count ? FormatInlinesToString(cells[i], colorMode, theme) : string.Empty;
-            var formatted = isHeader ? $"{bold}{raw}{rst}" : raw;
-            var aligned = AlignTableCell(formatted, VisibleLength(raw), widths[i], i < alignments.Count ? alignments[i] : MdTableAlignment.Left);
-            sb.Append(' ').Append(aligned).Append(' ').Append(dimColor).Append('│').Append(rst);
-        }
-        return sb.ToString();
-    }
-
-    private static string AlignTableCell(string content, int visibleLength, int columnWidth, MdTableAlignment alignment)
-    {
-        var pad = System.Math.Max(0, columnWidth - visibleLength);
-        return alignment switch
-        {
-            MdTableAlignment.Right => new string(' ', pad) + content,
-            MdTableAlignment.Center => new string(' ', pad / 2) + content + new string(' ', pad - pad / 2),
-            _ => content + new string(' ', pad),
-        };
+        TextTable.Render(headers, rows, alignments, result,
+            BorderStyle.Light, Resolve(theme.Dim, colorMode), rst, VisibleLength);
     }
 
     private static string FormatInlinesToString(IReadOnlyList<MdInline> inlines, ColorMode colorMode, MarkdownTheme theme)

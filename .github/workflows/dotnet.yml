@@ -27,7 +27,14 @@ env:
   # text. mdcat wires a local-file resolver (no network). Repins DIR.Lib -> 5.1.*
   # for the new MdImage AST node.
   # 3.3: lockstep rebuild against DIR.Lib 6.0 (layout namespace + Layout.Builder DSL).
-  VERSION_PREFIX: 3.12.${{ github.run_number }}
+  # 3.13 - shared table rendering. BorderStyle / BorderChars (Light, Heavy, Double, Rounded,
+  # Ascii) and TextTable.Render are the one place box-drawing junctions and column-width
+  # arithmetic live; the markdown renderer's four private table helpers were deleted in favour
+  # of it, so mdcat picks it up transitively with no change of its own. Column widths measure
+  # via VisibleLength, so SGR escapes in a cell do not inflate the column. TerminalViewport.UpdateGeometry
+  # widens internal -> public so a layout tree can host a widget at a Fill leaf and re-point it
+  # per frame. Lockstep rebuild against DIR.Lib 6.20.
+  VERSION_PREFIX: 3.13.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release
