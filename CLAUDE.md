@@ -60,6 +60,10 @@ What stays here:
 - `MarkdownRenderer` — walks the `MdBlock` / `MdInline` trees produced by DIR.Lib.Markdown and emits VT-styled lines (theme, word wrap, OSC 8 hyperlinks, SGR coloring, inline / display math dispatch).
 - `BoxRenderer` — rasterises `Box` trees (from DIR.Lib.MathLayout) to Sixel / Unicode sextants / half-blocks for display math.
 - `MarkdownWidget` — viewport-bound, scroll- and resize-aware wrapper around `MarkdownRenderer`.
+- `TextTable` + `BorderStyle` / `BorderChars` — the one place box-drawing junctions and column-width
+  arithmetic live. `MarkdownRenderer` renders its tables through it rather than owning private
+  helpers, so mdcat inherits the border vocabulary transitively. Terminal-only (it emits VT text),
+  which is why it lives here and not in DIR.Lib alongside the surface-neutral layout engine.
 
 What moved out (mention here so future-me doesn't go looking for it in this repo):
 

@@ -240,7 +240,7 @@ The two-step pattern (dock creates the viewport, then pass it to a widget constr
 
 ### Cell-surface layout (CellLayout)
 
-Beyond docking, Console.Lib can render DIR.Lib's surface-neutral box-layout trees directly to character cells. The arrangeable tree (`LayoutNode` / `LayoutContent`, with per-leaf `Hit` + `OnClick`), the arrange pass (`LayoutEngine.Arrange` → `ArrangedNode<T>`), and the `IMeasureContext<T>` abstraction all live in **DIR.Lib** and are shared with the pixel painter. Console.Lib supplies the cell surface:
+Beyond docking, Console.Lib can render DIR.Lib's surface-neutral box-layout trees directly to character cells. The arrangeable tree (`Layout.Node` / `Layout.Content`, with per-leaf `Hit` + `OnClick`), the arrange pass (`Layout.Engine.Arrange` → `Layout.ArrangedNode<T>`), and the `Layout.IMeasureContext<T>` abstraction all live in **DIR.Lib** and are shared with the pixel painter. Console.Lib supplies the cell surface:
 
 - **`CellMeasureContext : IMeasureContext<int>`** — measures text width as character count (one row tall) and rounds design-unit scalars to whole cells.
 - **`CellLayout.Paint`** — walks the *same* arranged tree the pixel painter uses and writes character cells: `Background` / filled `Box` become runs of spaces with a background SGR (parent-before-children paint order), `Text` writes glyphs foreground-only so the painted background shows through, and `Fill` defers to an app callback.
@@ -248,13 +248,44 @@ Beyond docking, Console.Lib can render DIR.Lib's surface-neutral box-layout tree
 - **`CellLayout.Describe`** — serialises the arranged tree to an indented, one-line-per-node text dump (nesting reconstructed from `ArrangedNode<T>.Depth`), naming each node kind, leaf content, arranged rect, and `+bg` / `+hit` markers. The cell-surface counterpart to the pixel inspector's `describe_layout`; diagnostic only — keep it out of the per-frame paint path.
 
 ```csharp
-var arranged = LayoutEngine.Arrange(tree, new Rect<int>(0, 0, w, h), new CellMeasureContext());
+var arranged = Layout.Engine.Arrange(tree, new Rect<int>(0, 0, w, h), new CellMeasureContext());
 CellLayout.Paint(viewport, arranged);
 var hit = CellLayout.HitTest(arranged, col, row);   // → leaf Hit or null
 var dump = CellLayout.Describe(arranged);            // → indented layout-tree text (debug)
 ```
 
 `MenuWidget` (below) is built on this path; it is the cell-surface counterpart to DIR.Lib's `PixelMenuWidget<TSurface>`.
+
+#### Hosting a behaviour widget in the tree
+
+The tree can place a widget it cannot describe. A `ScrollableList<T>` (scroll state, thumb), a `Canvas`
+(Sixel dirty regions) and a `MarkdownWidget` (its own wrapping) all do things a layout node does not
+model — but none of them needs to *place itself*. Give each one a `TerminalViewport`, name it with a
+`Fill` leaf, and re-point that viewport at the leaf's arranged rect in the `drawFill` callback:
+
+```csharp
+var listViewport = new TerminalViewport(terminal, 0, 0, 0, 0);
+var list = new ScrollableList<Row>(listViewport);
+
+CellLayout.Paint(terminal, arranged, (fill, rect) =>
+{
+    if (fill.Key == "list")
+    {
+        listViewport.UpdateGeometry(rect.X, rect.Y, rect.Width, rect.Height);
+        list.Render();
+    }
+});
+```
+
+So the tree owns placement and the widget owns behaviour. Two things make this work in practice:
+
+- **Re-point, do not reallocate.** `UpdateGeometry` is public for exactly this. The tree is rebuilt every
+  frame, so allocating a viewport per `Fill` leaf per frame would churn — and the widget holds a reference
+  to the instance anyway.
+- **A pixel-backed host must react to a size change.** A Sixel `Canvas` owns a renderer allocated at a
+  fixed pixel size, and that size is not knowable until after the arrange. Track the last rect you placed
+  it at and rebuild the renderer when it changes; otherwise the surface silently keeps encoding at its
+  original size after a terminal resize.
 
 ## Widgets
 
@@ -410,6 +441,80 @@ Performance vs ImageMagick's built-in Sixel writer:
 |----------|-------------|--------------|---------|
 | Full     | 127.3 ms    | 9.1 ms       | 14×     |
 | Partial  | 127.9 ms    | 1.6 ms       | 79×     |
+
+#### Encode time scales with content, not palette size
+
+The RLE loop used to walk the full row width for *every* colour present in a band. A colour typically
+occupies a handful of columns, so a glyph shade touching 12 pixels still cost an 800-column pass — and a
+254-colour surface paid that 254 times per band. Cost therefore scaled with the palette rather than with
+the picture.
+
+The diagnosis came from measuring before changing anything: confining each colour to a narrow stripe
+shrank the *output* 15× while leaving the runtime flat, which said the cost was the scanning, not the
+emitting. Each colour's first and last set column are now found with the vectorised
+`IndexOfAnyExcept` / `LastIndexOfAnyExcept`, only that span is RLE'd, and the empty margins are re-emitted
+as computed runs — byte-for-byte identical output, because the old loop would have collapsed those margins
+into exactly these two runs.
+
+Localised-colour content (text, glyphs, sprites), 800×800, median of 3:
+
+| Colours | Before  | After  | Speedup |
+|---------|---------|--------|---------|
+| 16      | 10.4 ms | 7.0 ms | 1.5×    |
+| 64      | 19.9 ms | 6.0 ms | 3.3×    |
+| 254     | 61.7 ms | 9.1 ms | 6.8×    |
+
+**Know which side of this your content falls on.** Localised colour (a chart, a scatter plot, a sprite,
+text) is the 3–7× case. Colours spread across the full width — a photograph, a stretched astronomical
+frame — have no margins to skip and are unchanged, paying only two extra vectorised passes that are lost
+in the noise.
+
+`SixelEncoderTests` pins the byte stream with goldens captured from the pre-change encoder, across palette
+size, the transparency sentinel, ragged final bands, degenerate single-row/column bands, and the striped
+case this targets. They are what catches an off-by-one in the margin arithmetic, since that shifts the
+picture and so changes the bytes.
+
+## Tables and borders
+
+### BorderStyle and BorderChars
+
+`BorderChars.For(style)` resolves the eleven characters a bordered box or table needs — four corners, two
+runs, four tees and a cross — for one of `Light`, `Heavy`, `Double`, `Rounded` or `Ascii`.
+
+Two things are worth knowing before reaching for it:
+
+- **`Rounded` is `Light` with arc corners, and that is not a shortcut.** Unicode provides arc forms for the
+  four *corners* only (U+256D..U+2570). There is no rounded tee or cross to pair with them, so a rounded
+  table's junctions are necessarily the light ones. Every terminal UI that offers the style draws it this
+  way.
+- **The name is `Border*`, not `Box*`.** `DIR.Lib.MathLayout.BoxStyle` (the math box engine) and
+  `BoxRenderMode` (Sixel / Sextant / HalfBlock) already exist. A third `Box` name would collide on the
+  first `using`.
+
+### TextTable
+
+Renders a bordered table to VT lines: top border, header, separator, one line per row, bottom border.
+
+```csharp
+var lines = new List<string>();
+TextTable.Render(
+    headers:    ["Name", "Age"],
+    rows:       [["Alice", "30"], ["Bob", "5"]],
+    alignments: [CellAlignment.Left, CellAlignment.Right],
+    output:     lines,
+    style:      BorderStyle.Rounded);
+```
+
+Cells arrive as **already-formatted strings** that may carry SGR escapes, and column widths are measured
+with a `visibleLength` function (defaulting to the ANSI-aware `MarkdownRenderer.VisibleLength`) rather than
+`string.Length`. That indirection is the whole point: it is what lets one renderer serve Markdown tables,
+whose cells are formatted inline runs, and a plain string table alike — a bold header sizes its column by
+the text a reader sees, not by the escape bytes around it.
+
+The junction logic is the part worth having exactly once. The top edge, the header separator and the
+bottom edge each need a *different* tee where a column divider meets them; getting one of the four wrong
+is invisible until a table happens to be rendered in that style. This code lived as four private methods
+inside the Markdown renderer, which is why nothing else in the library could draw a table.
 
 ## Styling
 
