@@ -225,11 +225,18 @@ public class CellLayoutTests
             new Rect<int>(0, 0, w, h), new CellMeasureContext());
 
     /// <summary>
-    /// A grid cannot round by fractions of a cell, so the approximation is one arc glyph per corner.
-    /// This asserts the four glyphs land on the four corner cells and nowhere else.
+    /// A grid cannot round by fractions of a cell, so the approximation clips a QUARTER off each corner
+    /// cell with a three-quadrant block. This asserts the four glyphs land on the four corner cells and
+    /// nowhere else, and that each one omits the quadrant pointing away from the interior.
+    /// <para>
+    /// Not the arc glyphs (U+256D..U+2570): those are a thin stroke, so on a solid fill the corner cell
+    /// comes out ~90% parent colour and reads as a bite punched out of the card rather than a softened
+    /// corner. They remain the right choice for an unfilled box drawn with border characters, which the
+    /// layout DSL cannot currently express.
+    /// </para>
     /// </summary>
     [Fact]
-    public void Radius_DrawsArcGlyphsAtTheFourCorners()
+    public void Radius_ClipsAQuarterOffEachCornerCellOfAFill()
     {
         var vp = new RecordingViewport(10, 4);
 
@@ -237,19 +244,35 @@ public class CellLayoutTests
 
         var glyphs = vp.Writes
             .Select(w => (w.Col, w.Row, Text: StripReset(w.Text)))
-            .Where(w => w.Text is "╭" or "╮" or "╰" or "╯")
+            .Where(w => w.Text is "▙" or "▛" or "▜" or "▟")
             .ToList();
 
         glyphs.Count.ShouldBe(4);
-        glyphs.ShouldContain((0, 0, "╭"));
-        glyphs.ShouldContain((9, 0, "╮"));
-        glyphs.ShouldContain((0, 3, "╰"));
-        glyphs.ShouldContain((9, 3, "╯"));
+        glyphs.ShouldContain((0, 0, "▟"), "top-left omits the upper-left quadrant");
+        glyphs.ShouldContain((9, 0, "▙"), "top-right omits the upper-right quadrant");
+        glyphs.ShouldContain((0, 3, "▜"), "bottom-left omits the lower-left quadrant");
+        glyphs.ShouldContain((9, 3, "▛"), "bottom-right omits the lower-right quadrant");
+    }
+
+    /// <summary>
+    /// The arc glyphs must not appear on a fill at all -- that was the original rendering, and it is the
+    /// one that looked broken.
+    /// </summary>
+    [Fact]
+    public void Radius_DoesNotUseArcGlyphsOnAFill()
+    {
+        var vp = new RecordingViewport(10, 4);
+
+        CellLayout.Paint(vp, ArrangePanel(radius: 2f, 10, 4));
+
+        // Plain comparisons, not an `is` pattern: Shouldly's predicate overload builds an expression tree.
+        vp.Writes.Select(w => StripReset(w.Text))
+            .ShouldNotContain(t => t == "╭" || t == "╮" || t == "╰" || t == "╯");
     }
 
     /// <summary>Zero radius must leave the fill exactly as it was before the feature existed.</summary>
     [Fact]
-    public void Radius_Zero_PaintsNoArcGlyphs()
+    public void Radius_Zero_PaintsNoCornerGlyphs()
     {
         var rounded = new RecordingViewport(10, 4);
         var square = new RecordingViewport(10, 4);
@@ -281,9 +304,9 @@ public class CellLayoutTests
 
         CellLayout.Paint(vp, ArrangePanel(radius: 2f, w, h));
 
-        var arcs = vp.Writes.Select(x => StripReset(x.Text))
-            .Where(t => t == "╭" || t == "╮" || t == "╰" || t == "╯")
+        var corners = vp.Writes.Select(x => StripReset(x.Text))
+            .Where(t => t == "▙" || t == "▛" || t == "▜" || t == "▟")
             .ToList();
-        arcs.ShouldBeEmpty();
+        corners.ShouldBeEmpty();
     }
 }

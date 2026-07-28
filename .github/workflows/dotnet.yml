@@ -58,6 +58,16 @@ env:
   # like any other column, so a host dividing a row into fields by Viewport.Size.Width treats clicks on
   # the track as content -- and whether a scrollbar shows depends on the item count, so it changes under
   # the caller. Returning the content width alongside the column is what keeps them out of it.
+  # 4.1 - ALSO: CellLayout softens a filled rect's corners with three-quadrant blocks (U+2599, U+259B,
+  # U+259C, U+259F) instead of the arc glyphs 3.14 introduced. A filled rect and a bordered one want
+  # different glyphs and this is the filled one: an arc is a thin STROKE, so a corner cell drawn that way is
+  # ~90% parent colour and reads as a bite punched out of the card rather than a softened corner (on
+  # TianWen's home board -- a blue card on a near-black page -- it read as damage). A three-quadrant block
+  # covers three quarters of the cell, so the corner loses a QUARTER cell rather than a whole one, which is
+  # the smallest bite a character grid can express. No arc branch remains: both FillCells call sites are
+  # gated on a fill and the layout DSL has no border chrome, so an unfilled rounded box is currently
+  # unexpressible -- if Layout.Node gains a border, the arcs are what should render ITS corners, at that
+  # call site. RoundCorners -> ClipFilledCorners (private).
   # 4.1 - ConsoleInputMapping stops classifying mouse MOTION as a press. xterm mode 1002 reports pointer
   # movement with the HELD BUTTON still in the button field and IsRelease false, and ToInputEvent asked only
   # "is this a release?", so every motion report became an InputEvent.MouseDown at the pointer. MouseEvent has

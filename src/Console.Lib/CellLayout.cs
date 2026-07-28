@@ -66,8 +66,9 @@ public static class CellLayout
         var mode = viewport.ColorMode;
         foreach (var (node, rect) in arranged)
         {
-            // A grid cannot round by fractions of a cell, so any non-zero radius means the same thing
-            // here: knock one cell off each corner and draw an arc glyph. See RoundCorners.
+            // A grid cannot round by fractions of a cell, so any non-zero radius means the same thing here:
+            // clip a quarter off each corner cell. See ClipFilledCorners, which also explains why a FILLED
+            // rect wants quadrant blocks where a bordered one would want the arc glyphs.
             var rounded = node.CornerRadius > 0f;
 
             if (node.Background is { } bg)
@@ -189,25 +190,40 @@ public static class CellLayout
 
         if (rounded)
         {
-            RoundCorners(viewport, rect, color, mode, x, width, yEnd);
+            ClipFilledCorners(viewport, rect, color, mode, x, width, yEnd);
         }
     }
 
     /// <summary>
-    /// Approximates a rounded corner on a character grid by replacing the four corner CELLS of an
-    /// already-filled rect with arc glyphs (U+256D..U+2570) drawn foreground-only, so the curve reads in
-    /// the fill colour against whatever the parent painted underneath.
+    /// Softens the four corners of an already-FILLED rect by redrawing each corner CELL as a
+    /// three-quadrant block (U+2599, U+259B, U+259C, U+259F) in the fill colour, foreground-only -- so the
+    /// missing quadrant shows whatever the parent painted underneath and the corner reads as clipped.
     /// <para>
-    /// A grid cannot round by fractions of a cell, so the <i>magnitude</i> of
-    /// <see cref="Layout.Node.CornerRadius"/> is deliberately ignored here -- any non-zero radius knocks
-    /// exactly one cell off each corner. Scaling the bite with the radius would need multi-cell arcs, and
-    /// Unicode has arc forms for corners ONLY (there is no rounded tee or cross), so a larger arc cannot
-    /// be drawn without inventing it out of quadrant blocks. One cell is the honest approximation.
+    /// <b>A filled rect and a bordered one want different glyphs, and this is the filled one.</b> The arc
+    /// glyphs (U+256D..U+2570) are what this drew first, and they are the right answer for an UNFILLED box
+    /// whose outline is drawn in box-drawing characters -- that is precisely what they were designed to
+    /// join. They are the wrong answer for a solid fill: an arc is a thin stroke, so a corner cell drawn
+    /// that way is ~90% parent colour, and on a high-contrast card that reads as a bite punched out of the
+    /// shape rather than a softened corner. (On the TianWen home board -- a blue card on a near-black page
+    /// -- it read as damage.) A three-quadrant block covers three quarters of the cell, so the corner loses
+    /// a QUARTER cell instead of a whole one, which is the smallest bite a character grid can express.
     /// </para>
-    /// Skipped entirely for a rect too small to have distinct corners, where knocking out cells would
-    /// erase most of the fill rather than soften it.
+    /// <para>
+    /// There is deliberately no arc branch here: both <see cref="FillCells"/> call sites are gated on a
+    /// fill (<see cref="Layout.Node.Background"/>, or a <see cref="Layout.Content.Box"/> with alpha), and
+    /// the layout DSL has no border/stroke chrome at all -- so an unfilled rounded box is currently
+    /// unexpressible. If a border property is added to <c>Layout.Node</c>, the arc glyphs are what should
+    /// render its corners, and the branch belongs at that call site rather than in here.
+    /// </para>
+    /// <para>
+    /// The <i>magnitude</i> of <see cref="Layout.Node.CornerRadius"/> is ignored either way: a grid cannot
+    /// round by fractions of a cell, and there is no wider rounded form to scale up to. Any non-zero radius
+    /// means the same quarter-cell clip.
+    /// </para>
+    /// Skipped entirely for a rect too small to have distinct corners, where clipping all four would shape
+    /// the fill rather than soften it.
     /// </summary>
-    private static void RoundCorners(ITerminalViewport viewport, Rect<int> rect, RGBAColor32 color, ColorMode mode,
+    private static void ClipFilledCorners(ITerminalViewport viewport, Rect<int> rect, RGBAColor32 color, ColorMode mode,
         int x, int width, int yEnd)
     {
         var top = Math.Max(0, rect.Y);
@@ -220,11 +236,12 @@ public static class CellLayout
             return;
         }
 
+        // Each glyph omits exactly the quadrant pointing away from the rect's interior.
         var fg = new VtStyle(color, color).ApplyFg(mode);
-        WriteGlyph(viewport, x, top, '╭', fg);      // top-left
-        WriteGlyph(viewport, right, top, '╮', fg);  // top-right
-        WriteGlyph(viewport, x, bottom, '╰', fg);   // bottom-left
-        WriteGlyph(viewport, right, bottom, '╯', fg); // bottom-right
+        WriteGlyph(viewport, x, top, '▟', fg);        // top-left: upper-left quadrant omitted
+        WriteGlyph(viewport, right, top, '▙', fg);    // top-right: upper-right omitted
+        WriteGlyph(viewport, x, bottom, '▜', fg);     // bottom-left: lower-left omitted
+        WriteGlyph(viewport, right, bottom, '▛', fg); // bottom-right: lower-right omitted
     }
 
     private static void WriteGlyph(ITerminalViewport viewport, int column, int row, char glyph, string fg)
