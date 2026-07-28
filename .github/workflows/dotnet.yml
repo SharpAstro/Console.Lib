@@ -50,7 +50,15 @@ env:
   # SCROLLED item index, the scrollbar column) are computed once instead of per call site. Spans clamp
   # to the content width, so int.MaxValue means "to the end of the row" and cannot overlap the
   # scrollbar. New public RowSpan record struct.
-  VERSION_PREFIX: 3.15.${{ github.run_number }}
+  # 3.16 - ScrollableList.HitTestRow: the same geometry read in the opposite direction, for a host that
+  # resolves a click when one arrives rather than registering regions up front and so has nowhere to put
+  # a ClickableRegionTracker. Pixel point in; item index, item, and the column WITHIN the content area
+  # plus the content width out. Null for the header, the scrollbar column, outside the viewport, or a row
+  # past the last item. The scrollbar column is why this belongs in the widget: Widget.HitTest reports it
+  # like any other column, so a host dividing a row into fields by Viewport.Size.Width treats clicks on
+  # the track as content -- and whether a scrollbar shows depends on the item count, so it changes under
+  # the caller. Returning the content width alongside the column is what keeps them out of it.
+  VERSION_PREFIX: 3.16.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release
