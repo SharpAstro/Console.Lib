@@ -1,10 +1,17 @@
+using DIR.Lib;
+
 namespace Console.Lib;
 
 /// <summary>
 /// A node in a <see cref="TreeView{T}"/>. The widget owns indent + twirl drawing
-/// and scrolling — implementations only paint the row's content cell (the
-/// portion of the row after indent + twirl). The contract: pad/truncate to
-/// exactly <paramref name="width"/> visible cells.
+/// and scrolling — implementations only describe the row's content cell (the
+/// portion of the row after indent + twirl), as a <see cref="Layout.Node"/> tree.
+/// <para>
+/// <see cref="Children"/>, <see cref="HasChildren"/> and <see cref="EnsureChildrenLoaded"/> keep their
+/// default implementations: those describe genuinely optional BEHAVIOUR (a leaf has no children; lazy
+/// loading is opt-in), not a second way to satisfy the same obligation. <see cref="BuildNodeContent"/>
+/// has no default on purpose -- a node that does not describe itself has nothing to draw.
+/// </para>
 /// </summary>
 /// <typeparam name="TSelf">
 /// CRTP self-type — lets the widget walk concrete children without
@@ -42,9 +49,10 @@ public interface ITreeNode<TSelf> where TSelf : class, ITreeNode<TSelf>
     void EnsureChildrenLoaded() { }
 
     /// <summary>
-    /// Renders the content portion of this node's row. MUST emit exactly
-    /// <paramref name="width"/> visible cells (padding/truncating as needed).
-    /// VT escape codes do not count toward visible width.
+    /// Builds the content portion of this node's row as a layout tree. The widget arranges it into the
+    /// rect left after the indent + twirl and paints it via <see cref="CellLayout"/>, so an
+    /// implementation states structure and colour and never pads, truncates, or emits an escape code --
+    /// see <see cref="IRowLayout.BuildRow"/> for why that obligation moved out of the implementation.
     /// </summary>
-    string FormatNodeContent(int width, ColorMode mode, bool isSelected);
+    Layout.Node BuildNodeContent(in RowContext context);
 }

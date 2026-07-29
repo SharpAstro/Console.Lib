@@ -213,7 +213,30 @@ env:
   # tree, one palette, one card projection, rendered by both the GPU tab and the TUI tab. Existing callers
   # are unaffected -- the default is still 1:1 -- so the break is in what the type MEANS, not in what
   # compiles.
-  VERSION_PREFIX: 4.9.${{ github.run_number }}
+  # 4.10 - list and tree rows are LAYOUT TREES. IRowFormatter is deleted; ITreeNode.FormatNodeContent is
+  # deleted. Both are replaced by a method returning a DIR.Lib.Layout.Node and taking the shared new
+  # RowContext(Selected, SelectedColumn, ColumnCount). No compatibility shim, on purpose: a
+  # default-implementation bridge is what lets a codebase sit half-ported, and a row that quietly kept the
+  # old shape would keep all three defects below while appearing to work. The old contract was
+  # `string FormatRow(int width, ColorMode, ...)` documented as "must include VT escape codes and pad to
+  # the full width", so every row hand-rolled its own layout, padding, truncation and escapes. That cost:
+  # (1) an inline button on a row had NO hit region -- no arranged rect to bind to, so a caller re-derived
+  # its columns beside the drawing code, and since the row's usable width is not the viewport width (the
+  # scrollbar takes a column once the list overflows) a right-aligned button drifted by one column exactly
+  # when the list scrolled; (2) a row could not state a colour it did not own, because foreground-only
+  # writes leaned on leftover SGR state -- which a real terminal forgives and 4.8's diffing cell buffer
+  # cannot; (3) the same row is often also a GPU row, so authoring it twice let the two drift, which is how
+  # a terminal row ended up missing a button its GPU twin had. `width` and `ColorMode` are gone as
+  # parameters (the widget owns the rect it already computed; CellLayout owns the pen), and the
+  # three-overload cascade collapses to fields on RowContext so the next capability adds a field rather
+  # than a fourth rung an implementation can silently ignore. RegisterRowHits / RegisterRowSpanHits /
+  # RowSpan are DELETED -- hits ride on .Clickable and resolve through the new DispatchRowHit, which tests
+  # against the trees as last ARRANGED. That is what makes it correct: the four ways the old helpers could
+  # silently disagree with the paint (pixel origin from the viewport offset, the header row, the SCROLLED
+  # item index, the scrollbar column) are no longer expressible. HitTestRow is unchanged. ITreeNode keeps
+  # Children / HasChildren / EnsureChildrenLoaded defaults -- those are optional BEHAVIOUR, not a second
+  # way to satisfy one obligation. Port recipe in MIGRATION.md.
+  VERSION_PREFIX: 4.10.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release

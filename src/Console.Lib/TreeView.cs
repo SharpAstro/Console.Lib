@@ -1,3 +1,6 @@
+using System.Collections.Immutable;
+using DIR.Lib;
+
 namespace Console.Lib;
 
 /// <summary>
@@ -371,6 +374,8 @@ public sealed class TreeView<TItem> : Widget where TItem : class, ITreeNode<TIte
         var contentWidth = HasScrollBar ? width - 1 : width;
         var (thumbTop, thumbHeight) = HasScrollBar ? ComputeThumb() : (0, 0);
 
+        var rowTrees = ImmutableArray.CreateBuilder<Layout.ArrangedNode<int>>();
+
         var row = 0;
         if (HeaderRows > 0)
         {
@@ -386,7 +391,8 @@ public sealed class TreeView<TItem> : Widget where TItem : class, ITreeNode<TIte
             var idx = _scrollOffset + dataRow;
             if (idx >= 0 && idx < _visible.Count)
             {
-                PaintRow(_visible[idx].Item, _visible[idx].Depth, idx == _cursor, contentWidth, colorMode);
+                PaintRow(_visible[idx].Item, _visible[idx].Depth, idx == _cursor, contentWidth, row,
+                    colorMode, rowTrees);
             }
             else
             {
@@ -401,13 +407,23 @@ public sealed class TreeView<TItem> : Widget where TItem : class, ITreeNode<TIte
                 Viewport.Write($"{style.Apply(colorMode)}{glyph}{VtStyle.Reset}");
             }
         }
+
+        _arrangedRows = rowTrees.ToImmutable();
     }
 
     // Paint exactly contentWidth visible cells: indent + twirl + content.
-    // The formatter is responsible for padding/truncating its content slice.
-    // Composes one string and emits it via a single Viewport.Write — multiple
-    // Writes per row visibly slowed rendering on Windows console hosts.
-    private void PaintRow(TItem item, int depth, bool isSelected, int contentWidth, ColorMode mode)
+    //
+    // Indent and twirl are the WIDGET's chrome and stay direct writes. The content slice is the node's
+    // own layout tree, arranged into the rect that is left over and painted through CellLayout -- so a
+    // node states structure and colour, never padding or escapes, and the rect it was arranged into is
+    // also its hit region (see DispatchRowHit).
+    //
+    // This deliberately reverses the old "compose one string, emit a single Write" rule, which existed
+    // because multiple Writes per row visibly slowed Windows console hosts. The diffing cell buffer
+    // removed that cost: Writes land in the back grid and one flush emits the diff, so the number of
+    // Write calls no longer maps to terminal traffic at all.
+    private void PaintRow(TItem item, int depth, bool isSelected, int contentWidth, int viewportRow,
+        ColorMode mode, ImmutableArray<Layout.ArrangedNode<int>>.Builder rowTrees)
     {
         if (contentWidth <= 0) return;
 
@@ -417,29 +433,73 @@ public sealed class TreeView<TItem> : Widget where TItem : class, ITreeNode<TIte
         int indent = Math.Min(depth * 2, maxIndent);
         int remaining = contentWidth - indent;
 
-        var sb = new System.Text.StringBuilder(contentWidth + 64);
+        var sb = new System.Text.StringBuilder(indent + 32);
         if (indent > 0) sb.Append(' ', indent);
         if (remaining <= 0) { Viewport.Write(sb.ToString()); return; }
 
-        // Twirl glyph: ▶ collapsed, ▼ expanded, · leaf. Always followed by a space.
-        if (remaining >= 2)
-        {
-            var glyph = !item.HasChildren ? '·' : (_expanded.Contains(item) ? '\u25BC' /*▼*/ : '\u25B6' /*▶*/);
-            var style = isSelected ? _twirlSelStyle : _twirlStyle;
-            sb.Append(style.Apply(mode)).Append(glyph).Append(' ').Append(VtStyle.Reset);
-            remaining -= 2;
-            if (remaining > 0)
-            {
-                sb.Append(item.FormatNodeContent(remaining, mode, isSelected));
-            }
-        }
-        else
+        if (remaining < 2)
         {
             sb.Append(' ', remaining);
+            Viewport.Write(sb.ToString());
+            return;
         }
 
+        // Twirl glyph: ▶ collapsed, ▼ expanded, · leaf. Always followed by a space.
+        var twirl = !item.HasChildren ? '·' : (_expanded.Contains(item) ? '▼' /*▼*/ : '▶' /*▶*/);
+        var twirlStyle = isSelected ? _twirlSelStyle : _twirlStyle;
+        sb.Append(twirlStyle.Apply(mode)).Append(twirl).Append(' ').Append(VtStyle.Reset);
         Viewport.Write(sb.ToString());
+
+        remaining -= 2;
+        if (remaining <= 0) return;
+
+        var arranged = Layout.Engine.Arrange(
+            item.BuildNodeContent(RowContext.Single(isSelected)),
+            new Rect<int>(indent + 2, viewportRow, remaining, 1),
+            MeasureContext);
+
+        CellLayout.Paint(Viewport, arranged);
+        rowTrees.AddRange(arranged);
     }
+
+    /// <summary>
+    /// Resolves a MOUSE-PIXEL point against the arranged node-content trees, invoking the matched leaf's
+    /// <c>OnClick</c> and returning its hit. The twirl and indent columns are the widget's own chrome and
+    /// carry no node hits, so a click on the twirl falls through to the widget's expand/collapse handling.
+    /// Mirrors <see cref="ScrollableList{TItem}.DispatchRowHit"/>.
+    /// </summary>
+    public HitResult? DispatchRowHit(int pixelX, int pixelY, InputModifier modifiers = InputModifier.None)
+    {
+        if (_arrangedRows.IsDefaultOrEmpty || HitTest(pixelX, pixelY) is not (var column, var row))
+        {
+            return null;
+        }
+
+        var contentColumns = HasScrollBar ? Viewport.Size.Width - 1 : Viewport.Size.Width;
+        return column >= contentColumns ? null : CellLayout.HitTest(_arrangedRows, column, row, modifiers);
+    }
+
+    /// <summary>
+    /// The visible node-content slices as last arranged, concatenated in paint order, in
+    /// viewport-relative cell coordinates. For tests that assert drawn geometry.
+    /// </summary>
+    public ImmutableArray<Layout.ArrangedNode<int>> ArrangedRows => _arrangedRows;
+
+    /// <summary>
+    /// Sets the unit convention node-content trees are authored in. Cells by default
+    /// (<c>RowH(1)</c> = one row); pass <see cref="CellMeasureContext.PixelAuthored"/> for a tree shared
+    /// with a GPU surface. A fluent setter rather than a virtual because this type is sealed.
+    /// </summary>
+    public TreeView<TItem> Measure(CellMeasureContext context)
+    {
+        _measureContext = context;
+        return this;
+    }
+
+    private CellMeasureContext MeasureContext => _measureContext;
+    private CellMeasureContext _measureContext = CellMeasureContext.CellAuthored;
+
+    private ImmutableArray<Layout.ArrangedNode<int>> _arrangedRows = [];
 
     // ---- internals ---------------------------------------------------------
 

@@ -1,28 +1,33 @@
-﻿using DIR.Lib;
+﻿using System.Collections.Immutable;
+using DIR.Lib;
 
 namespace Console.Lib;
 
 /// <summary>
-/// A clickable span within a list row, in COLUMNS relative to the row's left edge -- an inline button
-/// on a row rather than the whole row. <see cref="ColumnEnd"/> is exclusive and is clamped to the row's
-/// content width by <see cref="ScrollableList{TItem}.RegisterRowSpanHits"/>, so a caller may pass
-/// <see cref="int.MaxValue"/> to mean "to the end of the row".
-/// </summary>
-public readonly record struct RowSpan(int ColumnStart, int ColumnEnd, HitResult Hit, Action<InputModifier>? OnClick = null);
-
-/// <summary>
 /// Multi-row scrollable list with a header row.
-/// Each item implements <see cref="IRowFormatter"/> for its own row styling.
+/// Each item implements <see cref="IRowLayout"/> to build its row as a layout tree.
 ///
 /// When the list overflows the viewport, the rightmost column becomes a
 /// scrollbar — box-drawing vertical bar (track) with a solid-block thumb.
-/// The formatter is passed <c>width - 1</c> so content never writes under the
-/// track. <see cref="HandleMouse"/> dispatches click + drag against the
-/// track/thumb; callers route <see cref="MouseEvent"/>s through it before
-/// falling back to their own hit-testing.
+/// Rows are arranged into the content width (which excludes the track), so content
+/// can never write under it. <see cref="HandleMouse"/> dispatches click + drag against the
+/// track/thumb and moves the cursor; <see cref="DispatchRowHit"/> resolves a click against the
+/// arranged row trees for inline buttons.
 /// </summary>
-public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport) where TItem : IRowFormatter
+public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport) where TItem : IRowLayout
 {
+    // Every visible row's arranged tree, concatenated, in VIEWPORT-RELATIVE cell coordinates -- which is
+    // what makes DispatchRowHit correct by construction rather than by parallel arithmetic. Each row was
+    // arranged at the row it was actually painted on, so the header offset and the scroll offset are
+    // already folded in, and the content width already excludes the scrollbar column. The four ways the
+    // old RegisterRowHits/RegisterRowSpanHits helpers could silently disagree with the paint (offset
+    // origin, header row, scrolled index, scrollbar column) are therefore not expressible here.
+    private ImmutableArray<Layout.ArrangedNode<int>> _arrangedRows = [];
+
+    /// <summary>The unit convention row trees are authored in. Cells by default (<c>RowH(1)</c> = one row);
+    /// override with <see cref="CellMeasureContext.PixelAuthored"/> for a tree shared with a GPU surface.</summary>
+    protected virtual CellMeasureContext MeasureContext => CellMeasureContext.CellAuthored;
+
     private IReadOnlyList<TItem> _items = [];
     private int _scrollOffset;
     private int _cursor;                // -1 when the list is empty; index into _items otherwise.
@@ -65,8 +70,7 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     /// <summary>
     /// Number of selectable sub-cells per row. Default <c>1</c> (legacy single-cell rows).
     /// Set via <see cref="Columns(int)"/>; consumed by <see cref="HandleKey"/> (Left/Right
-    /// arms), the mouse click handler, and the column-aware <see cref="IRowFormatter.FormatRow(int, ColorMode, bool, int, int)"/>
-    /// overload.
+    /// arms), the mouse click handler, and the <see cref="RowContext"/> handed to each row.
     /// </summary>
     public int ColumnCount => _columns;
 
@@ -98,9 +102,8 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     /// Set the number of selectable sub-cells per row. Default is <c>1</c>.
     /// Values greater than <c>1</c> opt the list into "multi-column" mode:
     /// <see cref="HandleKey"/> grows Left/Right arms, mouse clicks resolve to a
-    /// (row, column) pair via even-split of the row width, and the column-aware
-    /// <see cref="IRowFormatter.FormatRow(int, ColorMode, bool, int, int)"/> overload
-    /// receives the cursor column. Throws when <paramref name="n"/> is less than 1;
+    /// (row, column) pair via even-split of the row width, and each row's
+    /// <see cref="RowContext"/> carries the cursor column. Throws when <paramref name="n"/> is less than 1;
     /// clamps the current column index to <c>[0, n)</c>.
     /// </summary>
     public ScrollableList<TItem> Columns(int n)
@@ -364,11 +367,17 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     public override void Render()
     {
         var (width, height) = Viewport.Size;
-        if (width <= 0 || height <= 0) return;
+        if (width <= 0 || height <= 0)
+        {
+            _arrangedRows = [];
+            return;
+        }
 
         var colorMode = Viewport.ColorMode;
         var contentWidth = HasScrollBar ? width - 1 : width;
         var (thumbTop, thumbHeight) = HasScrollBar ? ComputeThumb() : (0, 0);
+        var measureCtx = MeasureContext;
+        var rowTrees = ImmutableArray.CreateBuilder<Layout.ArrangedNode<int>>();
 
         var row = 0;
         if (HeaderRows > 0)
@@ -380,43 +389,81 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
 
         for (; row < height; row++)
         {
-            if (!TrySetCursorPosition(Viewport, 0, row)) return;
-
             var dataRow = row - HeaderRows;
             var itemIdx = _scrollOffset + dataRow;
             if (itemIdx >= 0 && itemIdx < _items.Count)
             {
-                // Pass selection state and column info so formatters can paint
-                // a per-column cursor highlight. Default IRowFormatter overloads
-                // cascade to the legacy two-arg shape, so existing rows still
-                // work without any changes.
+                // Arranged at the row it is painted on, at the width it is painted at, and then KEPT --
+                // so the region a click resolves against is the very rect that was drawn. CellLayout
+                // positions its own writes, hence no TrySetCursorPosition on this branch.
                 var sel = itemIdx == _cursor;
-                Viewport.Write(_items[itemIdx].FormatRow(
-                    contentWidth, colorMode, sel, sel ? _columnIndex : -1, _columns));
+                var context = new RowContext(sel, sel ? _columnIndex : -1, _columns);
+                var arranged = Layout.Engine.Arrange(
+                    _items[itemIdx].BuildRow(context),
+                    new Rect<int>(0, row, contentWidth, 1),
+                    measureCtx);
+
+                CellLayout.Paint(Viewport, arranged);
+                rowTrees.AddRange(arranged);
             }
             else
             {
+                if (!TrySetCursorPosition(Viewport, 0, row)) return;
                 Viewport.Write($"{_emptyStyle.Apply(colorMode)}{new string(' ', contentWidth)}{VtStyle.Reset}");
             }
 
             if (HasScrollBar)
             {
+                if (!TrySetCursorPosition(Viewport, contentWidth, row)) return;
                 var onThumb = dataRow >= thumbTop && dataRow < thumbTop + thumbHeight;
                 var style = onThumb ? _thumbStyle : _scrollBarStyle;
-                var glyph = onThumb ? '\u2588' : '\u2502'; // █ on thumb, │ on track
+                var glyph = onThumb ? '█' : '│'; // block on thumb, light vertical on track
                 Viewport.Write($"{style.Apply(colorMode)}{glyph}{VtStyle.Reset}");
             }
         }
+
+        _arrangedRows = rowTrees.ToImmutable();
     }
+
+    /// <summary>
+    /// Resolves a MOUSE-PIXEL point against the arranged row trees, invoking the matched leaf's
+    /// <c>OnClick</c> and returning its hit -- for inline buttons ON a row (a delete affordance, a
+    /// toggle). Null when nothing clickable sits under the point.
+    /// <para>
+    /// Cursor movement is NOT this method's job: <see cref="HandleMouse"/> already moves the cursor on a
+    /// press, so a host wanting "clicking a row selects it, and selecting has a side effect" acts on
+    /// <see cref="HandleMouse"/> returning true. This resolves only leaves that claimed a hit.
+    /// </para>
+    /// <para>
+    /// The scrollbar column is excluded, so a click on the track can never dispatch a row's button; and
+    /// because each row was arranged where it was painted, a SCROLLED list resolves to the item actually
+    /// under the cursor rather than to the visible-row index.
+    /// </para>
+    /// </summary>
+    public HitResult? DispatchRowHit(int pixelX, int pixelY, InputModifier modifiers = InputModifier.None)
+    {
+        if (_arrangedRows.IsDefaultOrEmpty || HitTest(pixelX, pixelY) is not (var column, var row))
+        {
+            return null;
+        }
+
+        var contentColumns = HasScrollBar ? Viewport.Size.Width - 1 : Viewport.Size.Width;
+        return column >= contentColumns ? null : CellLayout.HitTest(_arrangedRows, column, row, modifiers);
+    }
+
+    /// <summary>
+    /// The visible rows as last arranged, concatenated in paint order, in viewport-relative cell
+    /// coordinates. For tests that assert drawn geometry, and for a host that owns its own dispatch.
+    /// </summary>
+    public ImmutableArray<Layout.ArrangedNode<int>> ArrangedRows => _arrangedRows;
 
     /// <summary>
     /// Resolves a pixel point to the row under it: the ITEM index (not the visible row), the item, and the
     /// column <b>within the content area</b> together with how many content columns there are.
     ///
-    /// <para>The same knowledge <see cref="RegisterRowHits"/> encapsulates, read in the opposite direction
-    /// — for a host that resolves a click when one arrives rather than registering regions up front, and so
-    /// has nowhere to put a <see cref="ClickableRegionTracker"/>. Prefer the registration helpers when
-    /// there is a tracker; reach for this when the host owns dispatch.</para>
+    /// <para>For a host that needs the ITEM behind a point -- a context menu, a drag source, a hover
+    /// tooltip. It is not the way to reach a row's inline buttons: those live on the row's own tree, so
+    /// they resolve through <see cref="DispatchRowHit"/>, and nothing here has to know their columns.</para>
     ///
     /// <para>Null when the point falls outside the viewport, on the header, on the scrollbar column, or
     /// past the last item. That third one is the reason this exists rather than being left to callers:
@@ -444,114 +491,6 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
         return itemIndex >= 0 && itemIndex < _items.Count
             ? (itemIndex, _items[itemIndex], column, contentColumns)
             : null;
-    }
-
-    /// <summary>
-    /// Registers a clickable region for each visible row against <paramref name="tracker"/>, so a host
-    /// binds "clicking this row selects that item" without reconstructing the widget's geometry.
-    /// <para>
-    /// The arithmetic being replaced is worth naming, because every host got it slightly differently:
-    /// the pixel origin is the viewport <b>offset times cell size</b> (not the viewport rect), the first
-    /// visible row is <see cref="ScrollOffset"/> and NOT 0, the header steals a row when one is set, and
-    /// the rightmost column belongs to the scrollbar whenever one is showing -- a region drawn over it
-    /// swallows the drag before <see cref="HandleMouse"/> ever sees it. Getting any of those wrong gives
-    /// a list that selects the wrong item once scrolled, or a scrollbar that cannot be grabbed.
-    /// </para>
-    /// <paramref name="hitFor"/> receives the ITEM index and the item, and returns the hit to bind, or
-    /// null to leave that row unclickable (group headers, separators). <paramref name="onClick"/> is
-    /// invoked with the same item index.
-    /// </summary>
-    public void RegisterRowHits(ClickableRegionTracker tracker,
-        Func<int, TItem, HitResult?> hitFor, Action<int, InputModifier>? onClick = null)
-        => ForEachVisibleRow((itemIndex, item, geometry, y) =>
-        {
-            if (hitFor(itemIndex, item) is not { } hit)
-            {
-                return;
-            }
-
-            var captured = itemIndex;
-            tracker.Register(geometry.OriginX, y, geometry.RowWidth, geometry.RowHeight, hit,
-                onClick is null ? null : m => onClick(captured, m));
-        });
-
-    /// <summary>
-    /// Registers clickable regions for spans WITHIN each visible row -- inline buttons on a row, rather
-    /// than the whole row. Shares every piece of geometry <see cref="RegisterRowHits"/> gets right
-    /// (origin from the viewport offset, the header row, the scrolled item index, the scrollbar column)
-    /// and adds column clamping on top, so a span running past the content width is trimmed instead of
-    /// overlapping the scrollbar.
-    /// <para>
-    /// <paramref name="spansFor"/> receives the item index and item, and returns the spans in COLUMNS
-    /// relative to the row's left edge. Return an empty list for a row with no buttons.
-    /// </para>
-    /// </summary>
-    public void RegisterRowSpanHits(ClickableRegionTracker tracker,
-        Func<int, TItem, IReadOnlyList<RowSpan>> spansFor)
-        => ForEachVisibleRow((itemIndex, item, geometry, y) =>
-        {
-            var spans = spansFor(itemIndex, item);
-            for (var i = 0; i < spans.Count; i++)
-            {
-                var span = spans[i];
-                var startCol = Math.Max(0, span.ColumnStart);
-                var endCol = Math.Min(span.ColumnEnd, geometry.ContentColumns);
-                if (startCol >= endCol)
-                {
-                    continue;
-                }
-
-                var x = geometry.OriginX + startCol * geometry.CellWidth;
-                var w = (endCol - startCol) * geometry.CellWidth;
-                tracker.Register(x, y, w, geometry.RowHeight, span.Hit, span.OnClick);
-            }
-        });
-
-    /// <summary>The per-frame geometry both registration helpers derive from, computed once.</summary>
-    private readonly record struct RowGeometry(
-        float OriginX, float CellWidth, float RowWidth, float RowHeight, int ContentColumns);
-
-    /// <summary>
-    /// Walks the visible rows, handing each one its item index, its item, the shared geometry and its
-    /// pixel top. The single place that knows visible row N is item <see cref="ScrollOffset"/> + N, that
-    /// a header displaces the first row, and that the scrollbar owns the last column.
-    /// </summary>
-    private void ForEachVisibleRow(Action<int, TItem, RowGeometry, float> forRow)
-    {
-        if (_items.Count == 0 || VisibleRows <= 0)
-        {
-            return;
-        }
-
-        var cell = Viewport.CellSize;
-        var offset = Viewport.Offset;
-
-        // Leave the scrollbar column to the scrollbar: a region drawn across it would win the hit test
-        // and the thumb could never be grabbed.
-        var contentColumns = HasScrollBar ? Viewport.Size.Width - 1 : Viewport.Size.Width;
-        var geometry = new RowGeometry(
-            OriginX: offset.Column * cell.Width,
-            CellWidth: cell.Width,
-            RowWidth: contentColumns * cell.Width,
-            RowHeight: cell.Height,
-            ContentColumns: contentColumns);
-
-        if (geometry.RowWidth <= 0f || geometry.RowHeight <= 0f)
-        {
-            return;
-        }
-
-        var originY = (float)(offset.Row * cell.Height);
-        for (var visible = 0; visible < VisibleRows; visible++)
-        {
-            var itemIndex = _scrollOffset + visible;
-            if (itemIndex >= _items.Count)
-            {
-                break;
-            }
-
-            forRow(itemIndex, _items[itemIndex], geometry, originY + (HeaderRows + visible) * geometry.RowHeight);
-        }
     }
 
     private bool HasScrollBar => _items.Count > VisibleRows && VisibleRows > 0;

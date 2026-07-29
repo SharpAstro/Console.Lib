@@ -13,22 +13,21 @@ namespace Console.Lib.Tests;
 /// </summary>
 public sealed class ScrollableListTests
 {
-    private readonly struct Row(int index) : IRowFormatter
+    private readonly struct Row(int index) : IRowLayout
     {
         public int Index { get; } = index;
-        public string FormatRow(int width, ColorMode mode) => Index.ToString().PadRight(width);
+        public Layout.Node BuildRow(in RowContext context) => Layout.Builder.Text(Index.ToString(), 1f);
     }
 
-    /// <summary>Class-typed row that records every column-aware FormatRow call.</summary>
-    private sealed class RecordingRow(int index) : IRowFormatter
+    /// <summary>Class-typed row that records the context of every BuildRow call.</summary>
+    private sealed class RecordingRow(int index) : IRowLayout
     {
         public int Index { get; } = index;
         public List<(bool IsSelected, int SelectedColumn, int ColumnCount)> Calls { get; } = new();
-        public string FormatRow(int width, ColorMode mode) => Index.ToString().PadRight(width);
-        public string FormatRow(int width, ColorMode mode, bool isSelected, int selectedColumn, int columnCount)
+        public Layout.Node BuildRow(in RowContext context)
         {
-            Calls.Add((isSelected, selectedColumn, columnCount));
-            return FormatRow(width, mode);
+            Calls.Add((context.Selected, context.SelectedColumn, context.ColumnCount));
+            return Layout.Builder.Text(Index.ToString(), 1f);
         }
     }
 
@@ -346,7 +345,7 @@ public sealed class ScrollableListTests
         list.ScrollOffset.ShouldBe(0);
     }
 
-    // ---- RegisterRowHits ----
+    // ---- DispatchRowHit ----
 
     /// <summary>Builds a list at a known viewport offset so the pixel origin is not trivially (0,0).</summary>
     private static ScrollableList<Row> NewOffsetList(int itemCount, int col, int row, int width = 20, int height = 8)
@@ -358,107 +357,149 @@ public sealed class ScrollableListTests
         return list;
     }
 
-    [Fact]
-    public void RegisterRowHits_BindsOneRegionPerVisibleRow_BelowTheHeader()
+    /// <summary>
+    /// A row with an inline button pinned to its RIGHT edge -- a Star label followed by a fixed-width
+    /// button. This shape is the reason the row contract is a tree: expressed as columns in a formatted
+    /// string, the button's position depends on the row's usable width, which shrinks by one the moment a
+    /// scrollbar appears, so any hand-derived hit region drifted exactly when the list overflowed.
+    /// </summary>
+    private sealed class ButtonRow(int index, List<int> clicks) : IRowLayout
     {
-        var list = NewOffsetList(itemCount: 3, col: 0, row: 0);
-        var tracker = new ClickableRegionTracker();
-        tracker.BeginFrame();
+        public Layout.Node BuildRow(in RowContext context) => Layout.Builder.HStack(
+            Layout.Builder.Text(index.ToString(), 1f).WStar().HStar(),
+            Layout.Builder.Text("[X]", 1f).WFixed(3).HStar()
+                .Clickable(new HitResult.ButtonHit($"del{index}"), _ => clicks.Add(index)));
+    }
 
-        list.RegisterRowHits(tracker, (i, _) => new HitResult.ListItemHit("row", i));
-
-        var regions = tracker.GetRegisteredRegions();
-        regions.Length.ShouldBe(3);
-        var cell = list.Viewport.CellSize;
-        // Header occupies row 0, so the first item starts one cell down.
-        regions[0].Y.ShouldBe(cell.Height);
-        regions[1].Y.ShouldBe(cell.Height * 2);
+    private static (ScrollableList<ButtonRow> List, List<int> Clicks) NewButtonList(
+        int itemCount, int col = 0, int row = 0, int width = 20, int height = 8, int scrollTo = 0)
+    {
+        var clicks = new List<int>();
+        var terminal = new FakeTerminal(new Queue<ConsoleInputEvent>(), col + width, row + height);
+        var viewport = new TerminalViewport(terminal, col, row, width, height);
+        var list = new ScrollableList<ButtonRow>(viewport).Header(" idx");
+        list.Items(Enumerable.Range(0, itemCount).Select(i => new ButtonRow(i, clicks)).ToList());
+        list.ScrollTo(scrollTo);
+        list.Render();   // DispatchRowHit resolves against the ARRANGED trees, so a paint must have happened.
+        return (list, clicks);
     }
 
     /// <summary>
-    /// The trap this API exists to remove: once scrolled, visible row 0 is item ScrollOffset, not item 0.
-    /// A host doing its own arithmetic against the item list selects the wrong item after any scroll.
+    /// A right-anchored button resolves at the row's real right edge, and that edge accounts for the
+    /// scrollbar without anyone computing it: the same tree lands one column further left once the list
+    /// overflows, because it was arranged into the content width.
     /// </summary>
-    [Fact]
-    public void RegisterRowHits_MapsRowsToScrolledItemIndices()
+    [Theory]
+    [InlineData(3, 20)]    // fits: content is all 20 columns, so the button occupies 17..19
+    [InlineData(100, 19)]  // overflows: the track takes column 19, so the button occupies 16..18
+    public void DispatchRowHit_ResolvesARightAnchoredButtonAgainstTheContentWidth(int itemCount, int contentColumns)
     {
-        var list = NewOffsetList(itemCount: 50, col: 0, row: 0);
-        list.ScrollTo(10);
-        var tracker = new ClickableRegionTracker();
-        tracker.BeginFrame();
-
-        var clicked = -1;
-        list.RegisterRowHits(tracker, (i, _) => new HitResult.ListItemHit("row", i), (i, _) => clicked = i);
-
-        // Click the top visible row; it must resolve to item 10, not item 0.
+        var (list, clicks) = NewButtonList(itemCount);
         var cell = list.Viewport.CellSize;
-        tracker.HitTestAndDispatch(1f, cell.Height + 1f).ShouldBe(new HitResult.ListItemHit("row", 10));
-        clicked.ShouldBe(10);
+        var buttonX = (int)((contentColumns - 1) * cell.Width);   // last content column
+        var firstRowY = (int)cell.Height + 1;                     // header occupies row 0
+
+        list.DispatchRowHit(buttonX, firstRowY).ShouldBe(new HitResult.ButtonHit($"del{list.ScrollOffset}"));
+        clicks.ShouldBe([list.ScrollOffset]);
+    }
+
+    /// <summary>The header is not a row, so nothing on it dispatches.</summary>
+    [Fact]
+    public void DispatchRowHit_OnTheHeader_DispatchesNothing()
+    {
+        var (list, clicks) = NewButtonList(itemCount: 3);
+        var cell = list.Viewport.CellSize;
+
+        list.DispatchRowHit((int)(17 * cell.Width), 1).ShouldBeNull();
+        clicks.ShouldBeEmpty();
     }
 
     /// <summary>
-    /// The other trap: a row region drawn across the scrollbar column wins the hit test, so the thumb
-    /// can never be grabbed. The regions must stop one column short whenever a scrollbar is showing.
+    /// The scroll trap: once scrolled, the top visible row is item ScrollOffset. A hit must dispatch THAT
+    /// item's button, not the first item's -- which is what a host re-deriving the index from a
+    /// visible-row number used to get wrong.
     /// </summary>
     [Fact]
-    public void RegisterRowHits_LeavesTheScrollbarColumnAlone()
+    public void DispatchRowHit_DispatchesTheScrolledItemsButton()
     {
-        var scrolling = NewOffsetList(itemCount: 100, col: 0, row: 0, width: 20, height: 8);
-        var fitting = NewOffsetList(itemCount: 2, col: 0, row: 0, width: 20, height: 8);
+        var (list, clicks) = NewButtonList(itemCount: 50, scrollTo: 10);
+        var cell = list.Viewport.CellSize;
 
-        var a = new ClickableRegionTracker();
-        a.BeginFrame();
-        scrolling.RegisterRowHits(a, (i, _) => new HitResult.ListItemHit("row", i));
-
-        var b = new ClickableRegionTracker();
-        b.BeginFrame();
-        fitting.RegisterRowHits(b, (i, _) => new HitResult.ListItemHit("row", i));
-
-        var cell = scrolling.Viewport.CellSize;
-        a.GetRegisteredRegions()[0].Width.ShouldBe(19 * cell.Width, "a scrolling list yields the last column to the scrollbar");
-        b.GetRegisteredRegions()[0].Width.ShouldBe(20 * cell.Width, "a list that fits has no scrollbar, so rows span the full width");
+        list.DispatchRowHit((int)(16 * cell.Width), (int)cell.Height + 1)
+            .ShouldBe(new HitResult.ButtonHit("del10"), "the top visible row is item 10");
+        clicks.ShouldBe([10]);
     }
 
-    /// <summary>A null hit leaves that row unclickable -- group headers and separators.</summary>
+    /// <summary>
+    /// The scrollbar trap, from the other side: a click on the track must not reach a row's button, or the
+    /// thumb could never be grabbed.
+    /// </summary>
     [Fact]
-    public void RegisterRowHits_SkipsRowsWithNoHit()
+    public void DispatchRowHit_OnTheScrollbarColumn_DispatchesNothing()
     {
-        var list = NewOffsetList(itemCount: 6, col: 0, row: 0);
-        var tracker = new ClickableRegionTracker();
-        tracker.BeginFrame();
+        var (list, clicks) = NewButtonList(itemCount: 100);
+        var cell = list.Viewport.CellSize;
 
-        list.RegisterRowHits(tracker, (i, _) => i % 2 == 0 ? new HitResult.ListItemHit("row", i) : null);
-
-        tracker.GetRegisteredRegions().Length.ShouldBe(3);
+        list.DispatchRowHit((int)(19 * cell.Width) + 1, (int)cell.Height + 1).ShouldBeNull();
+        clicks.ShouldBeEmpty();
     }
 
     /// <summary>The origin is the viewport OFFSET times cell size, not the viewport rect.</summary>
     [Fact]
-    public void RegisterRowHits_OriginFollowsTheViewportOffset()
+    public void DispatchRowHit_OriginFollowsTheViewportOffset()
     {
-        var list = NewOffsetList(itemCount: 3, col: 4, row: 2);
-        var tracker = new ClickableRegionTracker();
-        tracker.BeginFrame();
-
-        list.RegisterRowHits(tracker, (i, _) => new HitResult.ListItemHit("row", i));
-
+        var (list, clicks) = NewButtonList(itemCount: 3, col: 4, row: 2);
         var cell = list.Viewport.CellSize;
-        var first = tracker.GetRegisteredRegions()[0];
-        first.X.ShouldBe(4 * cell.Width);
-        first.Y.ShouldBe((2 + 1) * cell.Height, "offset row plus the header row");
+
+        // Item 0 sits at the offset row plus the header row; its button is in the last content column.
+        list.DispatchRowHit((int)((4 + 19) * cell.Width), (int)((2 + 1) * cell.Height) + 1)
+            .ShouldBe(new HitResult.ButtonHit("del0"));
+        clicks.ShouldBe([0]);
+
+        list.DispatchRowHit(1, (int)((2 + 1) * cell.Height) + 1).ShouldBeNull("left of the viewport");
+    }
+
+    /// <summary>A point on the row but not on any clickable leaf dispatches nothing.</summary>
+    [Fact]
+    public void DispatchRowHit_OffTheButton_DispatchesNothing()
+    {
+        var (list, clicks) = NewButtonList(itemCount: 3);
+        var cell = list.Viewport.CellSize;
+
+        list.DispatchRowHit((int)(2 * cell.Width), (int)cell.Height + 1).ShouldBeNull();
+        clicks.ShouldBeEmpty();
     }
 
     [Fact]
-    public void RegisterRowHits_EmptyList_RegistersNothing()
+    public void DispatchRowHit_BeforeAnyRender_DispatchesNothing()
     {
-        var terminal = new FakeTerminal(new Queue<ConsoleInputEvent>(), 20, 8);
-        var list = new ScrollableList<Row>(new TerminalViewport(terminal, 0, 0, 20, 8));
-        var tracker = new ClickableRegionTracker();
-        tracker.BeginFrame();
+        var list = NewOffsetList(itemCount: 3, col: 0, row: 0);
+        var cell = list.Viewport.CellSize;
 
-        list.RegisterRowHits(tracker, (i, _) => new HitResult.ListItemHit("row", i));
+        list.DispatchRowHit(1, (int)cell.Height + 1).ShouldBeNull("nothing has been arranged yet");
+    }
 
-        tracker.GetRegisteredRegions().ShouldBeEmpty();
+    [Fact]
+    public void DispatchRowHit_EmptyList_DispatchesNothing()
+    {
+        var (list, clicks) = NewButtonList(itemCount: 0);
+
+        list.DispatchRowHit(1, 20).ShouldBeNull();
+        clicks.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// Only the visible rows are arranged, so a 10k-item list costs viewport-height trees per frame
+    /// rather than one per item.
+    /// </summary>
+    [Fact]
+    public void ArrangedRows_CoverOnlyTheVisibleRows()
+    {
+        var (list, _) = NewButtonList(itemCount: 10_000);
+
+        list.ArrangedRows.ShouldNotBeEmpty();
+        // Each row contributes its HStack plus two leaves; the bound is what matters, not the exact count.
+        list.ArrangedRows.Length.ShouldBeLessThanOrEqualTo(list.VisibleRows * 8);
     }
 
     // ---- HitTestRow ----
@@ -549,81 +590,4 @@ public sealed class ScrollableListTests
         list.HitTestRow(1, (int)(3 * cell.Height) + 1).ShouldBeNull("left of the viewport");
     }
 
-    // ---- RegisterRowSpanHits ----
-
-    [Fact]
-    public void RegisterRowSpanHits_PlacesSpansAtTheirColumnOffsets()
-    {
-        var list = NewOffsetList(itemCount: 3, col: 0, row: 0);
-        var tracker = new ClickableRegionTracker();
-        tracker.BeginFrame();
-
-        list.RegisterRowSpanHits(tracker, (i, _) => i == 0
-            ? [new RowSpan(2, 6, new HitResult.ButtonHit("dec")), new RowSpan(8, 12, new HitResult.ButtonHit("inc"))]
-            : []);
-
-        var cell = list.Viewport.CellSize;
-        var regions = tracker.GetRegisteredRegions();
-        regions.Length.ShouldBe(2);
-        regions[0].X.ShouldBe(2 * cell.Width);
-        regions[0].Width.ShouldBe(4 * cell.Width);
-        regions[1].X.ShouldBe(8 * cell.Width);
-        // Header row displaces the first data row, exactly as for whole-row hits.
-        regions[0].Y.ShouldBe(cell.Height);
-    }
-
-    /// <summary>
-    /// A span running past the row is trimmed to the content width rather than overlapping the
-    /// scrollbar -- so int.MaxValue is a usable "to the end of the row".
-    /// </summary>
-    [Fact]
-    public void RegisterRowSpanHits_ClampsASpanToTheContentWidth()
-    {
-        var list = NewOffsetList(itemCount: 100, col: 0, row: 0, width: 20, height: 8);
-        var tracker = new ClickableRegionTracker();
-        tracker.BeginFrame();
-
-        list.RegisterRowSpanHits(tracker, (i, _) => i == list.ScrollOffset
-            ? [new RowSpan(0, int.MaxValue, new HitResult.ButtonHit("all"))]
-            : []);
-
-        var cell = list.Viewport.CellSize;
-        // 20 columns minus the scrollbar column.
-        tracker.GetRegisteredRegions()[0].Width.ShouldBe(19 * cell.Width);
-    }
-
-    /// <summary>
-    /// Spans follow the scroll like whole rows do. The hand-rolled version this replaced hardcoded a
-    /// zero scroll offset, which was correct only for as long as the list never scrolled.
-    /// </summary>
-    [Fact]
-    public void RegisterRowSpanHits_FollowsTheScrollOffset()
-    {
-        var list = NewOffsetList(itemCount: 50, col: 0, row: 0);
-        list.ScrollTo(12);
-        var tracker = new ClickableRegionTracker();
-        tracker.BeginFrame();
-
-        var seen = new List<int>();
-        list.RegisterRowSpanHits(tracker, (i, _) =>
-        {
-            seen.Add(i);
-            return [new RowSpan(0, 4, new HitResult.ListItemHit("row", i))];
-        });
-
-        seen[0].ShouldBe(12, "the top visible row is the scrolled item, not item 0");
-    }
-
-    [Fact]
-    public void RegisterRowSpanHits_SkipsDegenerateSpans()
-    {
-        var list = NewOffsetList(itemCount: 2, col: 0, row: 0);
-        var tracker = new ClickableRegionTracker();
-        tracker.BeginFrame();
-
-        list.RegisterRowSpanHits(tracker, (_, _) =>
-            [new RowSpan(5, 5, new HitResult.ButtonHit("empty")), new RowSpan(9, 3, new HitResult.ButtonHit("inverted"))]);
-
-        tracker.GetRegisteredRegions().ShouldBeEmpty();
-    }
 }
