@@ -5,17 +5,78 @@ using System.Text.Json;
 
 namespace Console.Lib.Inspector;
 
+/// <summary>
+/// JSON string escaping, by hand.
+/// <para>
+/// Deliberately not <c>JsonSerializer.Serialize</c>. This is a <c>dnx</c> tool, so it is a plausible
+/// candidate for trimming or AOT one day, and both set
+/// <c>JsonSerializerIsReflectionEnabledByDefault=false</c> — at which point the generic overload throws at
+/// runtime even for a plain string. That exact failure already cost a debugging cycle on the APP side of this
+/// protocol, surfacing as a socket that closed the instant it was written to; there is no reason to leave it
+/// armed on the driver side too.
+/// </para>
+/// <para>
+/// It cannot borrow <c>DebugInspectorCore.Quote</c>: that lives behind <c>#if DEBUG</c>, so a published
+/// DIR.Lib does not contain it. A local copy is also consistent with this project referencing nothing from
+/// the framework.
+/// </para>
+/// </summary>
+internal static class Json
+{
+    public static string Quote(string? value)
+    {
+        if (value is null)
+        {
+            return "null";
+        }
+
+        var sb = new StringBuilder(value.Length + 2).Append('"');
+        foreach (var ch in value)
+        {
+            switch (ch)
+            {
+                case '"':
+                    sb.Append("\\\"");
+                    break;
+                case '\\':
+                    sb.Append("\\\\");
+                    break;
+                case '\n':
+                    sb.Append("\\n");
+                    break;
+                case '\r':
+                    sb.Append("\\r");
+                    break;
+                case '\t':
+                    sb.Append("\\t");
+                    break;
+                default:
+                    if (ch < 0x20)
+                    {
+                        sb.Append("\\u").Append(((int)ch).ToString("x4"));
+                    }
+                    else
+                    {
+                        sb.Append(ch);
+                    }
+                    break;
+            }
+        }
+        return sb.Append('"').ToString();
+    }
+}
+
 /// <summary>One discovered debuggable terminal app.</summary>
-/// <param name="Address">Where it replied from — the address to open the command connection to.</param>
-/// <param name="Kind">Its surface kind. Only <c>console</c> instances speak the verbs in this sidecar.</param>
+/// <param name="Address">Where it replied from. NOT what the command connection uses — see
+/// <see cref="InspectorSocketClient"/>.</param>
+/// <param name="Kind">Its surface kind. Only a terminal speaks the verbs in this sidecar.</param>
 public sealed record InspectorInstance(IPAddress Address, int TcpPort, string App, string Kind, int Pid, int Proto);
 
 /// <summary>
-/// Finds debuggable instances with a UDP multicast query, collecting the unicast replies. The reply's SOURCE
-/// address is the reachable one, so the descriptor itself only has to carry the port and the metadata.
+/// Finds debuggable instances with a UDP multicast query, collecting the unicast replies.
 ///
-/// <para>Replies whose <c>kind</c> is not a terminal are dropped. Discovery is one shared group, so a GPU
-/// app on the same machine answers too — and offering it <c>screen</c> would be nonsense. This family has been
+/// <para>Replies whose <c>kind</c> is not a terminal are dropped. Discovery is one shared group, so a GPU app
+/// on the same machine answers too — and offering it <c>screen</c> would be nonsense. This family has been
 /// bitten by an unfiltered shared broadcast domain before, in LAN peer discovery.</para>
 /// </summary>
 public sealed class InspectorDiscoveryClient(IPAddress group, int port)
@@ -51,8 +112,9 @@ public sealed class InspectorDiscoveryClient(IPAddress group, int port)
 
     /// <summary>
     /// Whether a reply is a terminal we can drive. <c>console</c> is accepted alongside <c>tui</c> because
-    /// Console.Lib 4.4 shipped with the older word for one afternoon; dropping it would make that build
-    /// invisible to this sidecar rather than merely mislabelled.
+    /// Console.Lib 4.4 shipped the older word for one afternoon; dropping it would make that build INVISIBLE
+    /// to this sidecar rather than merely mislabelled, and a silent disappearance is the exact failure the
+    /// kind field exists to prevent.
     /// </summary>
     private static bool IsTerminal(string kind) => kind is "tui" or "console";
 
@@ -93,9 +155,9 @@ public sealed class InspectorSocketClient
         using var tcp = new TcpClient();
 
         // Loopback, NOT the address the discovery reply came from. The app's command server binds
-        // IPAddress.Loopback by design, so it is only ever reachable locally -- and a multicast reply can
+        // IPAddress.Loopback by design, so it is only ever reachable locally — and a multicast reply can
         // easily arrive from some other adapter (a Hyper-V or WSL bridge), which is then the one address
-        // that will refuse the connection.
+        // guaranteed to refuse the connection.
         await tcp.ConnectAsync(IPAddress.Loopback, target.TcpPort, ct);
 
         using var stream = tcp.GetStream();

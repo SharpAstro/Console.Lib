@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Text;
-using System.Text.Json;
 using ModelContextProtocol.Server;
 
 namespace Console.Lib.Inspector;
@@ -115,7 +114,7 @@ public sealed class InspectorTools
         [Description("Target instance pid (0 = the only running instance).")] int instance = 0,
         CancellationToken ct = default)
         => (await s.SendAsync(await Resolve(d, instance, ct), "key",
-            $"{{\"key\":{JsonSerializer.Serialize(key)}}}", ct)).GetRawText();
+            $"{{\"key\":{Json.Quote(key)}}}", ct)).GetRawText();
 
     [McpServerTool, Description("Inject a sequence of keystrokes in order - the convenient form of `key` for typing a move or walking a menu.")]
     public static async Task<string> keys(InspectorDiscoveryClient d, InspectorSocketClient s,
@@ -127,7 +126,7 @@ public sealed class InspectorTools
         var sb = new StringBuilder();
         foreach (var k in keys)
         {
-            var r = await s.SendAsync(target, "key", $"{{\"key\":{JsonSerializer.Serialize(k)}}}", ct);
+            var r = await s.SendAsync(target, "key", $"{{\"key\":{Json.Quote(k)}}}", ct);
             sb.AppendLine($"{k}: {r.GetRawText()}");
         }
         return sb.ToString();

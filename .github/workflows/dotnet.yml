@@ -68,6 +68,16 @@ env:
   # gated on a fill and the layout DSL has no border chrome, so an unfilled rounded box is currently
   # unexpressible -- if Layout.Node gains a border, the arcs are what should render ITS corners, at that
   # call site. RoundCorners -> ClipFilledCorners (private).
+  # 4.6 - the MCP sidecar stops using reflective JSON. Library UNCHANGED; the sidecar rides this version
+  # prefix, so shipping it needs a bump. It escapes its own strings now instead of calling
+  # JsonSerializer.Serialize, which throws at runtime under trimming or AOT (both set
+  # JsonSerializerIsReflectionEnabledByDefault=false) even for a plain string. That is not hypothetical: the
+  # same call in the APP half failed exactly that way against Chess.Console, surfacing as a socket that closed
+  # the instant it was written to. A `dnx` tool is a plausible future AOT candidate, so leaving it armed on the
+  # driver side made no sense. It cannot reuse DebugInspectorCore.Quote -- that is behind #if DEBUG and so is
+  # absent from a published DIR.Lib -- hence a local copy, which also keeps this project referencing nothing
+  # from the framework. (SdlVulkan.Renderer's in-process inspector already avoids the serializer for the same
+  # reason, with a comment about IL2026/IL3050; its sidecar still has the call.)
   # 4.5 - the discovery `kind` for a terminal is "tui", not "console". DIR.Lib 7.2 introduced the field so a
   # sidecar can filter replies to surfaces it knows how to drive, and "tui"/"sdl"/"webgl" is the vocabulary
   # worth keeping -- "console" named the library rather than the surface, and pairs badly with "sdl". Renamed
@@ -149,7 +159,7 @@ env:
   # tree, one palette, one card projection, rendered by both the GPU tab and the TUI tab. Existing callers
   # are unaffected -- the default is still 1:1 -- so the break is in what the type MEANS, not in what
   # compiles.
-  VERSION_PREFIX: 4.5.${{ github.run_number }}
+  VERSION_PREFIX: 4.6.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release
