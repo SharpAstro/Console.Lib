@@ -87,7 +87,13 @@ env:
   # appState, inputLog, key, click, size. Injected input goes through a DEBUG-only queue on VirtualTerminal,
   # drained ahead of the real stream so a synthetic event cannot land mid escape sequence. Inspector and
   # queue are both #if DEBUG (401 tests in Release, 412 in Debug); the cell buffer ships in both.
-  # Re-pins DIR.Lib 6.23.* -> 7.1.* for DebugInspectorCore.
+  # Console.Lib.Inspector 1.0 ships alongside: a published MCP-server package (PackageType=McpServer,
+  # consumed via `dnx Console.Lib.Inspector`) that DISCOVERS running Debug-build TUI apps and drives them.
+  # It references nothing from Console.Lib -- it speaks the JSON protocol -- because the in-process half is
+  # #if DEBUG and a sidecar linking the library would be coupled to a configuration it cannot see. Tools:
+  # list_instances, screen/row/cell, app_state, input_log, key/keys/click, size, ping. Filters discovery to
+  # kind=="console" (DIR.Lib 7.2), so a GPU app answering the same multicast group is not offered `screen`.
+  # Re-pins DIR.Lib 6.23.* -> 7.2.* for DebugInspectorCore + discovery.
   # 4.2 - SixelEncoder.Encode takes a `reserved` colour list: entries claim palette indices 0..n-1 before
   # any frequency ranking, and keep them whether or not the frame contains a pixel of them. The palette is
   # otherwise chosen purely by pixel FREQUENCY, which is right for flat regions and wrong for anything that

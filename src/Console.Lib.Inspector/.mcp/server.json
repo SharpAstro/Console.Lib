@@ -1,0 +1,43 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schemas/draft/2025-07-09/server.json",
+  "name": "io.github.sharpastro/console-inspector",
+  "description": "Discover running Debug-build terminal apps (built on Console.Lib), read their screen as text, inspect their state, and drive them with injected keys and clicks.",
+  "version": "0.0.0-PLACEHOLDER",
+  "packages": [
+    {
+      "registryType": "nuget",
+      "registryBaseUrl": "https://api.nuget.org/v3/index.json",
+      "identifier": "Console.Lib.Inspector",
+      "version": "0.0.0-PLACEHOLDER",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "named",
+          "name": "--group",
+          "description": "Discovery multicast group (default 239.255.77.91).",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--port",
+          "description": "Discovery multicast port (default 47892).",
+          "isRequired": false
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "CONSOLE_INSPECTOR_GROUP",
+          "description": "Discovery multicast group override.",
+          "isRequired": false
+        },
+        {
+          "name": "CONSOLE_INSPECTOR_PORT",
+          "description": "Discovery multicast port override.",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

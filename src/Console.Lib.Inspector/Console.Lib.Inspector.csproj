@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Published NuGet MCP-server package: a standalone stdio bridge that discovers running Debug-build
+    Console.Lib TUI apps over UDP multicast and drives them over TCP.
+
+    It references NOTHING from Console.Lib — it speaks the JSON protocol. That is deliberate: the
+    in-process inspector half is #if DEBUG and never ships, so a sidecar that linked the library would
+    be coupled to a build configuration it cannot see.
+
+    Run during development:  dotnet run, from this project directory (add `selftest` for a headless check).
+    Consume from NuGet:      dnx Console.Lib.Inspector (with the dnx auto-confirm flag).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <!-- Outside the library's Directory.Packages.props subtree conceptually: pin our own versions. -->
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+
+    <PackAsTool>true</PackAsTool>
+    <PackageType>McpServer</PackageType>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageId>Console.Lib.Inspector</PackageId>
+    <ToolCommandName>console-inspector</ToolCommandName>
+    <VersionPrefix>1.0.0</VersionPrefix>
+    <Description>MCP server that discovers running Debug-build terminal apps (built on Console.Lib) and lets an AI agent read their screen as text, inspect app state, and drive them with injected keys and clicks.</Description>
+    <PackageTags>mcp;ai;terminal;tui;console;debugging;inspector</PackageTags>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/SharpAstro/Console.Lib.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="1.4.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The version-stamped manifest from StampMcpServerManifest, not the placeholder source. -->
+    <None Include="$(IntermediateOutputPath)server.json" Pack="true" PackagePath="/.mcp/" Visible="false" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="/" />
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <!--
+    .mcp/server.json must carry the published version, but CI stamps the package via -p:Version=...
+    A literal in the manifest would drift, so substitute at pack time. NuGet normalises away
+    +buildmetadata, so drop anything after '+' to match the feed version.
+  -->
+  <Target Name="StampMcpServerManifest" BeforeTargets="GenerateNuspec">
+    <PropertyGroup>
+      <_McpVersion>$(Version)</_McpVersion>
+      <_McpVersion Condition="$(_McpVersion.Contains('+'))">$(_McpVersion.Substring(0, $(_McpVersion.IndexOf('+'))))</_McpVersion>
+      <_McpManifestContent>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/.mcp/server.json').Replace('0.0.0-PLACEHOLDER', '$(_McpVersion)'))</_McpManifestContent>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(IntermediateOutputPath)server.json" Lines="$(_McpManifestContent)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
+</Project>

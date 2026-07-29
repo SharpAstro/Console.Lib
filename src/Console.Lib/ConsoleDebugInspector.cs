@@ -55,6 +55,10 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
 
     public string AppName { get; }
 
+    /// <summary>A terminal. See <see cref="IDebugInspectorHost.SurfaceKind"/> for why this matters — a
+    /// sidecar filters on it, and the default of "unknown" makes an instance invisible.</summary>
+    public string SurfaceKind => "console";
+
     public int Port => _core.Port;
 
     /// <param name="appName">Names the app in the banner.</param>
