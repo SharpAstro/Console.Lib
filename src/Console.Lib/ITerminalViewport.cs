@@ -9,6 +9,23 @@ public interface ITerminalViewport
     void WriteLine(string? text = null);
     TermCell CellSize { get; }
 
+    /// <summary>
+    /// Prepares for RAW bytes about to be written to <see cref="OutputStream"/> — a Sixel blit — by
+    /// flushing any buffered cell output and positioning the terminal's real cursor.
+    /// <para>
+    /// Needed because raw bytes bypass <see cref="Write"/> entirely, so on a buffered terminal
+    /// <see cref="SetCursorPosition"/> moves only the BUFFER's cursor and the blit would land wherever the
+    /// real cursor was left. The default is today's behaviour, so an unbuffered terminal is unaffected.
+    /// </para>
+    /// </summary>
+    void BeginRawOutput(int column, int row) => SetCursorPosition(column, row);
+
+    /// <summary>
+    /// Declares that raw output owns this cell region, so a diffing terminal never paints a glyph over it —
+    /// which would punch a hole in the picture. No-op unless the terminal is buffered.
+    /// </summary>
+    void MarkRawRegion(int column, int row, int width, int height) { }
+
     /// <summary>Viewport size in pixels (columns * cellWidth, rows * cellHeight).</summary>
     (uint Width, uint Height) PixelSize
     {

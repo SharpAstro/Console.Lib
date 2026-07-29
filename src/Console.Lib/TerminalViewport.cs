@@ -38,6 +38,15 @@ public sealed class TerminalViewport(ITerminalViewport parent, int columnOffset,
         parent.Flush();
     }
 
+    public void BeginRawOutput(int column, int row)
+        => parent.BeginRawOutput(
+            _columnOffset + Math.Clamp(column, 0, Math.Max(0, _width - 1)),
+            _rowOffset + Math.Clamp(row, 0, Math.Max(0, _height - 1)));
+
+    public void MarkRawRegion(int column, int row, int width, int height)
+        => parent.MarkRawRegion(_columnOffset + column, _rowOffset + row,
+            Math.Min(width, _width), Math.Min(height, _height));
+
     public void Write(string text) => parent.Write(text);
 
     public void WriteLine(string? text = null) => parent.WriteLine(text);

@@ -290,6 +290,37 @@ public sealed class VirtualTerminal : IVirtualTerminal
         System.Console.Out.Flush();
     }
 
+    /// <summary>
+    /// Hands the terminal over to raw bytes: emits any pending cell diff FIRST, so buffered content cannot
+    /// land on top of the picture afterwards, then moves the REAL cursor (not the buffer's) to where the
+    /// blit must start.
+    /// <para>
+    /// The pen is forgotten as well. Raw output can leave the terminal in any SGR state it likes, so a
+    /// remembered pen would be a lie and the next run would skip re-stating it.
+    /// </para>
+    /// </summary>
+    public void BeginRawOutput(int column, int row)
+    {
+        var (width, height) = Size;
+        var col = Math.Clamp(column, 0, Math.Max(0, width - 1));
+        var r = Math.Clamp(row, 0, Math.Max(0, height - 1));
+
+        if (CellBuffer is null)
+        {
+            System.Console.SetCursorPosition(col, r);
+            return;
+        }
+
+        Flush();
+        System.Console.SetCursorPosition(col, r);
+        System.Console.Out.Flush();
+        _sink?.Invalidate();
+    }
+
+    /// <inheritdoc />
+    public void MarkRawRegion(int column, int row, int width, int height)
+        => CellBuffer?.MarkImage(column, row, width, height);
+
     public Stream OutputStream { get; } = System.Console.OpenStandardOutput();
 
 #if DEBUG

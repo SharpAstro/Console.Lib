@@ -36,15 +36,19 @@ public class Canvas(ITerminalViewport viewport, ISixelEncoder encoder) : Widget(
 
         if (cropHeight > 0)
         {
-            SetCursorPosition(0, startRow);
+            // Raw bytes, not cell writes: the terminal has to flush what it owes and move its REAL cursor
+            // before they go out, and then be told these cells belong to the picture.
+            Viewport.BeginRawOutput(0, startRow);
             encoder.EncodeSixel(pixelStartY, (uint)cropHeight, Viewport.OutputStream);
+            Viewport.MarkRawRegion(0, startRow, Viewport.Size.Width, endRow - startRow);
         }
     }
 
     /// <summary>Performs a full Sixel blit of the renderer surface.</summary>
     public override void Render()
     {
-        SetCursorPosition(0, 0);
+        Viewport.BeginRawOutput(0, 0);
         encoder.EncodeSixel(Viewport.OutputStream);
+        Viewport.MarkRawRegion(0, 0, Viewport.Size.Width, Viewport.Size.Height);
     }
 }

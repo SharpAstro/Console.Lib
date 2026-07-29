@@ -131,14 +131,14 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
         for (var r = 0; r < buffer.Height; r++)
         {
             if (r > 0) sb.Append(',');
-            sb.Append(JsonSerializer.Serialize(buffer.FrontRowText(r)));
+            sb.Append(DebugInspectorCore.Quote(buffer.FrontRowText(r)));
         }
         return sb.Append("]}").ToString();
     }
 
     private string Row(int row)
         => _terminal.CellBuffer is { } buffer
-            ? $"{{\"row\":{row},\"text\":{JsonSerializer.Serialize(buffer.FrontRowText(row))}}}"
+            ? $"{{\"row\":{row},\"text\":{DebugInspectorCore.Quote(buffer.FrontRowText(row))}}}"
             : Unbuffered();
 
     private string CellAt(int column, int row)
@@ -147,7 +147,7 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
 
         var cell = buffer.FrontAt(column, row);
         return $"{{\"column\":{column},\"row\":{row}," +
-               $"\"glyph\":{JsonSerializer.Serialize(cell.Glyph == '\0' ? " " : cell.Glyph.ToString())}," +
+               $"\"glyph\":{DebugInspectorCore.Quote(cell.Glyph == '\0' ? " " : cell.Glyph.ToString())}," +
                $"\"kind\":\"{cell.Kind}\",\"reverse\":{cell.Reverse.ToString().ToLowerInvariant()}," +
                $"\"fg\":\"{Hex(cell.Style.Foreground)}\",\"bg\":\"{Hex(cell.Style.Background)}\"}}";
     }
@@ -166,7 +166,7 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
         {
             if (!first) sb.Append(',');
             first = false;
-            sb.Append(JsonSerializer.Serialize(entry));
+            sb.Append(DebugInspectorCore.Quote(entry));
         }
         return sb.Append("]}").ToString();
     }
