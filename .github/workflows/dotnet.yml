@@ -68,6 +68,34 @@ env:
   # gated on a fill and the layout DSL has no border chrome, so an unfilled rounded box is currently
   # unexpressible -- if Layout.Node gains a border, the arcs are what should render ITS corners, at that
   # call site. RoundCorners -> ClipFilledCorners (private).
+  # 4.8 - the diffing cell buffer survives contact with a real app. TianWen's TUI turned it on and exposed
+  # five latent bugs, four of them the same shape: RELYING ON LEFTOVER TERMINAL STATE, which a live terminal
+  # forgives and a buffer that must name a colour per cell cannot. (1) VtStyle treated alpha zero as a colour
+  # and emitted it as opaque BLACK; a terminal cell does not composite, so alpha zero means UNSTATED and now
+  # emits SGR 39/49 (the terminal's default), which the buffer's parser round-trips as a modelled pen rather
+  # than degrading the cell to Opaque. (2) CellLayout painted text foreground-only, inheriting the background
+  # from whatever SGR the previous write left behind -- so a row's colour depended on which SIBLING painted
+  # first, and rows following a Reset went black-on-black (TianWen's Guider/Camera rows rendered as gaps).
+  # Paint now resolves a text cell's background from the TREE via a depth-keyed stack of enclosing
+  # backgrounds; the rounded-corner clip states its quadrant's backdrop the same way. (3) The cell sink
+  # emitted ReverseOn and never ReverseOff, so one reversed cell (a text cursor) inverted everything painted
+  # after it -- headers became solid bars. Reverse is now stated in both directions on change. (4) THE BIG
+  # ONE: TerminalViewport.SetCursorPosition called parent.Flush() per cursor move, which on a buffered
+  # terminal ships the HALF-PAINTED diff -- background blanks over the old text, then each label flushed back
+  # one by one. On screen that is erase-then-redraw at exactly the repaint cadence: TianWen's once-per-second
+  # top-bar flicker, which survived four fixes aimed at the emitted bytes because the bytes were right and
+  # their TIMING was not. A cursor move now does nothing but translate and forward; only the frame's owner
+  # flushes, and the sink's own moves ride the SAME byte stream as the glyphs (CUP escape, not Win32
+  # SetCursorPosition -- one ordered sequence, one delivery mechanism). (5) Unrelated but found by the same
+  # user: the byte table special-cased 0x08 as Backspace, SHADOWING the general 0x01..0x1A -> letter+Ctrl
+  # rule three lines below it -- Ctrl+H was the one letter no app could bind, while the Backspace KEY sends
+  # DEL 0x7F, which the table already handled. The special case is deleted, nothing else changed.
+  # Diagnostics shipped with the fixes, because the flicker was only found by measuring: VirtualTerminal
+  # exposes FlushedCellsTotal / FlushedOpaqueCellsTotal (TOTALS, deliberately -- a per-last-flush read is how
+  # the mid-paint flush hid from the first version of the accounting while being the whole problem), and
+  # CellBuffer.CollectFlushDiagnostics records each emitted run's position and text, answering WHICH cells
+  # went out -- the question the front buffer cannot answer after the fact, because its final state always
+  # looks right. Re-pins DIR.Lib 7.2.* -> 7.3.*.
   # 4.7 - the inspector's `key` verb carries MODIFIERS, so a chorded binding is drivable at last. It hardcoded
   # ConsoleModifiers zero, which made every chord unreachable -- Chess.Console flips its board on Ctrl+F and
   # no driver could ask for it. The real byte parser already handled this (a terminal sends Ctrl+letter as one
@@ -171,7 +199,7 @@ env:
   # tree, one palette, one card projection, rendered by both the GPU tab and the TUI tab. Existing callers
   # are unaffected -- the default is still 1:1 -- so the break is in what the type MEANS, not in what
   # compiles.
-  VERSION_PREFIX: 4.7.${{ github.run_number }}
+  VERSION_PREFIX: 4.8.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release

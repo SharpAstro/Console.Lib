@@ -29,7 +29,11 @@ internal sealed class FakeTerminal : IVirtualTerminal
     public void SetCursorPosition(int left, int top) => LastCursorPosition = (left, top);
     public void Write(string text) { }
     public void WriteLine(string? text = null) { }
-    public void Flush() { }
+    public void Flush() => FlushCount++;
+
+    /// <summary>How many times <see cref="Flush"/> was called — a flush mid-paint ships a half-painted
+    /// diff, so tests assert on WHEN flushes happen, not just that output eventually goes out.</summary>
+    public int FlushCount { get; private set; }
     public Stream OutputStream { get; } = Stream.Null;
     public bool HasInput() => _inputs.Count > 0;
     public ConsoleInputEvent TryReadInput() => _inputs.Dequeue();

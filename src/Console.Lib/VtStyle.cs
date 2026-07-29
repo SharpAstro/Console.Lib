@@ -90,23 +90,59 @@ public readonly record struct VtStyle(RGBAColor32 Foreground, RGBAColor32 Backgr
     private static int BgCode(SgrColor c) => (int)c < 8 ? 40 + (int)c : 92 + (int)c;
 
     /// <summary>
-    /// Returns the VT escape sequence for this style in the given <paramref name="colorMode"/>.
+    /// Whether a component names a colour at all.
+    /// <para>
+    /// <b>Alpha zero is not transparent black — a terminal cell does not composite, so there is nothing to
+    /// be transparent against.</b> It means the component was never stated, and what should show is the
+    /// terminal's own default. Emitting it as a colour paints opaque BLACK instead, which is how text drawn
+    /// over a painted background destroyed it: the glyph carried an unstated background, the pen stated it
+    /// as black, and the fill underneath was gone.
+    /// </para>
+    /// </summary>
+    private static bool IsUnstated(RGBAColor32 color) => color.Alpha == 0;
+
+    /// <summary>SGR "default foreground" — the counterpart to 30-37 for a component with no colour.</summary>
+    private const string DefaultFgParam = "39";
+
+    /// <summary>SGR "default background" — the counterpart to 40-47.</summary>
+    private const string DefaultBgParam = "49";
+
+    private string FgParams(ColorMode colorMode) => IsUnstated(Foreground)
+        ? DefaultFgParam
+        : colorMode == ColorMode.TrueColor
+            ? $"38;2;{Foreground.Red};{Foreground.Green};{Foreground.Blue}"
+            : $"{FgCode(SgrColorExtensions.NearestSgrColor(Foreground))}";
+
+    private string BgParams(ColorMode colorMode) => IsUnstated(Background)
+        ? DefaultBgParam
+        : colorMode == ColorMode.TrueColor
+            ? $"48;2;{Background.Red};{Background.Green};{Background.Blue}"
+            : $"{BgCode(SgrColorExtensions.NearestSgrColor(Background))}";
+
+    /// <summary>
+    /// Returns the VT escape sequence for this style in the given <paramref name="colorMode"/>. States BOTH
+    /// components, so nothing is left to inherit from whatever was written before — see
+    /// <see cref="IsUnstated"/> for why a component with no colour becomes 39/49 rather than black.
     /// </summary>
     public string Apply(ColorMode colorMode) => colorMode switch
     {
         ColorMode.None => "",
-        ColorMode.TrueColor => $"\e[38;2;{Foreground.Red};{Foreground.Green};{Foreground.Blue};48;2;{Background.Red};{Background.Green};{Background.Blue}m",
-        _ => $"\e[{FgCode(SgrColorExtensions.NearestSgrColor(Foreground))};{BgCode(SgrColorExtensions.NearestSgrColor(Background))}m",
+        _ => $"\e[{FgParams(colorMode)};{BgParams(colorMode)}m",
     };
 
     /// <summary>
-    /// Returns the VT escape sequence for the foreground color only.
+    /// Returns the VT escape sequence for the foreground color only, leaving the background as whatever the
+    /// terminal currently has.
+    /// <para>
+    /// <b>Prefer <see cref="Apply"/> for anything a <see cref="CellBuffer"/> will record.</b> Inheriting the
+    /// background works on a live terminal, where the leftover state is genuinely what is on screen, but a
+    /// cell buffer has to name a colour per cell and can only record the pen it was told about.
+    /// </para>
     /// </summary>
     public string ApplyFg(ColorMode colorMode) => colorMode switch
     {
         ColorMode.None => "",
-        ColorMode.TrueColor => $"\e[38;2;{Foreground.Red};{Foreground.Green};{Foreground.Blue}m",
-        _ => $"\e[{FgCode(SgrColorExtensions.NearestSgrColor(Foreground))}m",
+        _ => $"\e[{FgParams(colorMode)}m",
     };
 
     /// <summary>

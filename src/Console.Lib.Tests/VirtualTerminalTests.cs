@@ -135,16 +135,48 @@ public sealed class VirtualTerminalTests
     [InlineData((int)'\t', ConsoleKey.Tab, (ConsoleModifiers)0)]
     [InlineData((int)'\r', ConsoleKey.Enter, (ConsoleModifiers)0)]
     [InlineData((int)'\n', ConsoleKey.Enter, (ConsoleModifiers)0)]
-    [InlineData((int)'\b', ConsoleKey.Backspace, (ConsoleModifiers)0)]
+    // DEL is the Backspace KEY. 0x08 is not: it is Ctrl+H, asserted in the Ctrl+letter range below.
     [InlineData(0x7F, ConsoleKey.Backspace, (ConsoleModifiers)0)]
     // Ctrl+letter range (0x01..0x1A → A..Z + Ctrl)
     [InlineData(0x01, ConsoleKey.A, ConsoleModifiers.Control)]
     [InlineData(0x1A, ConsoleKey.Z, ConsoleModifiers.Control)]
+    // 0x08 must not be special-cased out of that range: it was, as Backspace, which made Ctrl+H the only
+    // letter an app could not bind. A Ctrl+H tab shortcut silently did nothing because of this one line.
+    [InlineData((int)'\b', ConsoleKey.H, ConsoleModifiers.Control)]
     public void ByteToConsoleKey_MapsBytesToKeyAndModifiers(int b, ConsoleKey expectedKey, ConsoleModifiers expectedMods)
     {
         var (key, mods) = VirtualTerminal.ByteToConsoleKey(b);
         key.ShouldBe(expectedKey);
         mods.ShouldBe(expectedMods);
+    }
+
+    /// <summary>VT cell coordinates are 1-based; the buffer's are 0-based, and the top-left is the case that
+    /// silently proves it (a 0 row or column is invalid VT and terminals disagree on what to do with it).</summary>
+    [Theory]
+    [InlineData(0, 0, "\e[1;1H")]
+    [InlineData(5, 2, "\e[3;6H")]
+    [InlineData(201, 62, "\e[63;202H")]
+    public void MoveEscape_IsOneBased(int column, int row, string expected)
+        => VirtualTerminal.MoveEscape(column, row).ShouldBe(expected);
+
+    /// <summary>
+    /// Reverse video has to be turned OFF as explicitly as it is turned on. Apply emits colours and no
+    /// attribute reset, so a sink that only ever emitted ReverseOn left the terminal inverted for every run
+    /// after it — one reversed cell (a text cursor) turned every following header into a solid bar and the
+    /// selection into dark text on white.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true, VtStyle.ReverseOn)]
+    [InlineData(false, true, VtStyle.ReverseOff)]
+    [InlineData(true, false, "")]
+    [InlineData(false, false, "")]
+    public void PenEscape_StatesReverseInBothDirections(bool reverse, bool mustState, string expectedSuffix)
+    {
+        var style = new VtStyle(SgrColor.White, SgrColor.Black);
+        var escape = VirtualTerminal.PenEscape(style, ColorMode.Sgr16, reverse, mustState);
+
+        escape.ShouldStartWith(style.Apply(ColorMode.Sgr16));
+        escape[style.Apply(ColorMode.Sgr16).Length..].ShouldBe(expectedSuffix);
     }
 
     [Theory]

@@ -64,8 +64,33 @@ public static class CellLayout
         Action<Layout.Content.Fill, Rect<int>>? drawFill = null)
     {
         var mode = viewport.ColorMode;
-        foreach (var (node, rect) in arranged)
+
+        // The background each node is painted OVER, resolved from the tree. Text is drawn foreground-only so
+        // the fill underneath shows through, which on a live terminal just works: the fill's own SGR is still
+        // in effect, because "still in effect" is a property of the real terminal. A CellBuffer has to name a
+        // colour for every cell it stores, so it can only record a background it was actually told about --
+        // and a foreground-only write tells it nothing, leaving the cell to carry whatever the previous write
+        // happened to leave behind. That made a cell's colour depend on which SIBLING was painted before it:
+        // rows following a row that ended with a Reset lost their fill and were drawn on black.
+        //
+        // A stack keyed by depth is the whole mechanism. Entering a node pops every entry at or below its own
+        // depth (those belong to a sibling subtree, not to an ancestor), so the top is always the nearest
+        // enclosing background -- exactly what the pixel painter composites against.
+        var backgrounds = new Stack<(int Depth, RGBAColor32 Color)>();
+
+        foreach (var arrangedNode in arranged)
         {
+            var node = arrangedNode.Node;
+            var rect = arrangedNode.Bounds;
+
+            while (backgrounds.Count > 0 && backgrounds.Peek().Depth >= arrangedNode.Depth)
+            {
+                backgrounds.Pop();
+            }
+
+            // What this node is painted over, before it contributes a background of its own.
+            var under = backgrounds.Count > 0 ? backgrounds.Peek().Color : default;
+
             // A grid cannot round by fractions of a cell, so any non-zero radius means the same thing here:
             // clip a quarter off each corner cell. See ClipFilledCorners, which also explains why a FILLED
             // rect wants quadrant blocks where a bordered one would want the arc glyphs.
@@ -73,7 +98,9 @@ public static class CellLayout
 
             if (node.Background is { } bg)
             {
-                FillCells(viewport, rect, bg, mode, rounded);
+                FillCells(viewport, rect, bg, mode, under, rounded);
+                backgrounds.Push((arrangedNode.Depth, bg));
+                under = bg;
             }
 
             if (node is not Layout.Node.Leaf leaf)
@@ -84,10 +111,10 @@ public static class CellLayout
             switch (leaf.Content)
             {
                 case Layout.Content.Text text:
-                    DrawText(viewport, rect, text, mode);
+                    DrawText(viewport, rect, text, mode, under);
                     break;
                 case Layout.Content.Box box when box.Color.Alpha > 0:
-                    FillCells(viewport, rect, box.Color, mode, rounded);
+                    FillCells(viewport, rect, box.Color, mode, under, rounded);
                     break;
                 case Layout.Content.Fill fill:
                     drawFill?.Invoke(fill, rect);
@@ -168,8 +195,11 @@ public static class CellLayout
         _ => "Content?",
     };
 
+    /// <param name="under">The background this fill sits on, needed only by the rounded-corner clip: the
+    /// quadrant it omits has to show the enclosing colour, and a terminal cell cannot composite, so that
+    /// colour must be stated rather than left to whatever the terminal currently has.</param>
     private static void FillCells(ITerminalViewport viewport, Rect<int> rect, RGBAColor32 color, ColorMode mode,
-        bool rounded = false)
+        RGBAColor32 under, bool rounded = false)
     {
         var (vw, vh) = viewport.Size;
         var x = Math.Max(0, rect.X);
@@ -190,7 +220,7 @@ public static class CellLayout
 
         if (rounded)
         {
-            ClipFilledCorners(viewport, rect, color, mode, x, width, yEnd);
+            ClipFilledCorners(viewport, rect, color, mode, under, x, width, yEnd);
         }
     }
 
@@ -224,7 +254,7 @@ public static class CellLayout
     /// the fill rather than soften it.
     /// </summary>
     private static void ClipFilledCorners(ITerminalViewport viewport, Rect<int> rect, RGBAColor32 color, ColorMode mode,
-        int x, int width, int yEnd)
+        RGBAColor32 under, int x, int width, int yEnd)
     {
         var top = Math.Max(0, rect.Y);
         var bottom = yEnd - 1;
@@ -236,21 +266,27 @@ public static class CellLayout
             return;
         }
 
-        // Each glyph omits exactly the quadrant pointing away from the rect's interior.
-        var fg = new VtStyle(color, color).ApplyFg(mode);
-        WriteGlyph(viewport, x, top, '▟', fg);        // top-left: upper-left quadrant omitted
-        WriteGlyph(viewport, right, top, '▙', fg);    // top-right: upper-right omitted
-        WriteGlyph(viewport, x, bottom, '▜', fg);     // bottom-left: lower-left omitted
-        WriteGlyph(viewport, right, bottom, '▛', fg); // bottom-right: lower-right omitted
+        // Each glyph omits exactly the quadrant pointing away from the rect's interior. The fill colour is
+        // the GLYPH and the enclosing colour is its background, which is what makes the omitted quadrant read
+        // as clipped -- so both are stated, or the quadrant shows black instead of the page behind the card.
+        var pen = new VtStyle(color, under).Apply(mode);
+        WriteGlyph(viewport, x, top, '▟', pen);        // top-left: upper-left quadrant omitted
+        WriteGlyph(viewport, right, top, '▙', pen);    // top-right: upper-right omitted
+        WriteGlyph(viewport, x, bottom, '▜', pen);     // bottom-left: lower-left omitted
+        WriteGlyph(viewport, right, bottom, '▛', pen); // bottom-right: lower-right omitted
     }
 
-    private static void WriteGlyph(ITerminalViewport viewport, int column, int row, char glyph, string fg)
+    private static void WriteGlyph(ITerminalViewport viewport, int column, int row, char glyph, string pen)
     {
         viewport.SetCursorPosition(column, row);
-        viewport.Write($"{VtStyle.Reset}{fg}{glyph}{VtStyle.Reset}");
+        viewport.Write($"{VtStyle.Reset}{pen}{glyph}{VtStyle.Reset}");
     }
 
-    private static void DrawText(ITerminalViewport viewport, Rect<int> rect, Layout.Content.Text text, ColorMode mode)
+    /// <param name="under">The background this text is painted over, from the nearest enclosing node that
+    /// painted one (see the stack in <see cref="Paint"/>). Stated explicitly rather than inherited, so the
+    /// cell carries it; an unset value is emitted as the terminal's default rather than as black.</param>
+    private static void DrawText(ITerminalViewport viewport, Rect<int> rect, Layout.Content.Text text, ColorMode mode,
+        RGBAColor32 under)
     {
         var (vw, vh) = viewport.Size;
         if (rect.Width <= 0 || rect.Height <= 0)
@@ -288,8 +324,10 @@ public static class CellLayout
             return;
         }
 
-        // Foreground-only so the cells keep whatever Background was painted underneath.
+        // States the background as well as the foreground, so the cells keep the fill painted underneath
+        // WITHOUT depending on it still being the terminal's current SGR state. Foreground-only was correct
+        // for a live terminal and silently wrong for a cell buffer -- see the stack in Paint.
         viewport.SetCursorPosition(startCol, row);
-        viewport.Write($"{new VtStyle(text.Color, text.Color).ApplyFg(mode)}{s}{VtStyle.Reset}");
+        viewport.Write($"{new VtStyle(text.Color, under).Apply(mode)}{s}{VtStyle.Reset}");
     }
 }

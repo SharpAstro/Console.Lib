@@ -30,13 +30,21 @@ public sealed class TerminalViewport(ITerminalViewport parent, int columnOffset,
         _height = height;
     }
 
+    /// <summary>
+    /// Translates to the parent's cells and forwards. It must do NOTHING else — in particular it must not
+    /// flush. It used to call <c>parent.Flush()</c> per move, which on a buffered terminal means "emit the
+    /// pending diff NOW", i.e. mid-paint: a painter that fills its background and then draws its text (every
+    /// <see cref="CellLayout"/> frame) had the half-painted state shipped at each cursor move — blanks
+    /// emitted over the old text, then the labels flushed back one by one. On screen that is erase-then-
+    /// redraw at exactly the repaint cadence: the once-per-second top-bar flicker that survived every fix
+    /// aimed at the emissions themselves, because the emissions were correct and their TIMING was not.
+    /// A caller that genuinely needs bytes out before raw output has <see cref="BeginRawOutput"/>, whose
+    /// contract says so explicitly.
+    /// </summary>
     public void SetCursorPosition(int left, int top)
-    {
-        parent.SetCursorPosition(
+        => parent.SetCursorPosition(
             _columnOffset + Math.Clamp(left, 0, _width - 1),
             _rowOffset + Math.Clamp(top, 0, _height - 1));
-        parent.Flush();
-    }
 
     public void BeginRawOutput(int column, int row)
         => parent.BeginRawOutput(

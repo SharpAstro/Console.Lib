@@ -177,6 +177,23 @@ public sealed class VirtualTerminal : IVirtualTerminal
     public CellBuffer? CellBuffer { get; private set; }
 
     /// <summary>
+    /// Running total of cells every <see cref="Flush"/> has sent to the terminal, and how many of those were
+    /// <see cref="CellKind.Opaque"/> (re-sent because their pen could not be modelled, not because they
+    /// changed). A host samples the totals and diffs across its own interval.
+    /// <para>
+    /// Exposed because "is it repainting too much?" is otherwise unanswerable from outside: a caller can see
+    /// a flickering screen and can see its own paint calls, but not how much of the paint survived the diff.
+    /// TOTALS, deliberately, not last-flush values: a frame can flush more than once, and a
+    /// last-flush property reports only the final one — which is precisely how a mid-paint flush bug hid
+    /// from the first version of this diagnostic while being the whole problem.
+    /// </para>
+    /// </summary>
+    public long FlushedCellsTotal { get; private set; }
+
+    /// <inheritdoc cref="FlushedCellsTotal"/>
+    public long FlushedOpaqueCellsTotal { get; private set; }
+
+    /// <summary>
     /// Switches this terminal to a buffered, DIFFING write path: writes accumulate in
     /// <see cref="CellBuffer"/> and <see cref="Flush"/> emits only the cells that changed.
     ///
@@ -213,18 +230,59 @@ public sealed class VirtualTerminal : IVirtualTerminal
         /// changed the terminal's state behind our back (a clear, a Sixel blit).</summary>
         public void Invalidate() => _pen = null;
 
-        public void MoveTo(int column, int row) => System.Console.SetCursorPosition(column, row);
+        /// <summary>
+        /// Moves the cursor with a VT sequence in the SAME stream as the pen and the glyphs, rather than
+        /// through <see cref="System.Console.SetCursorPosition"/>.
+        /// <para>
+        /// <b>A diff is one ordered sequence and has to be delivered as one.</b> SetCursorPosition is a Win32
+        /// call on the screen buffer; the runs around it are VT bytes on stdout. Splitting the sequence across
+        /// two delivery mechanisms makes the console host synchronise the buffer on every move, and a frame
+        /// that emits a dozen small runs therefore costs a dozen of those -- visible as a flicker at exactly
+        /// the rate the screen updates, which is how it was found (a clock ticking once a second, with the
+        /// paint accounting showing only 15 cells emitted for it). As bytes it is also portable and correctly
+        /// ordered by construction.
+        /// </para>
+        /// </summary>
+        public void MoveTo(int column, int row) => System.Console.Write(MoveEscape(column, row));
 
         public void SetPen(VtStyle style, bool reverse)
         {
             // Only re-state the pen when it actually differs: the whole point is to emit less.
             if (_pen == style && _reverse == reverse) return;
+
+            // Reverse has to be stated in BOTH directions. Turning it on without ever turning it off leaves
+            // the terminal inverted for every run after it, because Apply emits colours and no attribute
+            // reset -- one reversed cell (a text cursor is the usual source) inverted the whole screen from
+            // that point on: headers came out as a solid bar of their foreground, the selection as dark text
+            // on white. Emitted only on a CHANGE, so a screen with no reverse cells is byte-identical, and
+            // also after Invalidate, when the terminal's attribute state is unknown rather than merely stale.
+            var mustStateReverse = _pen is null || _reverse != reverse;
             _pen = style;
             _reverse = reverse;
-            System.Console.Write(reverse ? $"{style.Apply(_mode)}{VtStyle.ReverseOn}" : style.Apply(_mode));
+
+            System.Console.Write(PenEscape(style, _mode, reverse, mustStateReverse));
         }
 
         public void Write(ReadOnlySpan<char> run) => System.Console.Out.Write(run);
+    }
+
+    /// <summary>
+    /// CUP: move the cursor to a 0-based cell. VT rows and columns are 1-based, which is the whole reason this
+    /// is a named function rather than an inline interpolation.
+    /// </summary>
+    internal static string MoveEscape(int column, int row) => $"\e[{row + 1};{column + 1}H";
+
+    /// <summary>
+    /// The escape sequence that puts the terminal into <paramref name="style"/>, plus the reverse-video
+    /// attribute when <paramref name="mustStateReverse"/> says the terminal's current attribute cannot be
+    /// relied on. Pulled out of the sink so the both-directions rule is assertable without a console.
+    /// </summary>
+    internal static string PenEscape(VtStyle style, ColorMode mode, bool reverse, bool mustStateReverse)
+    {
+        var attribute = mustStateReverse
+            ? reverse ? VtStyle.ReverseOn : VtStyle.ReverseOff
+            : "";
+        return $"{style.Apply(mode)}{attribute}";
     }
 
     public void Clear()
@@ -284,7 +342,8 @@ public sealed class VirtualTerminal : IVirtualTerminal
             }
 
             sink.Mode = ColorMode;
-            buffer.Flush(sink);
+            FlushedCellsTotal += buffer.Flush(sink);
+            FlushedOpaqueCellsTotal += buffer.LastFlushOpaqueCells;
         }
 
         System.Console.Out.Flush();
@@ -701,7 +760,11 @@ public sealed class VirtualTerminal : IVirtualTerminal
         >= 'a' and <= 'z' => ((ConsoleKey)(b - 'a' + 'A'), 0),
         >= 'A' and <= 'Z' => ((ConsoleKey)b, ConsoleModifiers.Shift),
         >= '0' and <= '9' => ((ConsoleKey)b, 0),
-        '\b' => (ConsoleKey.Backspace, 0),
+        // NO '\b' case: 0x08 falls through to the Ctrl+letter range below, where it is Ctrl+H. A special case
+        // here used to claim it as Backspace, which made Ctrl+H the ONE letter in 0x01..0x1A that an app could
+        // not bind -- the binding looked broken with nothing wrong at the call site. Nothing is lost: a
+        // terminal sends DEL (0x7F) for the Backspace KEY, which the line below has always handled, and that
+        // is the byte every Backspace handler in this library actually receives.
         '\t' => (ConsoleKey.Tab, 0),
         '\r' or '\n' => (ConsoleKey.Enter, 0),
         ' ' => (ConsoleKey.Spacebar, 0),

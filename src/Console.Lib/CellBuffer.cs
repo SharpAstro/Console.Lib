@@ -209,9 +209,23 @@ public sealed class CellBuffer
     /// </summary>
     /// <returns>How many cells were emitted — zero meaning the screen was already correct, which is the
     /// whole point and what a test asserts on.</returns>
+    /// <summary>
+    /// When set, <see cref="Flush"/> records each emitted run as <c>(row,col)'text'</c> into
+    /// <see cref="LastFlushRuns"/>. Opt-in because it allocates: this exists for the moment a host's paint
+    /// accounting says cells are going out that should not be, and the question becomes WHICH cells — the
+    /// question that cannot be answered after the fact, because the front buffer only ever shows the final
+    /// state and the final state always looks right.
+    /// </summary>
+    public bool CollectFlushDiagnostics { get; set; }
+
+    /// <inheritdoc cref="CollectFlushDiagnostics"/>
+    public string LastFlushRuns { get; private set; } = "";
+
     public int Flush(ICellSink sink)
     {
         var emitted = 0;
+        LastFlushOpaqueCells = 0;
+        var diagnostics = CollectFlushDiagnostics ? new StringBuilder() : null;
         var run = new StringBuilder();
 
         for (var r = 0; r < _height; r++)
@@ -252,6 +266,10 @@ public sealed class CellBuffer
                     if (cell.Style != pen || cell.Reverse != reverse) break;
 
                     run.Append(cell.Glyph == '\0' ? ' ' : cell.Glyph);
+                    if (cell.Kind == CellKind.Opaque)
+                    {
+                        LastFlushOpaqueCells++;
+                    }
                     _front[j] = cell;
                     c++;
                 }
@@ -263,11 +281,31 @@ public sealed class CellBuffer
                     sink.Write(chunk.Span);
                 }
                 emitted += run.Length;
+
+                diagnostics?.Append(diagnostics.Length > 0 ? " | " : "")
+                    .Append('(').Append(r).Append(',').Append(start).Append(")'").Append(run).Append('\'');
             }
+        }
+
+        if (diagnostics is not null)
+        {
+            LastFlushRuns = diagnostics.ToString();
         }
 
         return emitted;
     }
+
+    /// <summary>
+    /// How many of the cells the last <see cref="Flush"/> emitted were <see cref="CellKind.Opaque"/>, i.e.
+    /// re-sent because their pen could not be modelled rather than because they changed.
+    /// <para>
+    /// This is the number that distinguishes "the diff is working" from "the diff is being bypassed". A
+    /// region written with an SGR outside the modelled vocabulary re-emits in full on every single frame
+    /// while the emitted-cell count still looks small, so it reads as a working diff right up until you ask
+    /// how much of it was unavoidable.
+    /// </para>
+    /// </summary>
+    public int LastFlushOpaqueCells { get; private set; }
 
     /// <summary>An Opaque cell is always dirty — that is what "we could not model this" buys.</summary>
     private static bool IsDirty(in Cell back, in Cell front)
@@ -373,6 +411,13 @@ public sealed class CellBuffer
                         i += 4;
                         break;
                     }
+
+                // Default fg / bg. These have to round-trip as a MODELLED pen rather than fall through to
+                // unmodellable: they are how a caller says "the terminal's own colour here", which is the
+                // only way a cell can mean that at all (alpha zero — see VtStyle.IsUnstated). Treating them
+                // as unparseable would make every such cell Opaque and defeat the diff on entire rows.
+                case 39: _pen = _pen with { Foreground = default }; break;
+                case 49: _pen = _pen with { Background = default }; break;
 
                 case >= 30 and <= 37: _pen = _pen with { Foreground = ((SgrColor)(codes[i] - 30)).ToRgba() }; break;
                 case >= 90 and <= 97: _pen = _pen with { Foreground = ((SgrColor)(codes[i] - 82)).ToRgba() }; break;

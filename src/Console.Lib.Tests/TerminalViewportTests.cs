@@ -27,6 +27,26 @@ public sealed class TerminalViewportTests
         terminal.LastCursorPosition.ShouldBe((56, 0));
     }
 
+    /// <summary>
+    /// A cursor move must not flush. On a buffered terminal a flush means "emit the pending diff NOW", and a
+    /// painter moves the cursor between filling its background and drawing its text — so a per-move flush
+    /// ships the half-painted state: blanks over the old text, then labels one by one. That WAS the TUI's
+    /// once-per-second top-bar flicker, and it survived every fix aimed at the emitted bytes because the
+    /// bytes were right and their timing was not.
+    /// </summary>
+    [Fact]
+    public void SetCursorPosition_DoesNotFlush()
+    {
+        var terminal = new FakeTerminal(new Queue<ConsoleInputEvent>(), 80, 24);
+        var viewport = new TerminalViewport(terminal, 10, 5, 30, 15);
+
+        viewport.SetCursorPosition(3, 7);
+        viewport.Write("half-painted");
+        viewport.SetCursorPosition(3, 8);
+
+        terminal.FlushCount.ShouldBe(0, "only the frame's owner decides when the diff goes out");
+    }
+
     [Fact]
     public void SetCursorPosition_AddsOffsetToCoordinates()
     {
