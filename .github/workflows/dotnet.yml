@@ -68,6 +68,22 @@ env:
   # gated on a fill and the layout DSL has no border chrome, so an unfilled rounded box is currently
   # unexpressible -- if Layout.Node gains a border, the arcs are what should render ITS corners, at that
   # call site. RoundCorners -> ClipFilledCorners (private).
+  # 4.2 - SixelEncoder.Encode takes a `reserved` colour list: entries claim palette indices 0..n-1 before
+  # any frequency ranking, and keep them whether or not the frame contains a pixel of them. The palette is
+  # otherwise chosen purely by pixel FREQUENCY, which is right for flat regions and wrong for anything that
+  # carries meaning in a few pixels. Measured on a real chess board render: 1966 distinct colours for 255
+  # slots, THREE of them (background + the two square fills) covering ~95% of the surface, and the
+  # 255th-ranked colour occupying twelve pixels -- the rest of the budget consumed by glyph antialiasing. A
+  # selection tint or a 3px last-move border is ranked against that tail on area alone, and when it loses,
+  # FindNearest snaps it to the closest survivor; since the survivors are overwhelmingly near-duplicates of
+  # the background and the board, losing does not shift the hue slightly, it makes the accent INVISIBLE.
+  # Reserving also makes the index stable, which two things need: a partial strip re-derives its palette
+  # from that strip's histogram alone and could otherwise represent the same accent differently from the
+  # full frame before it, and an animated stream would reshuffle indices every frame as the histogram
+  # shifts (shimmer, plus no possibility of inter-frame delta encoding). A list of 255 entries leaves the
+  # frequency pass nothing to allocate and so IS a fixed palette -- the limit case is deliberate, so
+  # animation needs no separate mode. SixelRgbaImageRenderer.ReservedColors feeds BOTH encode paths.
+  # Default empty = historical behaviour byte for byte, which the pinned output hashes assert.
   # 4.1 - ConsoleInputMapping stops classifying mouse MOTION as a press. xterm mode 1002 reports pointer
   # movement with the HELD BUTTON still in the button field and IsRelease false, and ToInputEvent asked only
   # "is this a release?", so every motion report became an InputEvent.MouseDown at the pointer. MouseEvent has
@@ -94,7 +110,7 @@ env:
   # tree, one palette, one card projection, rendered by both the GPU tab and the TUI tab. Existing callers
   # are unaffected -- the default is still 1:1 -- so the break is in what the type MEANS, not in what
   # compiles.
-  VERSION_PREFIX: 4.1.${{ github.run_number }}
+  VERSION_PREFIX: 4.2.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release

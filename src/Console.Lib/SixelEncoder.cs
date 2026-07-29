@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Runtime.InteropServices;
+using DIR.Lib;
 
 namespace Console.Lib;
 
@@ -67,7 +68,37 @@ public static class SixelEncoder
     /// </list>
     /// </para>
     /// </remarks>
-    public static void Encode(byte[] rawPixels, int width, int height, int channels, Stream output)
+    /// <param name="reserved">
+    /// Colours guaranteed a palette slot, taking indices 0..n-1 in the order given, before any
+    /// frequency ranking. Empty by default, which is the historical behaviour exactly.
+    /// <para>
+    /// <b>Why this is needed at all.</b> The palette is otherwise chosen purely by pixel FREQUENCY, and
+    /// on any surface with antialiased text the frequency histogram is dominated by glyph edges: a real
+    /// chess board render produces ~1966 distinct colours for 255 slots, of which three (background and
+    /// the two square fills) cover ~95% of the pixels and the remaining ~250 slots are contested by ~1960
+    /// near-identical shades, the 255th of which occupies twelve pixels. A colour that carries MEANING
+    /// rather than area — a selection tint, a 3px last-move border, a hairline move arrow — is ranked
+    /// against that tail on area alone, and if it loses it is snapped by <see cref="FindNearest"/> to the
+    /// nearest survivor. Since the survivors are overwhelmingly near-duplicates of the background and the
+    /// board, losing does not shift the colour slightly: it makes it board-coloured, i.e. invisible.
+    /// </para>
+    /// <para>
+    /// Reserving also makes an index STABLE, which matters wherever more than one encode has to agree:
+    /// a partial strip re-derives its palette from that strip's histogram alone, so the same accent could
+    /// be represented differently by a partial update than by the full frame that preceded it; and an
+    /// animated stream would otherwise reshuffle indices every frame as the histogram shifts, which both
+    /// shimmers and forecloses any inter-frame delta encoding.
+    /// </para>
+    /// <para>
+    /// Reserved colours hold their slots whether or not the frame uses them — that is the point — and an
+    /// unused one costs a single palette declaration and nothing in the data section. Duplicates are
+    /// ignored. A list of <see cref="MaxColors"/> entries leaves no room for the frequency pass, which
+    /// makes it a FIXED palette: everything in the image then snaps to the colours given. That limit case
+    /// is deliberate, so animation needs no separate mode.
+    /// </para>
+    /// </param>
+    public static void Encode(byte[] rawPixels, int width, int height, int channels, Stream output,
+        ReadOnlySpan<RGBAColor32> reserved = default)
     {
         var pixelCount = width * height;
         var indexMap = ArrayPool<byte>.Shared.Rent(pixelCount);
@@ -77,7 +108,7 @@ public static class SixelEncoder
 
         try
         {
-            var paletteSize = BuildPaletteAndIndexMap(rawPixels, pixelCount, channels, indexMap, paletteArr);
+            var paletteSize = BuildPaletteAndIndexMap(rawPixels, pixelCount, channels, indexMap, paletteArr, reserved);
 
             var writer = new BufferedWriter(output, outputBuf);
             WriteHeader(ref writer, width, height);
@@ -100,10 +131,14 @@ public static class SixelEncoder
     /// palette slots to the most frequent colors so large solid areas (board tiles,
     /// backgrounds) always get exact representation. Remaining colors are mapped
     /// to their nearest palette entry.
+    /// <para>
+    /// <paramref name="reserved"/> is claimed ahead of all of that, so a colour that matters by MEANING
+    /// rather than by area is not ranked against the antialiasing tail. See <see cref="Encode"/>.
+    /// </para>
     /// </summary>
     private static int BuildPaletteAndIndexMap(
         byte[] rawPixels, int pixelCount, int channels,
-        byte[] indexMap, int[] palette)
+        byte[] indexMap, int[] palette, ReadOnlySpan<RGBAColor32> reserved)
     {
         // RGBA inputs (channels == 4) honour alpha: any pixel with alpha == 0
         // is skipped during palette construction and tagged as transparent in
@@ -133,22 +168,40 @@ public static class SixelEncoder
         }
 
         var uniqueColors = colorFrequency.Count;
-        var colorToIndex = new Dictionary<int, byte>(capacity: uniqueColors);
+        var colorToIndex = new Dictionary<int, byte>(capacity: uniqueColors + reserved.Length);
         var paletteSize = 0;
 
-        if (uniqueColors <= MaxColors)
+        // Reservations claim their slots first, in the order given, and keep them whether or not this
+        // frame contains a single pixel of them — that is what makes the index stable across a partial
+        // strip or an animation frame. Duplicates are dropped rather than wasting a slot.
+        foreach (var colour in reserved)
         {
-            // All colors fit — no sorting needed
+            if (paletteSize >= MaxColors)
+            {
+                break;
+            }
+
+            var packed = (colour.Red << 16) | (colour.Green << 8) | colour.Blue;
+            if (colorToIndex.TryAdd(packed, (byte)paletteSize))
+            {
+                palette[paletteSize++] = packed;
+            }
+        }
+
+        if (paletteSize + uniqueColors <= MaxColors)
+        {
+            // Everything fits alongside the reservations — no ranking needed
             foreach (var (packed, _) in colorFrequency)
             {
-                colorToIndex[packed] = (byte)paletteSize;
-                palette[paletteSize] = packed;
-                paletteSize++;
+                if (colorToIndex.TryAdd(packed, (byte)paletteSize))
+                {
+                    palette[paletteSize++] = packed;
+                }
             }
         }
         else
         {
-            // More unique colors than palette slots: prioritize most frequent
+            // More unique colors than the slots reservations left: prioritize most frequent
             var entries = ArrayPool<KeyValuePair<int, int>>.Shared.Rent(uniqueColors);
             try
             {
@@ -160,18 +213,29 @@ public static class SixelEncoder
 
                 entries.AsSpan(0, uniqueColors).Sort(static (a, b) => b.Value.CompareTo(a.Value));
 
-                for (var i = 0; i < MaxColors; i++)
+                // Walk the ranking once. The cut is wherever the palette fills up, which depends on how
+                // many slots the reservations took AND on how many of the frame's own colours were
+                // already among them — so it is not a fixed index the way it was before.
+                var rank = 0;
+                for (; rank < uniqueColors && paletteSize < MaxColors; rank++)
                 {
-                    var packed = entries[i].Key;
-                    colorToIndex[packed] = (byte)paletteSize;
-                    palette[paletteSize] = packed;
-                    paletteSize++;
+                    var packed = entries[rank].Key;
+                    if (colorToIndex.TryAdd(packed, (byte)paletteSize))
+                    {
+                        palette[paletteSize++] = packed;
+                    }
                 }
 
-                // Pre-compute nearest palette entry for remaining colors
-                for (var i = MaxColors; i < uniqueColors; i++)
+                // Everything below the cut snaps to its nearest surviving entry — reservations included,
+                // which is the other half of the point: a shade can now land on a colour that means
+                // something rather than only on whichever near-duplicate of the background outranked it.
+                for (; rank < uniqueColors; rank++)
                 {
-                    colorToIndex[entries[i].Key] = FindNearest(palette, paletteSize, entries[i].Key);
+                    var packed = entries[rank].Key;
+                    if (!colorToIndex.ContainsKey(packed))
+                    {
+                        colorToIndex[packed] = FindNearest(palette, paletteSize, packed);
+                    }
                 }
             }
             finally
