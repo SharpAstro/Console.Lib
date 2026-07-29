@@ -6,8 +6,9 @@
     <Nullable>enable</Nullable>
     <IsAotCompatible>true</IsAotCompatible>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <VersionPrefix>4.9.0</VersionPrefix>
-    <AssemblyVersion>4.9.0.0</AssemblyVersion>
+    <!-- Both derived from ConsoleLibVersion in ../Directory.Build.props; edit the version there. -->
+    <VersionPrefix>$(ConsoleLibVersion).0</VersionPrefix>
+    <AssemblyVersion>$(ConsoleLibVersion).0.0</AssemblyVersion>
     <PackageID>Console.Lib</PackageID>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>

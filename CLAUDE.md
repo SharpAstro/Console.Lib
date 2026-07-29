@@ -34,18 +34,28 @@ These are passed to `dotnet build` as:
 
 ### Files to update when bumping the version
 
-Four values across three files must stay in sync:
+**Two edits.** `<ConsoleLibVersion>` in `src/Directory.Build.props` is the single source of truth for the `X.Y`, and the workflow repeats it:
 
 | File | Property | Format | Example |
 |---|---|---|---|
-| `src/Console.Lib/Console.Lib.csproj` | `<VersionPrefix>` | `X.Y.Z` | `2.0.0` |
-| `src/Console.Lib/Console.Lib.csproj` | `<AssemblyVersion>` | `X.Y.0.0` | `2.0.0.0` |
-| `src/MdCat/MdCat.csproj` | `<VersionPrefix>` | `X.Y.Z` | `2.0.0` |
+| `src/Directory.Build.props` | `<ConsoleLibVersion>` | `X.Y` | `2.0` |
 | `.github/workflows/dotnet.yml` | `VERSION_PREFIX` | `X.Y.${{ github.run_number }}` | `2.0.${{ github.run_number }}` |
 
-`VersionPrefix` is the local/debug package version. `AssemblyVersion` governs .NET assembly binding. `VERSION_PREFIX` drives the CI-published NuGet version. All must share the same `X.Y` major/minor.
+Everything else derives from the first and must NOT be edited by hand:
 
-The **mdcat** global tool's version is melded to Console.Lib's: CI passes the same `-p:Version` to the whole solution, and a dedicated `dotnet pack src/MdCat` step (mdcat is `PackAsTool`, so it can't use `GeneratePackageOnBuild`) publishes it to nuget.org alongside the library. Keep its `VersionPrefix` `X.Y` in step. (mdcat *binaries* — the native AOT GitHub Releases from `mdcat-release.yml` — are independent, tag-driven via `mdcat-vX.Y.Z`.)
+| File | Property | Derives as |
+|---|---|---|
+| `src/Console.Lib/Console.Lib.csproj` | `<VersionPrefix>` | `$(ConsoleLibVersion).0` |
+| `src/Console.Lib/Console.Lib.csproj` | `<AssemblyVersion>` | `$(ConsoleLibVersion).0.0` |
+| `src/MdCat/MdCat.csproj` | `<VersionPrefix>` | `$(ConsoleLibVersion).0` |
+
+`VersionPrefix` is the local/debug package version. `AssemblyVersion` governs .NET assembly binding. `VERSION_PREFIX` drives the CI-published NuGet version. All share the same `X.Y` by construction now — they did not before, and `AssemblyVersion` sat at `3.6.0.0` from 4.1 through 4.8 without anyone noticing, because nothing compares them.
+
+The workflow's `VERSION_PREFIX` is the one value that cannot be derived: a workflow `env:` block cannot evaluate MSBuild. Making it derived means a computed step (`dotnet msbuild -getProperty:ConsoleLibVersion` into `$GITHUB_ENV`) instead of a static entry, which also has to relocate the release-note block living in that `env:`.
+
+`src/Console.Lib.Inspector/Console.Lib.Inspector.csproj` keeps its own `<VersionPrefix>` (`1.0.0`) on purpose — it is a separately versioned MCP-server package. CI overrides it via the solution-wide `-p:Version` regardless.
+
+The **mdcat** global tool's version is melded to Console.Lib's: CI passes the same `-p:Version` to the whole solution, and a dedicated `dotnet pack src/MdCat` step (mdcat is `PackAsTool`, so it can't use `GeneratePackageOnBuild`) publishes it to nuget.org alongside the library. Deriving its `VersionPrefix` keeps the LOCAL build in step too. (mdcat *binaries* — the native AOT GitHub Releases from `mdcat-release.yml` — are independent, tag-driven via `mdcat-vX.Y.Z`.)
 
 ## DIR.Lib local-project reference
 

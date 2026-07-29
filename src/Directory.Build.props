@@ -1,0 +1,34 @@
+<Project>
+
+  <!--
+    THE version. Every other version value in the repo derives from this one, so a release is a
+    one-character edit here instead of three edits that can silently disagree:
+
+      src/Console.Lib/Console.Lib.csproj   VersionPrefix    $(ConsoleLibVersion).0
+      src/Console.Lib/Console.Lib.csproj   AssemblyVersion  $(ConsoleLibVersion).0.0
+      src/MdCat/MdCat.csproj               VersionPrefix    $(ConsoleLibVersion).0
+
+    It is the X.Y only, because that is the part the three share; the patch/build component differs by
+    consumer (the csprojs use .0 for local and debug builds, CI substitutes its run number).
+
+    AssemblyVersion is in the list on purpose. It had drifted to 3.6.0.0 and stayed there through every
+    bump from 4.1 to 4.8 while the other two moved together, which is exactly the failure a single source
+    of truth removes. It was invisible because nothing compares them.
+
+    mdcat's version is melded to the library's: CI passes one -p:Version to the whole solution, so the
+    published tool tracks the library. Deriving its csproj value means the LOCAL build agrees too.
+
+    STILL DUPLICATED, unavoidably: .github/workflows/dotnet.yml's VERSION_PREFIX, which must read
+    X.Y.${{ github.run_number }}. A workflow's env: block cannot evaluate MSBuild, so the X.Y is repeated
+    there. Making even that derived means turning it into a computed step (`dotnet msbuild
+    -getProperty:ConsoleLibVersion` into $GITHUB_ENV) instead of a static env entry, which is worth doing
+    but restructures the release-note block that currently lives in that env.
+
+    Console.Lib.Inspector keeps its own VersionPrefix (1.0.0) and is deliberately NOT derived: it is a
+    separately versioned MCP-server package. CI overrides it anyway via the solution-wide -p:Version.
+  -->
+  <PropertyGroup>
+    <ConsoleLibVersion>4.9</ConsoleLibVersion>
+  </PropertyGroup>
+
+</Project>
