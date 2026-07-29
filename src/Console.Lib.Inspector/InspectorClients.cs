@@ -14,7 +14,7 @@ public sealed record InspectorInstance(IPAddress Address, int TcpPort, string Ap
 /// Finds debuggable instances with a UDP multicast query, collecting the unicast replies. The reply's SOURCE
 /// address is the reachable one, so the descriptor itself only has to carry the port and the metadata.
 ///
-/// <para>Replies whose <c>kind</c> is not <c>console</c> are dropped. Discovery is one shared group, so a GPU
+/// <para>Replies whose <c>kind</c> is not a terminal are dropped. Discovery is one shared group, so a GPU
 /// app on the same machine answers too — and offering it <c>screen</c> would be nonsense. This family has been
 /// bitten by an unfiltered shared broadcast domain before, in LAN peer discovery.</para>
 /// </summary>
@@ -37,7 +37,7 @@ public sealed class InspectorDiscoveryClient(IPAddress group, int port)
             while (true)
             {
                 var recv = await udp.ReceiveAsync(window.Token);
-                if (TryParse(recv, out var instance) && instance!.Kind == "console" && seen.Add(instance.Pid))
+                if (TryParse(recv, out var instance) && IsTerminal(instance!.Kind) && seen.Add(instance.Pid))
                 {
                     found.Add(instance);
                 }
@@ -48,6 +48,13 @@ public sealed class InspectorDiscoveryClient(IPAddress group, int port)
 
         return found;
     }
+
+    /// <summary>
+    /// Whether a reply is a terminal we can drive. <c>console</c> is accepted alongside <c>tui</c> because
+    /// Console.Lib 4.4 shipped with the older word for one afternoon; dropping it would make that build
+    /// invisible to this sidecar rather than merely mislabelled.
+    /// </summary>
+    private static bool IsTerminal(string kind) => kind is "tui" or "console";
 
     private static bool TryParse(UdpReceiveResult recv, out InspectorInstance? instance)
     {

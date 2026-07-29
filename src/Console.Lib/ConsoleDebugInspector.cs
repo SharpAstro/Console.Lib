@@ -55,9 +55,10 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
 
     public string AppName { get; }
 
-    /// <summary>A terminal. See <see cref="IDebugInspectorHost.SurfaceKind"/> for why this matters — a
-    /// sidecar filters on it, and the default of "unknown" makes an instance invisible.</summary>
-    public string SurfaceKind => "console";
+    /// <summary>A character-cell terminal. See <see cref="IDebugInspectorHost.SurfaceKind"/> for the
+    /// vocabulary and for why this matters — a sidecar filters on it, and the default of "unknown" makes an
+    /// instance invisible.</summary>
+    public string SurfaceKind => "tui";
 
     /// <summary>The command server's port; -1 when <see cref="Detached"/>.</summary>
     public int Port => _core?.Port ?? -1;

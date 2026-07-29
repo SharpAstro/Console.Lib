@@ -68,6 +68,11 @@ env:
   # gated on a fill and the layout DSL has no border chrome, so an unfilled rounded box is currently
   # unexpressible -- if Layout.Node gains a border, the arcs are what should render ITS corners, at that
   # call site. RoundCorners -> ClipFilledCorners (private).
+  # 4.5 - the discovery `kind` for a terminal is "tui", not "console". DIR.Lib 7.2 introduced the field so a
+  # sidecar can filter replies to surfaces it knows how to drive, and "tui"/"sdl"/"webgl" is the vocabulary
+  # worth keeping -- "console" named the library rather than the surface, and pairs badly with "sdl". Renamed
+  # while nothing outside these repos depends on it. The sidecar accepts BOTH, because 4.4 shipped the older
+  # word for one afternoon and dropping it would make that build invisible rather than merely mislabelled.
   # 4.4 - ConsoleDebugInspector.Detached: the same verbs with NO transport, no TCP listener and no multicast
   # bind. Added because the 4.3 tests opened a real socket for EVERY assertion, and almost none of them were
   # about the wire: what a row of cells reads back as, how a key name maps, where a click's pixel centre
@@ -144,7 +149,7 @@ env:
   # tree, one palette, one card projection, rendered by both the GPU tab and the TUI tab. Existing callers
   # are unaffected -- the default is still 1:1 -- so the break is in what the type MEANS, not in what
   # compiles.
-  VERSION_PREFIX: 4.4.${{ github.run_number }}
+  VERSION_PREFIX: 4.5.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release
