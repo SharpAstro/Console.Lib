@@ -68,6 +68,18 @@ env:
   # gated on a fill and the layout DSL has no border chrome, so an unfilled rounded box is currently
   # unexpressible -- if Layout.Node gains a border, the arcs are what should render ITS corners, at that
   # call site. RoundCorners -> ClipFilledCorners (private).
+  # 4.7 - the inspector's `key` verb carries MODIFIERS, so a chorded binding is drivable at last. It hardcoded
+  # ConsoleModifiers zero, which made every chord unreachable -- Chess.Console flips its board on Ctrl+F and
+  # no driver could ask for it. The real byte parser already handled this (a terminal sends Ctrl+letter as one
+  # control byte, decoded to (ConsoleKey.A + n, Control) at VirtualTerminal.cs:732), so what is injected now is
+  # exactly what a keypress produces and the app's genuine binding is exercised, not an inspector-only path.
+  # Spelling follows the SDL inspector's `mods` string -- substring-matched, case-insensitive, so "Ctrl",
+  # "ctrl+shift" and "CtrlShift" all work -- so one convention covers both inspectors. DIVERGES from SDL in
+  # one way, on purpose: unrecognised modifier text is REFUSED rather than resolved to None. Dropping it would
+  # deliver a bare key, and a bare key is often a different valid binding rather than a no-op (bare `f` is
+  # chess's file-f selector), so the failure would read as the app ignoring a correct chord. The reply echoes
+  # the resolved modifiers for the same reason. The sidecar's `key` tool gains an optional `mods` parameter and
+  # a Json.Obj to build it, mirroring SdlVulkan.Renderer.Inspector's.
   # 4.6 - the MCP sidecar stops using reflective JSON. Library UNCHANGED; the sidecar rides this version
   # prefix, so shipping it needs a bump. It escapes its own strings now instead of calling
   # JsonSerializer.Serialize, which throws at runtime under trimming or AOT (both set
@@ -159,7 +171,7 @@ env:
   # tree, one palette, one card projection, rendered by both the GPU tab and the TUI tab. Existing callers
   # are unaffected -- the default is still 1:1 -- so the break is in what the type MEANS, not in what
   # compiles.
-  VERSION_PREFIX: 4.6.${{ github.run_number }}
+  VERSION_PREFIX: 4.7.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release

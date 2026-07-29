@@ -107,14 +107,17 @@ public sealed class InspectorTools
     }
 
     [McpServerTool, Description(
-        "Inject a keystroke. Accepts a key name (Escape, Enter, F1, Up, PageDown, Tab) or a single character. "
-        + "For chess a board move is FOUR keys - file letter then rank digit, twice: e2e4 is e, 2, e, 4.")]
+        "Inject a keystroke. Accepts a key name (Escape, Enter, F1, Up, PageDown, Tab) or a single character, "
+        + "plus an optional chord via `mods`. For chess a board move is FOUR keys - file letter then rank "
+        + "digit, twice: e2e4 is e, 2, e, 4. NOTE some bindings are chords whose bare key does something "
+        + "ELSE: chess flips the board on Ctrl+F, while bare `f` selects file f.")]
     public static async Task<string> key(InspectorDiscoveryClient d, InspectorSocketClient s,
         [Description("Key name or single character.")] string key,
+        [Description("Modifiers, e.g. \"Ctrl\", \"Ctrl+Shift\", \"Alt\". Omit for a bare key. Unrecognised text is refused rather than silently sending the bare key.")] string? mods = null,
         [Description("Target instance pid (0 = the only running instance).")] int instance = 0,
         CancellationToken ct = default)
         => (await s.SendAsync(await Resolve(d, instance, ct), "key",
-            $"{{\"key\":{Json.Quote(key)}}}", ct)).GetRawText();
+            Json.Obj(("key", key), ("mods", mods)), ct)).GetRawText();
 
     [McpServerTool, Description("Inject a sequence of keystrokes in order - the convenient form of `key` for typing a move or walking a menu.")]
     public static async Task<string> keys(InspectorDiscoveryClient d, InspectorSocketClient s,

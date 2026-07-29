@@ -187,6 +187,73 @@ public sealed class ConsoleDebugInspectorTests
     }
 
     /// <summary>
+    /// A chord, spelled every way a driver plausibly spells it. What is injected has to be the pair the REAL
+    /// parser produces — a terminal sends Ctrl+F as one control byte that <c>VirtualTerminal</c> decodes to
+    /// <c>(F, Control)</c> — or the inspector would be exercising a path the app never sees.
+    /// </summary>
+    [Theory]
+    [InlineData("Ctrl", ConsoleModifiers.Control)]
+    [InlineData("ctrl", ConsoleModifiers.Control)]
+    [InlineData("control", ConsoleModifiers.Control)]
+    [InlineData("Ctrl+Shift", ConsoleModifiers.Control | ConsoleModifiers.Shift)]
+    [InlineData("CtrlShift", ConsoleModifiers.Control | ConsoleModifiers.Shift)]
+    [InlineData("control-alt", ConsoleModifiers.Control | ConsoleModifiers.Alt)]
+    [InlineData("option", ConsoleModifiers.Alt)]
+    public void Key_CarriesModifiers(string mods, ConsoleModifiers expected)
+    {
+        var (inspector, screen) = Detached();
+
+        Call(inspector, "key", $"{{\"key\":\"f\",\"mods\":\"{mods}\"}}")
+            .GetProperty("ok").GetBoolean().ShouldBeTrue();
+
+        screen.Injected.TryDequeue(out var evt).ShouldBeTrue();
+        evt.Key.ShouldBe(ConsoleKey.F);
+        evt.Modifiers.ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("none")]
+    [InlineData("0")]
+    public void Key_WithoutModifiers_StaysBare(string mods)
+    {
+        var (inspector, screen) = Detached();
+
+        Call(inspector, "key", $"{{\"key\":\"f\",\"mods\":\"{mods}\"}}")
+            .GetProperty("ok").GetBoolean().ShouldBeTrue();
+
+        screen.Injected.TryDequeue(out var evt).ShouldBeTrue();
+        evt.Modifiers.ShouldBe(default, "an absent or explicitly-none chord must not invent one");
+    }
+
+    /// <summary>
+    /// The failure this refusal exists to prevent: dropping an unrecognised modifier would deliver a BARE
+    /// key, and in chess bare <c>f</c> is not a no-op but the file-f selector. Silently doing a different
+    /// valid thing reads as the app ignoring a correct chord, so nothing is injected at all.
+    /// </summary>
+    [Fact]
+    public void Key_RefusesUnknownModifiers_RatherThanSilentlySendingABareKey()
+    {
+        var (inspector, screen) = Detached();
+
+        var result = Call(inspector, "key", "{\"key\":\"f\",\"mods\":\"cmd\"}");
+
+        result.GetProperty("ok").GetBoolean().ShouldBeFalse();
+        result.GetProperty("reason").GetString().ShouldContain("cmd");
+        screen.Injected.ShouldBeEmpty("a bare `f` would be the file selector, not a harmless no-op");
+    }
+
+    /// <summary>The reply echoes the chord, so a driver can assert it was heeded rather than infer it.</summary>
+    [Fact]
+    public void Key_EchoesTheResolvedModifiers()
+    {
+        var (inspector, _) = Detached();
+
+        Call(inspector, "key", "{\"key\":\"f\",\"mods\":\"ctrl\"}")
+            .GetProperty("mods").GetString().ShouldBe("Control");
+    }
+
+    /// <summary>
     /// A click is addressed in CELLS and converted to the pixel coordinates hit-testing wants, because cells
     /// are what a driver can compute — it just read the text at a column and a row. It lands on the cell
     /// CENTRE so a rounding difference cannot pick a neighbour.

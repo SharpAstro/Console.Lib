@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -64,6 +65,41 @@ internal static class Json
         }
         return sb.Append('"').ToString();
     }
+
+    /// <summary>
+    /// A JSON object from name/value pairs. A null value is written as <c>null</c> rather than omitted, which
+    /// the app reads the same as an absent field — so an optional parameter needs no second call shape.
+    /// </summary>
+    public static string Obj(params (string Name, object? Value)[] fields)
+    {
+        var sb = new StringBuilder("{");
+        for (var i = 0; i < fields.Length; i++)
+        {
+            if (i > 0)
+            {
+                sb.Append(',');
+            }
+            sb.Append(Quote(fields[i].Name)).Append(':').Append(Value(fields[i].Value));
+        }
+        return sb.Append('}').ToString();
+    }
+
+    /// <summary>
+    /// One value. The accepted set is closed on purpose: an unsupported type throws HERE, at the call site
+    /// that added it, rather than silently producing something the app cannot parse.
+    /// </summary>
+    private static string Value(object? value) => value switch
+    {
+        null => "null",
+        string s => Quote(s),
+        bool b => b ? "true" : "false",
+        int i => i.ToString(CultureInfo.InvariantCulture),
+        // InvariantCulture is what stops a comma decimal separator producing JSON that parses as two values
+        // on a machine with a European locale.
+        double d => d.ToString("R", CultureInfo.InvariantCulture),
+        _ => throw new NotSupportedException(
+            $"{value.GetType().Name} is not a supported inspector parameter type; add it to Json.Value"),
+    };
 }
 
 /// <summary>One discovered debuggable terminal app.</summary>

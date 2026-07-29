@@ -197,8 +197,14 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
     /// <summary>
     /// Injects a keystroke. Accepts a <see cref="ConsoleKey"/> name ("Escape", "F1", "A", "D4") or a single
     /// character, which is what a board move needs — GameUI reads files as letters and ranks as digits, so
-    /// e2e4 is <c>e,2,e,4</c>.
+    /// e2e4 is <c>e,2,e,4</c>. An optional <c>mods</c> string carries the chord.
     /// </summary>
+    /// <remarks>
+    /// A chord injected here is byte-for-byte what the real parser produces: a terminal sends Ctrl+letter as
+    /// a single control byte, which <see cref="VirtualTerminal"/> decodes back to
+    /// <c>(ConsoleKey.A + n, ConsoleModifiers.Control)</c> — the same pair built here. So driving Ctrl+F
+    /// exercises the app's real binding rather than an inspector-only path.
+    /// </remarks>
     private string Key(JsonElement p)
     {
         var key = Str(p, "key");
@@ -209,8 +215,43 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
             return $"{{\"ok\":false,\"reason\":\"unknown key '{key}'\"}}";
         }
 
-        _terminal.Inject(new ConsoleInputEvent(null, consoleKey, 0));
-        return $"{{\"ok\":true,\"key\":\"{consoleKey}\"}}";
+        var raw = Str(p, "mods");
+        if (!TryMapModifiers(raw, out var modifiers))
+        {
+            return $"{{\"ok\":false,\"reason\":\"unknown modifiers '{raw}'\"}}";
+        }
+
+        _terminal.Inject(new ConsoleInputEvent(null, consoleKey, modifiers));
+        // The modifiers are echoed because an unheeded chord is otherwise INVISIBLE: a dropped Ctrl turns
+        // Ctrl+F into bare `f`, which in chess is not a no-op but a different valid action (the file-f
+        // selector). A driver can assert on this instead of inferring from the app's state.
+        return $"{{\"ok\":true,\"key\":\"{consoleKey}\",\"mods\":\"{modifiers}\"}}";
+    }
+
+    /// <summary>
+    /// Maps a driver's modifier string to <see cref="ConsoleModifiers"/>. Substring-matched and
+    /// case-insensitive, so "Ctrl", "ctrl+shift", "CtrlShift" and "control-alt" all work — the same spelling
+    /// the SDL inspector accepts, so one convention covers both.
+    /// </summary>
+    /// <remarks>
+    /// <b>Unrecognised text is an ERROR, not <see cref="ConsoleModifiers"/> zero.</b> Silently dropping it
+    /// would deliver a BARE key, and a bare key is frequently a different valid binding rather than a
+    /// no-op — so the failure would look like the app ignoring a correct chord. This is stricter than the
+    /// SDL inspector's equivalent, which resolves the unknown to None.
+    /// </remarks>
+    private static bool TryMapModifiers(string? raw, out ConsoleModifiers modifiers)
+    {
+        modifiers = 0;
+        if (string.IsNullOrWhiteSpace(raw)) return true;
+
+        var s = raw.ToLowerInvariant();
+        if (s is "none" or "0") return true;
+
+        if (s.Contains("ctrl") || s.Contains("control")) modifiers |= ConsoleModifiers.Control;
+        if (s.Contains("shift")) modifiers |= ConsoleModifiers.Shift;
+        if (s.Contains("alt") || s.Contains("option")) modifiers |= ConsoleModifiers.Alt;
+
+        return modifiers != 0;
     }
 
     /// <summary>
