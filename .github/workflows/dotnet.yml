@@ -68,6 +68,14 @@ env:
   # gated on a fill and the layout DSL has no border chrome, so an unfilled rounded box is currently
   # unexpressible -- if Layout.Node gains a border, the arcs are what should render ITS corners, at that
   # call site. RoundCorners -> ClipFilledCorners (private).
+  # 4.4 - ConsoleDebugInspector.Detached: the same verbs with NO transport, no TCP listener and no multicast
+  # bind. Added because the 4.3 tests opened a real socket for EVERY assertion, and almost none of them were
+  # about the wire: what a row of cells reads back as, how a key name maps, where a click's pixel centre
+  # lands. Driving that through a socket makes each one depend on port availability and on joining a
+  # multicast group, for nothing. Invoke() was already the seam; only construction had to stop starting the
+  # server. The unit tests now run socket-free (11 in ~50ms, down from ~300ms) and ONE test carries
+  # Trait Category=Functional for the wire contract -- id echoed back, unknown verb answered as an error.
+  # `dotnet test --filter Category!=Functional` is now a meaningfully hermetic run.
   # 4.3 - a front/back CELL BUFFER with a diffing flush, plus the terminal backend for DIR.Lib 7.1's
   # DebugInspectorCore. Console.Lib was immediate-mode: a widget wrote its whole region as one string of SGR
   # plus padded text, which is invisible for a redraw the user asked for and very visible once a second on a
@@ -136,7 +144,7 @@ env:
   # tree, one palette, one card projection, rendered by both the GPU tab and the TUI tab. Existing callers
   # are unaffected -- the default is still 1:1 -- so the break is in what the type MEANS, not in what
   # compiles.
-  VERSION_PREFIX: 4.3.${{ github.run_number }}
+  VERSION_PREFIX: 4.4.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release

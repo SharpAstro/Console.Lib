@@ -3,6 +3,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -14,19 +15,14 @@ using Xunit;
 namespace Console.Lib.Tests;
 
 /// <summary>
-/// The console debug inspector, driven the way a real driver drives it: over a loopback socket, one JSON
-/// object per line, against a running app.
+/// The console inspector's verbs, called DIRECTLY — no TCP listener, no multicast bind.
 ///
-/// <para>These are the tests that make the inspector worth building. The bug that prompted it — a piece
-/// selecting itself after a move — took a manual session, a screenshot, an env-var trace and several wrong
-/// hypotheses from me. With <c>appState</c> and <c>inputLog</c> it is one request, and the whole exchange is
-/// scriptable, which means it can live in CI instead of in a person's afternoon.</para>
-///
-/// <para>The fake terminal is a real <see cref="CellBuffer"/> with no console attached, so the socket, the
-/// framing, the command queue and the cell plane are all genuinely exercised — only the OS terminal is
-/// absent.</para>
+/// <para>These assertions are about ordinary logic: what a row of cells reads back as, how a key name maps to
+/// a <see cref="ConsoleKey"/>, where a click's pixel centre lands. Driving that through a socket would make
+/// every one of them depend on port availability and on joining a multicast group, which has nothing to do
+/// with what is being checked. The transport gets ONE functional test, at the bottom, marked as such.</para>
 /// </summary>
-public sealed class ConsoleDebugInspectorTests : IDisposable
+public sealed class ConsoleDebugInspectorTests
 {
     /// <summary>A screen and an input queue, with no console behind them.</summary>
     private sealed class FakeScreen : IInspectableTerminal
@@ -47,135 +43,74 @@ public sealed class ConsoleDebugInspectorTests : IDisposable
         public void Inject(ConsoleInputEvent evt) => Injected.Enqueue(evt);
     }
 
-    /// <summary>Newline-delimited JSON client — the same protocol a Python driver would speak.</summary>
-    private sealed class Client : IDisposable
+    private sealed class NullSink : ICellSink
     {
-        private readonly TcpClient _tcp;
-        private readonly StreamReader _reader;
-        private readonly StreamWriter _writer;
-        private int _id;
-
-        public Client(int port)
-        {
-            _tcp = new TcpClient("127.0.0.1", port);
-            var stream = _tcp.GetStream();
-            _reader = new StreamReader(stream, Encoding.UTF8);
-            _writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true };
-        }
-
-        public JsonElement Call(string method, string paramsJson = "{}")
-        {
-            var id = ++_id;
-            _writer.WriteLine($"{{\"id\":{id},\"method\":\"{method}\",\"params\":{paramsJson}}}");
-            var line = _reader.ReadLine() ?? throw new IOException("inspector closed the connection");
-            var doc = JsonDocument.Parse(line);
-            doc.RootElement.GetProperty("id").GetInt32().ShouldBe(id);
-            return doc.RootElement.Clone();
-        }
-
-        public JsonElement Result(string method, string paramsJson = "{}")
-        {
-            var reply = Call(method, paramsJson);
-            reply.TryGetProperty("error", out var err).ShouldBeFalse(
-                err.ValueKind == JsonValueKind.String ? err.GetString() : "unexpected error");
-            return reply.GetProperty("result");
-        }
-
-        public void Dispose() { _reader.Dispose(); _writer.Dispose(); _tcp.Dispose(); }
+        public void MoveTo(int column, int row) { }
+        public void SetPen(VtStyle style, bool reverse) { }
+        public void Write(ReadOnlySpan<char> run) { }
     }
 
-    private readonly List<IDisposable> _owned = [];
+    private static readonly JsonElement NoParams = JsonDocument.Parse("{}").RootElement.Clone();
 
-    /// <summary>
-    /// Starts an inspector plus a pump thread — the equivalent of the app's own loop calling Pump each
-    /// iteration, which is what makes commands run at all.
-    /// </summary>
-    private (ConsoleDebugInspector Inspector, FakeScreen Screen, Client Client) Start(
+    private static JsonElement Params(string json) => JsonDocument.Parse(json).RootElement.Clone();
+
+    /// <summary>Calls a verb and parses its result, exactly as the transport would.</summary>
+    private static JsonElement Call(ConsoleDebugInspector inspector, string method, string? paramsJson = null)
+    {
+        var raw = inspector.Invoke(method, paramsJson is null ? NoParams : Params(paramsJson));
+        raw.ShouldNotBeNull($"'{method}' should be a known verb");
+        return JsonDocument.Parse(raw).RootElement.Clone();
+    }
+
+    private static (ConsoleDebugInspector Inspector, FakeScreen Screen) Detached(
         FakeScreen? screen = null, Func<string>? appState = null)
     {
         screen ??= new FakeScreen(20, 4);
-        var inspector = ConsoleDebugInspector.Attach("Test", screen, appState);
-        var stop = new CancellationTokenSource();
-        var pump = new Thread(() =>
-        {
-            while (!stop.IsCancellationRequested) { inspector.Pump(); Thread.Sleep(2); }
-        }) { IsBackground = true };
-        pump.Start();
-
-        var client = new Client(inspector.Port);
-        _owned.Add(client);
-        _owned.Add(inspector);
-        _owned.Add(new Disposer(() => stop.Cancel()));
-        return (inspector, screen, client);
+        return (ConsoleDebugInspector.Detached("Test", screen, appState), screen);
     }
 
-    private sealed class Disposer(System.Action dispose) : IDisposable
+    private static void Paint(FakeScreen screen, int column, int row, string text, VtStyle? style = null)
     {
-        public void Dispose() => dispose();
-    }
-
-    public void Dispose()
-    {
-        for (var i = _owned.Count - 1; i >= 0; i--) _owned[i].Dispose();
+        var pen = style ?? new VtStyle(new RGBAColor32(0xFF, 0xCE, 0x9E, 0xff), new RGBAColor32(0, 0, 0, 0xff));
+        screen.CellBuffer!.MoveTo(column, row);
+        screen.CellBuffer.Write($"{pen.Apply(ColorMode.TrueColor)}{text}");
+        screen.CellBuffer.Flush(new NullSink());
     }
 
     [Fact]
-    public void Ping_AnswersOverTheSocket()
+    public void AnUnknownVerb_IsReportedAsUnknown()
     {
-        var (_, _, client) = Start();
+        var (inspector, _) = Detached();
 
-        var result = client.Result("ping");
-
-        result.GetProperty("ok").GetBoolean().ShouldBeTrue();
-        result.GetProperty("app").GetString().ShouldBe("Test");
-        result.GetProperty("protocol").GetInt32().ShouldBe(1);
-    }
-
-    [Fact]
-    public void AnUnknownMethod_IsAnError_NotASilentEmptyResult()
-    {
-        var (_, _, client) = Start();
-
-        var reply = client.Call("noSuchThing");
-
-        reply.TryGetProperty("error", out var err).ShouldBeTrue();
-        err.GetString().ShouldContain("noSuchThing");
+        inspector.Invoke("noSuchThing", NoParams).ShouldBeNull(
+            "null is what the core turns into an error reply");
     }
 
     /// <summary>
-    /// The cell plane: the screen readable as WORDS. This is the thing a pixel inspector cannot do, and it
-    /// is why the console inspector is worth having rather than merely having parity.
+    /// The cell plane: the screen readable as WORDS. This is the thing a pixel inspector cannot do, and the
+    /// reason the console inspector is worth having rather than merely having parity.
     /// </summary>
     [Fact]
     public void Screen_ReadsTheTerminalBackAsText()
     {
-        var screen = new FakeScreen(20, 3);
-        var (_, _, client) = Start(screen);
+        var (inspector, screen) = Detached(new FakeScreen(20, 3));
+        Paint(screen, 0, 1, "White to move.".PadRight(20));
 
-        var style = new VtStyle(new RGBAColor32(0xFF, 0xCE, 0x9E, 0xff), new RGBAColor32(0, 0, 0, 0xff));
-        screen.CellBuffer!.MoveTo(0, 1);
-        screen.CellBuffer.Write($"{style.Apply(ColorMode.TrueColor)}{"White to move.".PadRight(20)}");
-        screen.CellBuffer.Flush(new NullSink());
-
-        var rows = client.Result("screen").GetProperty("rows");
+        var rows = Call(inspector, "screen").GetProperty("rows");
 
         rows.GetArrayLength().ShouldBe(3);
         rows[1].GetString().ShouldBe("White to move.      ");
-        client.Result("row", "{\"row\":1}").GetProperty("text").GetString().ShouldBe("White to move.      ");
+        Call(inspector, "row", "{\"row\":1}").GetProperty("text").GetString().ShouldBe("White to move.      ");
     }
 
     [Fact]
     public void Cell_ReportsTheGlyphAndThePen()
     {
-        var screen = new FakeScreen(8, 2);
-        var (_, _, client) = Start(screen);
+        var (inspector, screen) = Detached(new FakeScreen(8, 2));
+        Paint(screen, 2, 0, "Q",
+            new VtStyle(new RGBAColor32(0x8A, 0x4F, 0xD0, 0xff), new RGBAColor32(0x20, 0x20, 0x34, 0xff)));
 
-        var style = new VtStyle(new RGBAColor32(0x8A, 0x4F, 0xD0, 0xff), new RGBAColor32(0x20, 0x20, 0x34, 0xff));
-        screen.CellBuffer!.MoveTo(2, 0);
-        screen.CellBuffer.Write($"{style.Apply(ColorMode.TrueColor)}Q");
-        screen.CellBuffer.Flush(new NullSink());
-
-        var cell = client.Result("cell", "{\"column\":2,\"row\":0}");
+        var cell = Call(inspector, "cell", "{\"column\":2,\"row\":0}");
 
         cell.GetProperty("glyph").GetString().ShouldBe("Q");
         cell.GetProperty("fg").GetString().ShouldBe("#8A4FD0");
@@ -183,49 +118,72 @@ public sealed class ConsoleDebugInspectorTests : IDisposable
         cell.GetProperty("kind").GetString().ShouldBe("Text");
     }
 
-    /// <summary>An unbuffered terminal has no screen to report, and must say so rather than answering with
-    /// a blank one that a driver would happily assert against.</summary>
+    /// <summary>An unbuffered terminal has no screen to report, and must say so rather than answering with a
+    /// blank one a driver would happily assert against.</summary>
     [Fact]
     public void AnUnbufferedTerminal_SaysWhyItHasNoScreen()
     {
-        var (_, _, client) = Start(new FakeScreen(10, 2, buffered: false));
+        var (inspector, _) = Detached(new FakeScreen(10, 2, buffered: false));
 
-        client.Result("screen").GetProperty("error").GetString().ShouldContain("EnableCellBuffer");
+        Call(inspector, "screen").GetProperty("error").GetString().ShouldContain("EnableCellBuffer");
     }
 
     [Fact]
-    public void Key_InjectsAKeystroke()
+    public void Size_ReportsTheGridAndWhetherItIsBuffered()
     {
-        var (_, screen, client) = Start();
+        var (inspector, _) = Detached(new FakeScreen(108, 30));
 
-        client.Result("key", "{\"key\":\"Escape\"}").GetProperty("ok").GetBoolean().ShouldBeTrue();
-        client.Result("key", "{\"key\":\"e\"}");
-        client.Result("key", "{\"key\":\"4\"}");
+        var size = Call(inspector, "size");
 
-        var keys = new List<ConsoleKey>();
-        while (screen.Injected.TryDequeue(out var evt)) keys.Add(evt.Key);
+        size.GetProperty("columns").GetInt32().ShouldBe(108);
+        size.GetProperty("rows").GetInt32().ShouldBe(30);
+        size.GetProperty("cellHeight").GetInt32().ShouldBe(20);
+        size.GetProperty("buffered").GetBoolean().ShouldBeTrue();
+    }
 
-        keys.ShouldBe([ConsoleKey.Escape, ConsoleKey.E, ConsoleKey.D4]);
+    [Fact]
+    public void Key_MapsNamesAndAliases()
+    {
+        var (inspector, screen) = Detached();
+
+        foreach (var name in new[] { "Escape", "esc", "F1", "up", "pgdn", "Enter", "return" })
+        {
+            Call(inspector, "key", $"{{\"key\":\"{name}\"}}").GetProperty("ok").GetBoolean()
+                .ShouldBeTrue($"'{name}' should map");
+        }
+
+        Drain(screen).ShouldBe([
+            ConsoleKey.Escape, ConsoleKey.Escape, ConsoleKey.F1,
+            ConsoleKey.UpArrow, ConsoleKey.PageDown, ConsoleKey.Enter, ConsoleKey.Enter]);
     }
 
     /// <summary>
-    /// A single letter and a single digit have to work, because that is how a board move is made: GameUI
-    /// reads a file as a letter and a rank as a digit, so e2e4 is four keystrokes.
+    /// Digits are the half of this that broke. <c>Enum.TryParse&lt;ConsoleKey&gt;</c> accepts a NUMERIC string
+    /// as a raw underlying value, so <c>"4"</c> parsed to <c>(ConsoleKey)4</c> — not <c>D4</c>, not any named
+    /// key. A board move is a file letter then a rank digit, twice, so that mis-delivered every other
+    /// keystroke of every move.
     /// </summary>
     [Fact]
     public void Key_AcceptsBareLettersAndDigits_WhichIsHowAMoveIsTyped()
     {
-        var (_, screen, client) = Start();
+        var (inspector, screen) = Detached();
 
         foreach (var k in new[] { "e", "2", "e", "4" })
         {
-            client.Result("key", $"{{\"key\":\"{k}\"}}").GetProperty("ok").GetBoolean().ShouldBeTrue();
+            Call(inspector, "key", $"{{\"key\":\"{k}\"}}").GetProperty("ok").GetBoolean().ShouldBeTrue();
         }
 
-        var keys = new List<ConsoleKey>();
-        while (screen.Injected.TryDequeue(out var evt)) keys.Add(evt.Key);
+        Drain(screen).ShouldBe([ConsoleKey.E, ConsoleKey.D2, ConsoleKey.E, ConsoleKey.D4]);
+    }
 
-        keys.ShouldBe([ConsoleKey.E, ConsoleKey.D2, ConsoleKey.E, ConsoleKey.D4]);
+    [Fact]
+    public void Key_RefusesARawEnumNumber()
+    {
+        var (inspector, screen) = Detached();
+
+        Call(inspector, "key", "{\"key\":\"27\"}").GetProperty("ok").GetBoolean().ShouldBeFalse(
+            "a driver sends names and characters, never underlying values");
+        screen.Injected.ShouldBeEmpty();
     }
 
     /// <summary>
@@ -236,9 +194,9 @@ public sealed class ConsoleDebugInspectorTests : IDisposable
     [Fact]
     public void Click_InjectsAPressAndReleaseAtTheCellCentre()
     {
-        var (_, screen, client) = Start();
+        var (inspector, screen) = Detached();
 
-        client.Result("click", "{\"column\":3,\"row\":2}");
+        Call(inspector, "click", "{\"column\":3,\"row\":2}");
 
         var events = new List<ConsoleInputEvent>();
         while (screen.Injected.TryDequeue(out var evt)) events.Add(evt);
@@ -255,50 +213,80 @@ public sealed class ConsoleDebugInspectorTests : IDisposable
     [Fact]
     public void AppState_ReturnsWhateverTheHostSnapshots()
     {
-        var (_, _, client) = Start(appState: () => "{\"selected\":\"a3\",\"sideToMove\":\"White\",\"plies\":2}");
+        var (inspector, _) = Detached(appState: () => "{\"selected\":\"a3\",\"sideToMove\":\"White\",\"plies\":2}");
 
-        var state = client.Result("appState");
+        var state = Call(inspector, "appState");
 
         state.GetProperty("selected").GetString().ShouldBe("a3");
         state.GetProperty("plies").GetInt32().ShouldBe(2);
     }
 
     /// <summary>
-    /// The input log, which is the deleted env-var trace promoted to a wire verb. This exact shape is what
-    /// identified the motion-as-click bug: the raw event, and the state it changed.
+    /// The input log: the deleted env-var stderr trace, promoted to a wire verb. This exact shape is what
+    /// identified the mouse-motion-as-click bug — the raw event, and the state it changed.
     /// </summary>
     [Fact]
     public void InputLog_ReportsWhatTheAppReceived()
     {
-        var (inspector, _, client) = Start();
+        var (inspector, _) = Detached();
 
         inspector.LogInput("MouseDown(530,820) selected b1=>- side=Black");
         inspector.LogInput("MouseMove(530,820) -> None selected -=>-");
 
-        var events = client.Result("inputLog").GetProperty("events");
+        var events = Call(inspector, "inputLog").GetProperty("events");
 
         events.GetArrayLength().ShouldBe(2);
         events[1].GetString().ShouldContain("MouseMove");
     }
 
-    [Fact]
-    public void Size_ReportsTheGridAndWhetherItIsBuffered()
+    private static List<ConsoleKey> Drain(FakeScreen screen)
     {
-        var (_, _, client) = Start(new FakeScreen(108, 30));
-
-        var size = client.Result("size");
-
-        size.GetProperty("columns").GetInt32().ShouldBe(108);
-        size.GetProperty("rows").GetInt32().ShouldBe(30);
-        size.GetProperty("cellHeight").GetInt32().ShouldBe(20);
-        size.GetProperty("buffered").GetBoolean().ShouldBeTrue();
+        var keys = new List<ConsoleKey>();
+        while (screen.Injected.TryDequeue(out var evt)) keys.Add(evt.Key);
+        return keys;
     }
 
-    private sealed class NullSink : ICellSink
+    // ------------------------------------------------------------------------------------------------
+    // Transport. ONE test, because the wire contract does deserve covering — a driver has to be able to
+    // connect, get its id echoed, and see an error rather than a silent empty result. Everything above is
+    // socket-free precisely so this is the only test that can be flaky about ports.
+    // ------------------------------------------------------------------------------------------------
+
+    [Fact]
+    [Trait("Category", "Functional")]
+    public void OverTheWire_ARequestIsAnsweredAndAnUnknownVerbIsAnError()
     {
-        public void MoveTo(int column, int row) { }
-        public void SetPen(VtStyle style, bool reverse) { }
-        public void Write(ReadOnlySpan<char> run) { }
+        var screen = new FakeScreen(12, 2);
+        using var inspector = ConsoleDebugInspector.Attach("WireTest", screen);
+
+        using var stop = new CancellationTokenSource();
+        var pump = new Thread(() =>
+        {
+            while (!stop.IsCancellationRequested) { inspector.Pump(); Thread.Sleep(2); }
+        }) { IsBackground = true };
+        pump.Start();
+
+        try
+        {
+            using var tcp = new TcpClient("127.0.0.1", inspector.Port);
+            using var stream = tcp.GetStream();
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            using var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true };
+
+            writer.WriteLine("{\"id\":7,\"method\":\"ping\",\"params\":{}}");
+            var pong = JsonDocument.Parse(reader.ReadLine()!).RootElement;
+            pong.GetProperty("id").GetInt32().ShouldBe(7, "the id must be echoed so replies can be matched");
+            pong.GetProperty("result").GetProperty("app").GetString().ShouldBe("WireTest");
+
+            writer.WriteLine("{\"id\":8,\"method\":\"nope\",\"params\":{}}");
+            var err = JsonDocument.Parse(reader.ReadLine()!).RootElement;
+            err.GetProperty("id").GetInt32().ShouldBe(8);
+            err.GetProperty("error").GetString().ShouldContain("nope");
+        }
+        finally
+        {
+            stop.Cancel();
+        }
     }
 }
 #endif

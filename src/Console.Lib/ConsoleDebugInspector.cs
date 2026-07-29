@@ -45,7 +45,7 @@ public interface IInspectableTerminal
 public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
 {
     private readonly IInspectableTerminal _terminal;
-    private readonly DebugInspectorCore _core;
+    private readonly DebugInspectorCore? _core;
     private readonly Func<string>? _appState;
 
     /// <summary>The input trace, so a driver can see what the app actually received and what it changed.
@@ -59,7 +59,8 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
     /// sidecar filters on it, and the default of "unknown" makes an instance invisible.</summary>
     public string SurfaceKind => "console";
 
-    public int Port => _core.Port;
+    /// <summary>The command server's port; -1 when <see cref="Detached"/>.</summary>
+    public int Port => _core?.Port ?? -1;
 
     /// <param name="appName">Names the app in the banner.</param>
     /// <param name="terminal">The live terminal — injected input goes into its queue, and its
@@ -67,20 +68,37 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
     /// <param name="appState">Optional: a JSON object describing whatever the app considers its state. This
     /// is the highest-value verb by a distance — a snapshot naming the selected square, the side to move
     /// and the mode turns "the piece selected itself" from a manual hunt into one request.</param>
-    private ConsoleDebugInspector(string appName, IInspectableTerminal terminal, Func<string>? appState)
+    private ConsoleDebugInspector(
+        string appName, IInspectableTerminal terminal, Func<string>? appState, bool withTransport)
     {
         AppName = appName;
         _terminal = terminal;
         _appState = appState;
-        _core = DebugInspectorCore.Start(this);
+        _core = withTransport ? DebugInspectorCore.Start(this) : null;
     }
 
-    /// <summary>Starts the inspector. The caller must call <see cref="Pump"/> from its loop.</summary>
+    /// <summary>Starts the inspector and its command server. The caller must call <see cref="Pump"/> from
+    /// its loop, or no command will ever run.</summary>
     public static ConsoleDebugInspector Attach(string appName, IInspectableTerminal terminal, Func<string>? appState = null)
-        => new(appName, terminal, appState);
+        => new(appName, terminal, appState, withTransport: true);
 
-    /// <summary>Runs queued commands on the calling thread. Call once per loop iteration.</summary>
-    public void Pump() => _core.Pump();
+    /// <summary>
+    /// The same verbs with NO transport: no TCP listener, no multicast bind. <see cref="Invoke"/> is called
+    /// directly.
+    /// <para>
+    /// This is what tests should use. The method table is ordinary logic — what a row of cells reads as, how
+    /// a key name maps, what a click's pixel centre is — and asserting it through a socket makes those tests
+    /// slow, order-dependent on port availability, and reliant on joining a multicast group, none of which
+    /// has anything to do with what is being checked. Wire behaviour deserves its own small functional test
+    /// rather than a tax on every other one.
+    /// </para>
+    /// </summary>
+    public static ConsoleDebugInspector Detached(string appName, IInspectableTerminal terminal, Func<string>? appState = null)
+        => new(appName, terminal, appState, withTransport: false);
+
+    /// <summary>Runs queued commands on the calling thread. Call once per loop iteration. No-op when
+    /// <see cref="Detached"/>, since nothing can enqueue.</summary>
+    public void Pump() => _core?.Pump();
 
     /// <summary>A pull loop already ticks on its own, so there is nothing to wake.</summary>
     public void Poke() { }
@@ -262,6 +280,6 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
         return $"{{\"ok\":true,\"x\":{x},\"y\":{y}}}";
     }
 
-    public void Dispose() => _core.Dispose();
+    public void Dispose() => _core?.Dispose();
 }
 #endif
