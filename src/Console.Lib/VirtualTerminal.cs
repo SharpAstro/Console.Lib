@@ -7,6 +7,11 @@ namespace Console.Lib;
 /// and provides platform-aware mouse input reading.
 /// </summary>
 public sealed class VirtualTerminal : IVirtualTerminal
+#if DEBUG
+    // Satisfied by members that already exist; declaring it is what lets the debug inspector be driven
+    // against a fake screen in a test instead of only against a real console.
+    , IInspectableTerminal
+#endif
 {
     private bool _initialized;
     private bool _noConsole;
@@ -165,23 +170,152 @@ public sealed class VirtualTerminal : IVirtualTerminal
         }
     }
 
-    public void Clear() => System.Console.Clear();
+    /// <summary>
+    /// The front/back cell buffer, when this terminal is running buffered — see
+    /// <see cref="EnableCellBuffer"/>. Null means immediate mode.
+    /// </summary>
+    public CellBuffer? CellBuffer { get; private set; }
+
+    /// <summary>
+    /// Switches this terminal to a buffered, DIFFING write path: writes accumulate in
+    /// <see cref="CellBuffer"/> and <see cref="Flush"/> emits only the cells that changed.
+    ///
+    /// <para>Opt-in, and off by default, deliberately. Every widget and every consumer currently relies on
+    /// writes reaching the terminal immediately, so flipping the default would change the behaviour of
+    /// mdcat and of every hosted app at once. A caller that wants the diff — anything with a clock, or
+    /// anything that wants the debug inspector's cell plane — asks for it.</para>
+    ///
+    /// <para>Sixel is the interaction to be careful with: a blit writes pixels over cells through
+    /// <see cref="OutputStream"/>, which the buffer never sees, so its owner must declare the region with
+    /// <see cref="Console.Lib.CellBuffer.MarkImage"/> and blit only AFTER a flush.</para>
+    /// </summary>
+    public void EnableCellBuffer()
+    {
+        var (width, height) = Size;
+        CellBuffer = new CellBuffer { ColorMode = ColorMode };
+        CellBuffer.Resize(width, height);
+        _sink = new ConsoleCellSink();
+    }
+
+    private ConsoleCellSink? _sink;
+    private (int Width, int Height) _bufferedSize;
+
+    /// <summary>Writes a diffed run straight to the console — <see cref="CellBuffer"/>'s emit target.</summary>
+    private sealed class ConsoleCellSink : ICellSink
+    {
+        private VtStyle? _pen;
+        private bool _reverse;
+        private ColorMode _mode = ColorMode.Sgr16;
+
+        public ColorMode Mode { set => _mode = value; }
+
+        /// <summary>Forgets the pen, so the next run re-states it. Needed after anything that could have
+        /// changed the terminal's state behind our back (a clear, a Sixel blit).</summary>
+        public void Invalidate() => _pen = null;
+
+        public void MoveTo(int column, int row) => System.Console.SetCursorPosition(column, row);
+
+        public void SetPen(VtStyle style, bool reverse)
+        {
+            // Only re-state the pen when it actually differs: the whole point is to emit less.
+            if (_pen == style && _reverse == reverse) return;
+            _pen = style;
+            _reverse = reverse;
+            System.Console.Write(reverse ? $"{style.Apply(_mode)}{VtStyle.ReverseOn}" : style.Apply(_mode));
+        }
+
+        public void Write(ReadOnlySpan<char> run) => System.Console.Out.Write(run);
+    }
+
+    public void Clear()
+    {
+        System.Console.Clear();
+        if (CellBuffer is { } buffer)
+        {
+            // A clear leaves the terminal blank, which the front buffer knows nothing about: re-arm it so
+            // the next flush repaints in full rather than trusting a front buffer that now describes
+            // content the terminal has thrown away.
+            var (width, height) = Size;
+            buffer.Resize(width, height);
+            _sink?.Invalidate();
+        }
+    }
 
     public void SetCursorPosition(int left, int top)
     {
         var (width, height) = Size;
-        System.Console.SetCursorPosition(Math.Clamp(left, 0, width - 1), Math.Clamp(top, 0, height - 1));
+        var col = Math.Clamp(left, 0, width - 1);
+        var row = Math.Clamp(top, 0, height - 1);
+
+        if (CellBuffer is { } buffer)
+        {
+            buffer.MoveTo(col, row);
+            return;
+        }
+
+        System.Console.SetCursorPosition(col, row);
     }
 
-    public void Write(string text) => System.Console.Write(text);
+    public void Write(string text)
+    {
+        if (CellBuffer is { } buffer)
+        {
+            buffer.Write(text);
+            return;
+        }
+
+        System.Console.Write(text);
+    }
 
     public void WriteLine(string? text = null) => System.Console.WriteLine(text);
 
-    public void Flush() => System.Console.Out.Flush();
+    public void Flush()
+    {
+        if (CellBuffer is { } buffer && _sink is { } sink)
+        {
+            // A resize invalidates the whole grid; the buffer re-arms itself so the next diff is a full
+            // repaint (see CellBuffer.Resize).
+            var size = Size;
+            if (size != _bufferedSize)
+            {
+                _bufferedSize = size;
+                buffer.Resize(size.Width, size.Height);
+                sink.Invalidate();
+            }
+
+            sink.Mode = ColorMode;
+            buffer.Flush(sink);
+        }
+
+        System.Console.Out.Flush();
+    }
 
     public Stream OutputStream { get; } = System.Console.OpenStandardOutput();
 
-    public bool HasInput() => s_isInputRedirected ? System.Console.In.Peek() != -1 : System.Console.KeyAvailable;
+#if DEBUG
+    /// <summary>
+    /// Input injected by a driver rather than typed — the debug inspector's `key` and `click`. Kept
+    /// separate from the real stream and drained FIRST, so a synthetic event cannot be interleaved into
+    /// the middle of an escape sequence the parser is midway through reading.
+    /// <para>
+    /// DEBUG-only, like the inspector that feeds it: a release build carries neither the queue nor the
+    /// check for it, so the input path costs exactly what it did before.
+    /// </para>
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentQueue<ConsoleInputEvent> _injected = new();
+
+    /// <summary>
+    /// Queues a synthetic input event, to be returned by the next <see cref="TryReadInput"/> as though it
+    /// had been typed. Thread-safe: the inspector's socket thread enqueues, the app's loop thread drains.
+    /// </summary>
+    public void Inject(ConsoleInputEvent evt) => _injected.Enqueue(evt);
+#endif
+
+    public bool HasInput() =>
+#if DEBUG
+        !_injected.IsEmpty ||
+#endif
+        (s_isInputRedirected ? System.Console.In.Peek() != -1 : System.Console.KeyAvailable);
 
     /// <summary>
     /// Attempts to read input from the terminal.
@@ -190,6 +324,14 @@ public sealed class VirtualTerminal : IVirtualTerminal
     /// </summary>
     public ConsoleInputEvent TryReadInput()
     {
+#if DEBUG
+        // Injected events come first and never mix with the real stream — see Inject.
+        if (_injected.TryDequeue(out var synthetic))
+        {
+            return synthetic;
+        }
+#endif
+
         // only in alternate screen we enabled SGR mouse tracking, so we only attempt to parse it there
         if (_alternateScreen)
         {

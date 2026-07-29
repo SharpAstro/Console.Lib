@@ -68,6 +68,26 @@ env:
   # gated on a fill and the layout DSL has no border chrome, so an unfilled rounded box is currently
   # unexpressible -- if Layout.Node gains a border, the arcs are what should render ITS corners, at that
   # call site. RoundCorners -> ClipFilledCorners (private).
+  # 4.3 - a front/back CELL BUFFER with a diffing flush, plus the terminal backend for DIR.Lib 7.1's
+  # DebugInspectorCore. Console.Lib was immediate-mode: a widget wrote its whole region as one string of SGR
+  # plus padded text, which is invisible for a redraw the user asked for and very visible once a second on a
+  # clock -- every cell in the row repainted, padding included, which reads as a FLASH. TianWen hit exactly
+  # that. CellBuffer emits only what changed: a 40-cell clock row rewritten in full per tick emits ONE cell.
+  # Write() parses the SGR Console.Lib itself generates back into a pen; anything outside that vocabulary
+  # (an OSC hyperlink from mdcat, a cursor move, \e[1m bold) makes the pen unmodellable and its cells Opaque
+  # -- always re-emitted, never diffed, degrading to the old behaviour instead of being modelled wrongly. An
+  # unrecognised SGR PARAMETER goes opaque too, because a pen that is only mostly right shows up as a MISSING
+  # repaint, the one failure a diff must not have. A Sixel blit writes pixels through OutputStream, which the
+  # buffer never sees, so MarkImage declares that region and the diff never writes a glyph into it.
+  # OPT-IN via VirtualTerminal.EnableCellBuffer(): every consumer currently relies on immediate writes, so
+  # flipping the default would change mdcat and every hosted app at once. Unbuffered cost is one null test.
+  # ConsoleDebugInspector is the inspector's first backend, and its CELL PLANE is what a GPU surface cannot
+  # offer: the screen readable as TEXT ("the status bar reads `White to move.`") straight off the FRONT
+  # buffer -- what was actually emitted, not a parallel model that can drift. Verbs: screen, row, cell,
+  # appState, inputLog, key, click, size. Injected input goes through a DEBUG-only queue on VirtualTerminal,
+  # drained ahead of the real stream so a synthetic event cannot land mid escape sequence. Inspector and
+  # queue are both #if DEBUG (401 tests in Release, 412 in Debug); the cell buffer ships in both.
+  # Re-pins DIR.Lib 6.23.* -> 7.1.* for DebugInspectorCore.
   # 4.2 - SixelEncoder.Encode takes a `reserved` colour list: entries claim palette indices 0..n-1 before
   # any frequency ranking, and keep them whether or not the frame contains a pixel of them. The palette is
   # otherwise chosen purely by pixel FREQUENCY, which is right for flat regions and wrong for anything that
@@ -110,7 +130,7 @@ env:
   # tree, one palette, one card projection, rendered by both the GPU tab and the TUI tab. Existing callers
   # are unaffected -- the default is still 1:1 -- so the break is in what the type MEANS, not in what
   # compiles.
-  VERSION_PREFIX: 4.2.${{ github.run_number }}
+  VERSION_PREFIX: 4.3.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release
