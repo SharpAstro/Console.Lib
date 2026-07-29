@@ -68,6 +68,20 @@ env:
   # gated on a fill and the layout DSL has no border chrome, so an unfilled rounded box is currently
   # unexpressible -- if Layout.Node gains a border, the arcs are what should render ITS corners, at that
   # call site. RoundCorners -> ClipFilledCorners (private).
+  # 4.9 - EnableCellBuffer seeds the size that Flush's resize-detection compares against. It did not, so the
+  # field stayed (0,0) and the FIRST Flush of a buffered app always read as a RESIZE: it called Resize again,
+  # which reallocates the back buffer and fills it with blanks, discarding everything the frame had already
+  # painted. What reached the screen was only whatever happened to be written AFTER that flush. The reason
+  # this hid behind 4.8's five fixes is that the two consumers that found those repaint unconditionally every
+  # frame, so frame two restored the loss and the bug was a one-frame flicker at startup. An app that paints
+  # ON DEMAND and leaves cells standing has no frame two: periodic-table-viewer renders on selection change,
+  # so its table, header, detail panel and status bar were destroyed permanently and the terminal showed only
+  # its orbital panel -- which survived precisely because it blits Sixel BEFORE writing its text, putting that
+  # text after the wiping flush. Diagnosed with 4.8's own accounting: ~12.7k flushed cells for a 202x63 grid
+  # is exactly one full-screen repaint, and CollectFlushDiagnostics named the surviving runs as the orbital
+  # column alone. NOT unit-tested: the seed is only observable through Flush, which needs Size, which needs a
+  # real console -- the same wall 4.8 hit for its cursor-move fix, and there is no pure function to extract
+  # here. Verified against the running TUI through the debug inspector instead.
   # 4.8 - the diffing cell buffer survives contact with a real app. TianWen's TUI turned it on and exposed
   # five latent bugs, four of them the same shape: RELYING ON LEFTOVER TERMINAL STATE, which a live terminal
   # forgives and a buffer that must name a colour per cell cannot. (1) VtStyle treated alpha zero as a colour
@@ -199,7 +213,7 @@ env:
   # tree, one palette, one card projection, rendered by both the GPU tab and the TUI tab. Existing callers
   # are unaffected -- the default is still 1:1 -- so the break is in what the type MEANS, not in what
   # compiles.
-  VERSION_PREFIX: 4.8.${{ github.run_number }}
+  VERSION_PREFIX: 4.9.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release

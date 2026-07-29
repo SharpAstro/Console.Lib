@@ -212,6 +212,16 @@ public sealed class VirtualTerminal : IVirtualTerminal
         CellBuffer = new CellBuffer { ColorMode = ColorMode };
         CellBuffer.Resize(width, height);
         _sink = new ConsoleCellSink();
+
+        // Seed the size the resize-detection in Flush compares against. Without this it stays (0,0), so the
+        // FIRST Flush always reads as a resize and calls Resize again -- which reallocates the back buffer
+        // and fills it with blanks, discarding everything the frame had already painted. The screen then
+        // shows only what happened to be written AFTER that flush.
+        //
+        // An app that repaints unconditionally per frame heals on frame two and never sees it. One that
+        // paints on demand and leaves cells standing (a periodic table redrawn only on selection change)
+        // loses that content permanently -- which is how this was found.
+        _bufferedSize = (width, height);
     }
 
     private ConsoleCellSink? _sink;
