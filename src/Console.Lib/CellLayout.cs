@@ -14,7 +14,10 @@ namespace Console.Lib;
 /// counts in cells (<c>RowH(1)</c> means one row), while a tree written for a pixel surface counts in
 /// pixel-ish units (<c>RowH(16)</c> means one line of text). The same numbers cannot mean both, so the
 /// context has to be told which convention the tree it is arranging was authored in -- see
-/// <see cref="CellAuthored"/> and <see cref="PixelAuthored"/>.
+/// <see cref="CellAuthored"/> and <see cref="PixelAuthored"/>. The opposite crossing lives in DIR.Lib
+/// (7.4): <c>PixelMeasureContext&lt;TSurface&gt;.CellAuthored</c> carries a cell-authored tree onto a pixel
+/// surface with the same nominal 8x16 cell, so together the pair lets a tree authored in either convention
+/// arrange on either surface.
 /// </para>
 /// </summary>
 /// <param name="designUnitsPerColumn">Design units spanned by one character cell horizontally.</param>
