@@ -236,7 +236,17 @@ env:
   # item index, the scrollbar column) are no longer expressible. HitTestRow is unchanged. ITreeNode keeps
   # Children / HasChildren / EnsureChildrenLoaded defaults -- those are optional BEHAVIOUR, not a second
   # way to satisfy one obligation. Port recipe in MIGRATION.md.
-  VERSION_PREFIX: 4.10.${{ github.run_number }}
+  # 4.11 - lockstep rebuild against DIR.Lib 7.4, no code change here. 7.4 closes the asymmetry around
+  # CellMeasureContext: since 4.10 a PIXEL-authored tree could be carried onto cells via
+  # CellMeasureContext.PixelAuthored, but nothing carried a CELL-authored tree the other way, so
+  # PixelMeasureContext gains per-axis scales and a matching CellAuthored factory (same nominal 8x16
+  # cell). It also adds PixelWidgetBase Arrange/Paint/RenderLayout overloads that take the measure
+  # CONTEXT rather than a bare dpiScale, which is what makes per-axis safe: dpiScale used to be threaded
+  # separately into the measure context and the paint loop, two copies kept in step by hand, and a
+  # per-axis context would have turned that into text painted at a size it was never measured at. All
+  # additive; the scalar overloads delegate to the context ones with an isotropic context, so existing
+  # callers paint byte-identically. Rebuilt so the whole sibling family sits on one DIR.Lib.
+  VERSION_PREFIX: 4.11.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release

@@ -28,7 +28,7 @@
     separately versioned MCP-server package. CI overrides it anyway via the solution-wide -p:Version.
   -->
   <PropertyGroup>
-    <ConsoleLibVersion>4.10</ConsoleLibVersion>
+    <ConsoleLibVersion>4.11</ConsoleLibVersion>
   </PropertyGroup>
 
 </Project>
