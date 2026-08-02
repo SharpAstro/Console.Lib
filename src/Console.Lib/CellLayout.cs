@@ -81,6 +81,15 @@ public static class CellLayout
         // enclosing background -- exactly what the pixel painter composites against.
         var backgrounds = new Stack<(int Depth, RGBAColor32 Color)>();
 
+        // The enclosing hyperlink, tracked exactly like the background above and for the same reason: a link
+        // is stated once on the node that OWNS the link and has to reach the text leaves underneath it.
+        //
+        // A node states one by carrying a HitResult.LinkHit — the hit it already had to carry for the click
+        // to work. That is the whole design: the OSC 8 region and the clickable region are the same arranged
+        // rect by construction, so a link cannot be drawn somewhere it cannot be clicked or vice versa. It
+        // also means no new property on Layout.Node, and nothing to keep in step with the one that exists.
+        var links = new Stack<(int Depth, string Url)>();
+
         foreach (var arrangedNode in arranged)
         {
             var node = arrangedNode.Node;
@@ -89,6 +98,16 @@ public static class CellLayout
             while (backgrounds.Count > 0 && backgrounds.Peek().Depth >= arrangedNode.Depth)
             {
                 backgrounds.Pop();
+            }
+
+            while (links.Count > 0 && links.Peek().Depth >= arrangedNode.Depth)
+            {
+                links.Pop();
+            }
+
+            if (node.Hit is HitResult.LinkHit linkHit)
+            {
+                links.Push((arrangedNode.Depth, linkHit.Url));
             }
 
             // What this node is painted over, before it contributes a background of its own.
@@ -114,7 +133,7 @@ public static class CellLayout
             switch (leaf.Content)
             {
                 case Layout.Content.Text text:
-                    DrawText(viewport, rect, text, mode, under);
+                    DrawText(viewport, rect, text, mode, under, links.Count > 0 ? links.Peek().Url : null);
                     break;
                 case Layout.Content.Box box when box.Color.Alpha > 0:
                     FillCells(viewport, rect, box.Color, mode, under, rounded);
@@ -169,7 +188,13 @@ public static class CellLayout
             {
                 sb.Append(" +bg");
             }
-            if (node.Hit is not null)
+            // A LinkHit is called out separately because it is the one hit that also changes what is PAINTED
+            // (an OSC 8 wrap), so "is this text a hyperlink" is answerable from the dump.
+            if (node.Hit is HitResult.LinkHit link)
+            {
+                sb.Append(" +link(").Append(link.Url).Append(')');
+            }
+            else if (node.Hit is not null)
             {
                 sb.Append(" +hit");
             }
@@ -288,8 +313,13 @@ public static class CellLayout
     /// <param name="under">The background this text is painted over, from the nearest enclosing node that
     /// painted one (see the stack in <see cref="Paint"/>). Stated explicitly rather than inherited, so the
     /// cell carries it; an unset value is emitted as the terminal's default rather than as black.</param>
+    /// <param name="link">
+    /// The nearest enclosing <see cref="HitResult.LinkHit"/>'s target, or null. Only TEXT is wrapped: the
+    /// padding and fills around it are cells the row happens to occupy, and a terminal that underlines them
+    /// as part of the link draws a hyperlink stretching across gaps the reader cannot see any text in.
+    /// </param>
     private static void DrawText(ITerminalViewport viewport, Rect<int> rect, Layout.Content.Text text, ColorMode mode,
-        RGBAColor32 under)
+        RGBAColor32 under, string? link = null)
     {
         var (vw, vh) = viewport.Size;
         if (rect.Width <= 0 || rect.Height <= 0)
@@ -330,7 +360,14 @@ public static class CellLayout
         // States the background as well as the foreground, so the cells keep the fill painted underneath
         // WITHOUT depending on it still being the terminal's current SGR state. Foreground-only was correct
         // for a live terminal and silently wrong for a cell buffer -- see the stack in Paint.
+        //
+        // The pen is stated INSIDE the link, and the trailing SGR reset does not close it: SGR and OSC 8 are
+        // independent state in a terminal, and CellBuffer models them the same way. ColorMode.None writes no
+        // escapes at all, so it gets no link either -- a plain-text dump stays plain text.
+        var open = link is not null && mode != ColorMode.None ? Osc8.Open(link) : "";
+        var close = open.Length > 0 ? Osc8.Close : "";
+
         viewport.SetCursorPosition(startCol, row);
-        viewport.Write($"{new VtStyle(text.Color, under).Apply(mode)}{s}{VtStyle.Reset}");
+        viewport.Write($"{open}{new VtStyle(text.Color, under).Apply(mode)}{s}{VtStyle.Reset}{close}");
     }
 }

@@ -255,6 +255,19 @@ env:
   # family rather than by file identity, so every face in a family is reachable and a run that a face
   # cannot cover falls back per run instead of per request. Rebuilt to keep the whole sibling family on
   # one DIR.Lib.
+  # 4.13! - OSC 8 HYPERLINKS on the cell path. A node states a link by carrying a HitResult.LinkHit -- the
+  # hit it already needed for the click -- and CellLayout paints that leaf's text inside an OSC 8 pair,
+  # resolved through the same nearest-enclosing walk as the background, so a link stated on a wrapper
+  # reaches the text under it. Reusing the hit rather than adding a Layout.Node property is what makes the
+  # drawn region and the clickable region the same arranged rect by construction. Cell gains Link, and
+  # CellBuffer MODELS OSC 8 instead of giving up on it: a link used to make the pen unmodellable, so every
+  # linked cell was Opaque and re-emitted every frame -- invisible on one link, and on a file list where
+  # every row carries one it bypasses the diff for the whole column while the emitted-cell count still
+  # looks small. A linked row now diffs like any other. BREAKING: ICellSink gains SetLink(string?) with no
+  # default implementation -- a sink that dropped it would emit frames that look complete and have lost
+  # every link in them. The console sink emits an id= so a link the diff splits across runs stays one link
+  # to the terminal. mdcat's inline links ride the same sequences (Osc8) and become diffable with them; the
+  # inspector's `cell` verb reports "link" when there is one.
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release

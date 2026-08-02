@@ -245,7 +245,7 @@ Beyond docking, Console.Lib can render DIR.Lib's surface-neutral box-layout tree
 - **`CellMeasureContext : IMeasureContext<int>`** — measures text width as character count (one row tall) and rounds design-unit scalars to whole cells.
 - **`CellLayout.Paint`** — walks the *same* arranged tree the pixel painter uses and writes character cells: `Background` / filled `Box` become runs of spaces with a background SGR (parent-before-children paint order), `Text` writes glyphs foreground-only so the painted background shows through, and `Fill` defers to an app callback.
 - **`CellLayout.HitTest`** — reverse-order (top-most wins) hit test mapping a `(column, row)` back to a leaf's `Hit`, firing its `OnClick`. The arranged rectangle *is* the hit region — the same auto-binding guarantee the pixel painter gives.
-- **`CellLayout.Describe`** — serialises the arranged tree to an indented, one-line-per-node text dump (nesting reconstructed from `ArrangedNode<T>.Depth`), naming each node kind, leaf content, arranged rect, and `+bg` / `+hit` markers. The cell-surface counterpart to the pixel inspector's `describe_layout`; diagnostic only — keep it out of the per-frame paint path.
+- **`CellLayout.Describe`** — serialises the arranged tree to an indented, one-line-per-node text dump (nesting reconstructed from `ArrangedNode<T>.Depth`), naming each node kind, leaf content, arranged rect, and `+bg` / `+hit` / `+link(url)` markers. The cell-surface counterpart to the pixel inspector's `describe_layout`; diagnostic only — keep it out of the per-frame paint path.
 
 ```csharp
 var arranged = Layout.Engine.Arrange(tree, new Rect<int>(0, 0, w, h), new CellMeasureContext());
@@ -256,6 +256,45 @@ var dump = CellLayout.Describe(arranged);            // → indented layout-tree
 
 `MenuWidget` (below) is built on this path; it is the cell-surface counterpart to DIR.Lib's `PixelMenuWidget<TSurface>`.
 
+#### Hyperlinks (4.13+)
+
+A node states a hyperlink by carrying a `HitResult.LinkHit` — the hit it already needed for the click to
+work — and `CellLayout` paints that leaf's text inside an OSC 8 pair, so a supporting terminal underlines
+it and opens it on click:
+
+```csharp
+Layout.Builder.Text(path, 1f, colour).WStar()
+    .Clickable(new HitResult.LinkHit($"file:///{path}"), _ => OpenInShell(path));
+```
+
+There is no separate `Link` property, deliberately: reusing the hit makes the drawn region and the
+clickable region the *same arranged rect*, so a row cannot underline text it cannot click or click text it
+does not underline. The link resolves through the same nearest-enclosing walk as `Background` — state it
+on a row wrapper and it reaches the text underneath; an inner link overrides an outer one. Only **text**
+is wrapped, so the padding and fills around it stay outside the link.
+
+Links survive the diff. `Cell` carries its `Link`, `CellBuffer` parses OSC 8 back rather than treating it
+as an escape it cannot model, and `Flush` breaks a run where the target changes and states it through
+`ICellSink.SetLink`. This is what makes a list whose *every* row is a link still diff: before 4.13 those
+cells were `CellKind.Opaque` and went out again on every frame (`LastFlushOpaqueCells` is the number that
+shows it). The console sink emits an `id=`, so a link the diff splits into several runs stays one link.
+
+`ColorMode.None` emits no link, along with every other escape.
+
+**Across surfaces.** `LinkHit` is a DIR.Lib hit, so the same authored tree carries the link to the pixel
+painter too. `PixelWidgetBase.PaintLayout` binds it as a clickable region *and* — from DIR.Lib 7.7 —
+routes the text under it through `SelectableTextRegion.Href`, which a DOM host renders as a real
+`<a href>`. The two painters resolve the link with the same nearest-enclosing walk, deliberately, so one
+tree cannot mean different things per surface:
+
+| surface | a node carrying `LinkHit` |
+| --- | --- |
+| terminal (`CellLayout`) | clickable + an OSC 8 hyperlink |
+| web / DOM host | clickable + a real `<a href>` |
+| raster GPU | clickable; no navigation model, so the text just paints |
+
+Console.Lib does not require 7.7 for its own hyperlinks — the two halves are independent.
+
 #### Rounded corners on a character grid
 
 `Layout.Node.Radius(designUnits)` (DIR.Lib 6.21+) rounds a node's background, and `CellLayout` honours
@@ -265,17 +304,25 @@ it — so one tree renders rounded on both the pixel and the cell surface:
 Layout.Builder.VStack(rows).Pad(1).Bg(panelBg).Radius(1f)
 ```
 
-The approximation is one arc glyph per corner (`╭ ╮ ╰ ╯`), drawn foreground-only so the curve reads in
-the fill colour against whatever the parent painted underneath.
+The approximation is one **three-quadrant block** per corner (`▟ ▙ ▜ ▛`), each omitting the quadrant that
+points away from the rect's interior, drawn in the fill colour over the enclosing colour — so the corner
+loses a *quarter* cell and reads as clipped.
 
-**The radius *magnitude* is deliberately ignored here.** A grid cannot round by fractions of a cell, so
-any non-zero radius knocks exactly one cell off each corner. Scaling the bite would need multi-cell
-arcs, and Unicode has arc forms for **corners only** — there is no rounded tee or cross — so a larger
-arc cannot be drawn without inventing it out of quadrant blocks. One cell is the honest approximation,
-which is also why `Radius` is documented upstream as a *hint* rather than a guarantee.
+**A filled rect and a bordered one want different glyphs, and this is the filled one.** Arc glyphs
+(`╭ ╮ ╰ ╯`) are what this drew until 4.1, and they are the right answer for an *unfilled* box whose
+outline is box-drawing characters — which is exactly what `BorderStyle.Rounded` uses them for below. They
+are the wrong answer for a solid fill: an arc is a thin stroke, so a corner cell drawn that way is ~90%
+parent colour, and on a high-contrast card that reads as a bite punched out of the shape rather than a
+softened corner. There is deliberately no arc branch in `CellLayout` — both fill paths are gated on an
+actual fill, and the layout DSL has no border/stroke chrome, so an unfilled rounded box is currently
+unexpressible.
 
-Rounding is skipped entirely below 3×3, where the corners are the whole shape and knocking cells out
-would erase the fill rather than soften it.
+**The radius *magnitude* is deliberately ignored here.** A grid cannot round by fractions of a cell, and a
+quarter cell is the smallest bite a character grid can express, so any non-zero radius means the same
+clip. That is also why `Radius` is documented upstream as a *hint* rather than a guarantee.
+
+Rounding is skipped entirely below 3×3, where the corners are the whole shape and clipping all four would
+shape the fill rather than soften it.
 
 #### Hosting a behaviour widget in the tree
 

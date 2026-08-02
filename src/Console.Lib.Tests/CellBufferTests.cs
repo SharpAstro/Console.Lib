@@ -24,9 +24,21 @@ public class CellBufferTests
         public readonly List<(VtStyle Style, bool Reverse)> Pens = [];
         public readonly StringBuilder Text = new();
 
+        /// <summary>Each emitted run paired with the link in force for it — what a hyperlink test asserts on,
+        /// because the interesting property is which GLYPHS ended up inside which link, not the call order.</summary>
+        public readonly List<(string? Link, string Run)> LinkedRuns = [];
+
+        private string? _link;
+
         public void MoveTo(int column, int row) => Moves.Add((column, row));
         public void SetPen(VtStyle style, bool reverse) => Pens.Add((style, reverse));
-        public void Write(ReadOnlySpan<char> run) => Text.Append(run);
+        public void SetLink(string? url) => _link = url;
+
+        public void Write(ReadOnlySpan<char> run)
+        {
+            Text.Append(run);
+            LinkedRuns.Add((_link, run.ToString()));
+        }
     }
 
     private static CellBuffer Sized(int w, int h, ColorMode mode = ColorMode.TrueColor)
@@ -168,9 +180,14 @@ public class CellBufferTests
     }
 
     /// <summary>
-    /// The escape hatch that keeps this from being a terminal emulator. An OSC hyperlink (mdcat emits them)
-    /// is not something the buffer models, so the cells it covers are always re-emitted — degrading to the
-    /// immediate-mode behaviour they had before, rather than being modelled wrongly and skipped.
+    /// The escape hatch that keeps this from being a terminal emulator. An OSC the buffer does not model —
+    /// here OSC 0, a window title — leaves the cells after it always re-emitted, degrading to the
+    /// immediate-mode behaviour they had before rather than being modelled wrongly and skipped.
+    /// <para>
+    /// This used to be written with an OSC 8 hyperlink, which is no longer an example of the rule: a link is
+    /// modelled per cell now (see <see cref="AHyperlinkedRun_IsModelledPerCellAndStillDiffs"/>). The rule
+    /// itself is unchanged, so the test keeps its assertion and changes its example.
+    /// </para>
     /// </summary>
     [Fact]
     public void CellsWrittenUnderAnUnknownEscape_AreAlwaysReEmitted()
@@ -178,14 +195,14 @@ public class CellBufferTests
         var buf = Sized(10, 1);
 
         buf.MoveTo(0, 0);
-        buf.Write("\e]8;;https://example.com\e\\link");
+        buf.Write("\e]0;a window title\e\\link");
         buf.BackAt(0, 0).Kind.ShouldBe(CellKind.Opaque);
         buf.Flush(new RecordingSink());
 
         // Byte-identical content a second time: a Text cell would be skipped, an Opaque one must not be.
         var sink = new RecordingSink();
         buf.MoveTo(0, 0);
-        buf.Write("\e]8;;https://example.com\e\\link");
+        buf.Write("\e]0;a window title\e\\link");
 
         buf.Flush(sink).ShouldBe(4, "opaque cells are never diffed away");
         sink.Text.ToString().ShouldBe("link");
@@ -211,6 +228,143 @@ public class CellBufferTests
 
         buf.BackAt(0, 0).Kind.ShouldBe(CellKind.Opaque);
         buf.BackAt(1, 0).Kind.ShouldBe(CellKind.Text, "after a reset the pen is known");
+    }
+
+    // ── OSC 8 hyperlinks ──────────────────────────────────────────────────────────────────────────────
+
+    private const string Target = "file:///c/report.txt";
+
+    /// <summary>
+    /// The whole reason a link is cell state. Wrapping a write in OSC 8 used to make the pen unmodellable,
+    /// so every linked cell was Opaque and went out again on every frame — invisible on one link, and on a
+    /// file list where every row carries one it silently bypasses the diff for the entire column while the
+    /// emitted-cell count still looks small.
+    /// </summary>
+    [Fact]
+    public void AHyperlinkedRun_IsModelledPerCellAndStillDiffs()
+    {
+        var buf = Sized(10, 1);
+        var write = $"\e]8;;{Target}\areport.txt\e]8;;\a";
+
+        buf.MoveTo(0, 0);
+        buf.Write(write);
+
+        buf.BackAt(0, 0).Kind.ShouldBe(CellKind.Text, "a link is modelled, so its cells are not opaque");
+        buf.BackAt(0, 0).Link.ShouldBe(Target);
+        buf.BackAt(9, 0).Link.ShouldBe(Target, "the link covers every glyph inside the pair");
+
+        var first = new RecordingSink();
+        buf.Flush(first);
+        first.LinkedRuns.ShouldContain(r => r.Link == Target && r.Run == "report.txt");
+
+        // The same frame again: a modelled link diffs away to nothing, an opaque one would not.
+        buf.MoveTo(0, 0);
+        buf.Write(write);
+
+        buf.Flush(new RecordingSink()).ShouldBe(0, "an unchanged linked row must emit nothing");
+        buf.LastFlushOpaqueCells.ShouldBe(0);
+    }
+
+    /// <summary>The sink states one target per run, so the run has to end where the target changes.</summary>
+    [Fact]
+    public void ALinkBoundary_BreaksTheRun()
+    {
+        var buf = Sized(4, 1);
+        buf.MoveTo(0, 0);
+        buf.Write("\e]8;;https://a\aab\e]8;;\acd");
+
+        var sink = new RecordingSink();
+        buf.Flush(sink);
+
+        sink.LinkedRuns.ShouldBe([("https://a", "ab"), (null, "cd")]);
+    }
+
+    /// <summary>
+    /// SGR and OSC 8 are independent terminal state: <c>\e[0m</c> resets colour and leaves an open link
+    /// open. It matters because it is exactly how a linked row gets written — the pen is stated INSIDE the
+    /// link (see CellLayout.DrawText), so a reset that closed the link would drop it from every cell after
+    /// the first styled span.
+    /// </summary>
+    [Fact]
+    public void AnSgrReset_DoesNotCloseAnOpenHyperlink()
+    {
+        var buf = Sized(4, 1);
+        buf.MoveTo(0, 0);
+        buf.Write($"\e]8;;https://a\a{Style.Apply(ColorMode.TrueColor)}ab{VtStyle.Reset}cd\e]8;;\a");
+
+        buf.BackAt(3, 0).Link.ShouldBe("https://a", "a colour reset is not a link close");
+    }
+
+    /// <summary>Same glyphs, different target — a change the diff has to see, or the row keeps the old link.</summary>
+    [Fact]
+    public void ChangingOnlyTheTarget_RepaintsTheCells()
+    {
+        var buf = Sized(2, 1);
+        buf.MoveTo(0, 0);
+        buf.Write("\e]8;;https://a\aab\e]8;;\a");
+        buf.Flush(new RecordingSink());
+
+        buf.MoveTo(0, 0);
+        buf.Write("\e]8;;https://b\aab\e]8;;\a");
+
+        var sink = new RecordingSink();
+        buf.Flush(sink).ShouldBe(2, "the glyphs are identical but the link is not");
+        sink.LinkedRuns.ShouldBe([("https://b", "ab")]);
+    }
+
+    /// <summary>
+    /// Both OSC terminators. Console.Lib emits BEL (wider terminal support), but an app writing its own
+    /// links is free to use ST, and a parser that only knew one would swallow the rest of the frame.
+    /// </summary>
+    [Theory]
+    [InlineData("\a")]
+    [InlineData("\e\\")]
+    public void EitherOscTerminator_Parses(string terminator)
+    {
+        var buf = Sized(2, 1);
+        buf.MoveTo(0, 0);
+        buf.Write($"\e]8;;https://a{terminator}ab");
+
+        buf.BackAt(0, 0).Link.ShouldBe("https://a");
+        buf.BackAt(0, 0).Kind.ShouldBe(CellKind.Text);
+    }
+
+    /// <summary>
+    /// OSC 8 with no URI field is malformed — the params are not a target. Falling back to unmodellable is
+    /// the conservative answer; reading the params as a URI would bind every following cell to nonsense.
+    /// </summary>
+    [Fact]
+    public void AMalformedHyperlink_StaysUnmodellable()
+    {
+        var buf = Sized(2, 1);
+        buf.MoveTo(0, 0);
+        buf.Write("\e]8;no-uri-field\ax");
+
+        buf.BackAt(0, 0).Link.ShouldBeNull();
+        buf.BackAt(0, 0).Kind.ShouldBe(CellKind.Opaque);
+    }
+
+    /// <summary>
+    /// The <c>id=</c> field is skipped, not mistaken for the target. A terminal uses it to group runs; here
+    /// equal URLs already do that, so it carries no information the cell needs.
+    /// </summary>
+    [Fact]
+    public void TheIdParameter_IsSkippedRatherThanReadAsTheTarget()
+    {
+        var buf = Sized(2, 1);
+        buf.MoveTo(0, 0);
+        buf.Write($"\e]8;id=deadbeef;{Target}\aab");
+
+        buf.BackAt(0, 0).Link.ShouldBe(Target);
+    }
+
+    /// <summary>A deterministic id, so the emitted bytes are assertable — string.GetHashCode is not.</summary>
+    [Fact]
+    public void TheEmittedIdIsStablePerTarget()
+    {
+        Osc8.IdFor(Target).ShouldBe(Osc8.IdFor(Target));
+        Osc8.IdFor(Target).ShouldNotBe(Osc8.IdFor("file:///c/other.txt"));
+        Osc8.Open(Target, Osc8.IdFor(Target)).ShouldBe($"\e]8;id={Osc8.IdFor(Target)};{Target}\a");
     }
 
     /// <summary>

@@ -167,6 +167,7 @@ public class RawOutputRegionTests
     {
         public void MoveTo(int column, int row) { }
         public void SetPen(VtStyle style, bool reverse) { }
+        public void SetLink(string? url) { }
         public void Write(ReadOnlySpan<char> run) { }
     }
 
@@ -177,6 +178,7 @@ public class RawOutputRegionTests
         public readonly List<(int Column, int Row)> Moves = [];
         public void MoveTo(int column, int row) => Moves.Add((column, row));
         public void SetPen(VtStyle style, bool reverse) { }
+        public void SetLink(string? url) { }
         public void Write(ReadOnlySpan<char> run) { Written += run.Length; Text += run.ToString(); }
     }
 }

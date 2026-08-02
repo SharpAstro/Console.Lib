@@ -47,6 +47,7 @@ public sealed class ConsoleDebugInspectorTests
     {
         public void MoveTo(int column, int row) { }
         public void SetPen(VtStyle style, bool reverse) { }
+        public void SetLink(string? url) { }
         public void Write(ReadOnlySpan<char> run) { }
     }
 

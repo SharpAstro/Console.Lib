@@ -169,10 +169,15 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
         if (_terminal.CellBuffer is not { } buffer) return Unbuffered();
 
         var cell = buffer.FrontAt(column, row);
+
+        // "link" is reported only when there is one, so an ordinary cell's shape is unchanged and an agent
+        // asking "is this path clickable, and where does it point" gets an answer rather than having to
+        // infer it from escapes it cannot see.
+        var link = cell.Link is null ? "" : $",\"link\":{DebugInspectorCore.Quote(cell.Link)}";
         return $"{{\"column\":{column},\"row\":{row}," +
                $"\"glyph\":{DebugInspectorCore.Quote(cell.Glyph == '\0' ? " " : cell.Glyph.ToString())}," +
                $"\"kind\":\"{cell.Kind}\",\"reverse\":{cell.Reverse.ToString().ToLowerInvariant()}," +
-               $"\"fg\":\"{Hex(cell.Style.Foreground)}\",\"bg\":\"{Hex(cell.Style.Background)}\"}}";
+               $"\"fg\":\"{Hex(cell.Style.Foreground)}\",\"bg\":\"{Hex(cell.Style.Background)}\"{link}}}";
     }
 
     private static string Hex(RGBAColor32 c) => $"#{c.Red:X2}{c.Green:X2}{c.Blue:X2}";

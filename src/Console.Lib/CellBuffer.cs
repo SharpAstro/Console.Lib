@@ -12,9 +12,12 @@ public enum CellKind : byte
 
     /// <summary>
     /// Written while the pen could not be modelled — an escape sequence this buffer does not understand
-    /// (an OSC hyperlink, a cursor move, an erase, an SGR attribute outside <see cref="VtStyle"/>'s
-    /// vocabulary). Always re-emitted, never diffed, so anything we cannot reason about degrades to the
-    /// immediate-mode behaviour it had before rather than being modelled wrongly.
+    /// (a cursor move, an erase, an SGR attribute outside <see cref="VtStyle"/>'s vocabulary). Always
+    /// re-emitted, never diffed, so anything we cannot reason about degrades to the immediate-mode
+    /// behaviour it had before rather than being modelled wrongly.
+    /// <para>
+    /// An OSC 8 hyperlink used to land here and no longer does — see <see cref="Cell.Link"/>.
+    /// </para>
     /// </summary>
     Opaque,
 
@@ -31,7 +34,25 @@ public enum CellKind : byte
 /// <param name="Style">Foreground/background pair as parsed back out of the SGR stream.</param>
 /// <param name="Reverse">Reverse video (<c>\e[7m</c>), which is a pen attribute rather than a colour.</param>
 /// <param name="Kind">See <see cref="CellKind"/>.</param>
-public readonly record struct Cell(char Glyph, VtStyle Style, bool Reverse, CellKind Kind)
+/// <param name="Link">
+/// The OSC 8 hyperlink target this cell was written under, or null for ordinary text.
+/// <para>
+/// <b>A hyperlink is cell state, not a run of escapes, for the same reason a colour is.</b> An OSC 8 pair
+/// wrapping a write used to make the pen unmodellable, so every linked cell became
+/// <see cref="CellKind.Opaque"/> and was re-emitted every single frame. That is invisible on a link or two
+/// and ruinous on a list whose every row carries one -- the diff is silently bypassed for the whole column
+/// while the emitted-cell count still looks small (exactly what <see cref="CellBuffer.LastFlushOpaqueCells"/>
+/// exists to expose). Modelling the link per cell instead means a linked row diffs like any other, and a
+/// link appearing, changing, or going away is a change the diff can see.
+/// </para>
+/// <para>
+/// Held as the URL itself rather than an id into a side table: the diff's comparison is then
+/// <see cref="string"/> equality, whose reference-equality fast path hits on every unchanged cell because
+/// the row handed the buffer the same instance it did last frame. An id table would save a pointer per cell
+/// and cost a table whose lifetime nothing bounds.
+/// </para>
+/// </param>
+public readonly record struct Cell(char Glyph, VtStyle Style, bool Reverse, CellKind Kind, string? Link = null)
 {
     public static readonly Cell Blank = new(' ', default, false, CellKind.Text);
 }
@@ -47,6 +68,16 @@ public interface ICellSink
 
     /// <summary>Select the pen for subsequent <see cref="Write"/> calls.</summary>
     void SetPen(VtStyle style, bool reverse);
+
+    /// <summary>
+    /// Select the OSC 8 hyperlink for subsequent <see cref="Write"/> calls; null closes the open one.
+    /// <para>
+    /// Deliberately a required member rather than one with a no-op default: a sink that silently dropped it
+    /// would emit a frame that looks complete and has lost every link in it, and the omission would only
+    /// show up as "the paths stopped being clickable" long after the sink was written.
+    /// </para>
+    /// </summary>
+    void SetLink(string? url);
 
     /// <summary>Emit a run of glyphs at the current position in the current pen.</summary>
     void Write(ReadOnlySpan<char> run);
@@ -87,6 +118,9 @@ public sealed class CellBuffer
     private VtStyle _pen;
     private bool _reverse;
 
+    /// <summary>The OSC 8 target currently open, or null. See <see cref="Cell.Link"/>.</summary>
+    private string? _link;
+
     /// <summary>True once an escape we cannot model has been seen: cells written now are Opaque.</summary>
     private bool _penUnmodellable;
 
@@ -118,6 +152,7 @@ public sealed class CellBuffer
         _row = 0;
         _pen = default;
         _reverse = false;
+        _link = null;
         _penUnmodellable = false;
     }
 
@@ -194,7 +229,7 @@ public sealed class CellBuffer
             if (_column >= _width) { _column = 0; _row++; if (_row >= _height) return; }
 
             _back[_row * _width + _column] = new Cell(
-                ch, _pen, _reverse, _penUnmodellable ? CellKind.Opaque : CellKind.Text);
+                ch, _pen, _reverse, _penUnmodellable ? CellKind.Opaque : CellKind.Text, _link);
             _column++;
         }
     }
@@ -251,9 +286,10 @@ public sealed class CellBuffer
                     continue;
                 }
 
-                // Start a run: same pen, contiguous, all dirty, no image in the way.
+                // Start a run: same pen, same link, contiguous, all dirty, no image in the way.
                 var pen = back.Style;
                 var reverse = back.Reverse;
+                var link = back.Link;
                 var start = c;
                 run.Clear();
 
@@ -264,6 +300,10 @@ public sealed class CellBuffer
                     if (cell.Kind == CellKind.Image) break;
                     if (!IsDirty(cell, _front[j])) break;
                     if (cell.Style != pen || cell.Reverse != reverse) break;
+
+                    // A link boundary breaks the run for the same reason a pen change does: the sink can
+                    // only state one target for the glyphs it is about to write.
+                    if (cell.Link != link) break;
 
                     run.Append(cell.Glyph == '\0' ? ' ' : cell.Glyph);
                     if (cell.Kind == CellKind.Opaque)
@@ -276,6 +316,7 @@ public sealed class CellBuffer
 
                 sink.MoveTo(start, r);
                 sink.SetPen(pen, reverse);
+                sink.SetLink(link);
                 foreach (var chunk in run.GetChunks())
                 {
                     sink.Write(chunk.Span);
@@ -348,20 +389,65 @@ public sealed class CellBuffer
             return consumed;
         }
 
-        // OSC: ESC ']' … BEL or ST. Hyperlinks and titles land here (mdcat emits them).
+        // OSC: ESC ']' … BEL or ST. Hyperlinks and titles land here (CellLayout and mdcat emit them).
         if (text.Length >= 2 && text[1] == ']')
         {
-            _penUnmodellable = true;
-            for (var i = 2; i < text.Length; i++)
+            var end = 2;
+            var terminator = 0;
+            while (end < text.Length)
             {
-                if (text[i] == '\a') return i + 1;
-                if (text[i] == '\e' && i + 1 < text.Length && text[i + 1] == '\\') return i + 2;
+                if (text[end] == '\a') { terminator = 1; break; }
+                if (text[end] == '\e' && end + 1 < text.Length && text[end + 1] == '\\') { terminator = 2; break; }
+                end++;
             }
-            return text.Length;
+
+            var consumed = terminator == 0 ? text.Length : end + terminator;
+            if (TryApplyHyperlink(text[2..end]))
+            {
+                return consumed;
+            }
+
+            // Some other OSC — a window title, a clipboard write. Nothing about it is modelled, so the
+            // cells written after it keep the conservative treatment OSC has always had here.
+            _penUnmodellable = true;
+            return consumed;
         }
 
         _penUnmodellable = true;
         return Math.Min(2, text.Length);
+    }
+
+    /// <summary>
+    /// Applies an OSC 8 hyperlink body — <c>8;params;URI</c>, the part between <c>ESC ]</c> and the
+    /// terminator — to <see cref="_link"/>. An empty URI closes the open link, which is how OSC 8 says so.
+    /// False when the body is some other OSC, leaving the caller to treat it as unmodellable.
+    /// <para>
+    /// <c>params</c> is parsed only far enough to skip it. Its one defined key is <c>id=</c>, whose purpose
+    /// is to tell a terminal that two DISCONTIGUOUS runs are one link — and here that is already implied by
+    /// the runs carrying equal URLs, because the link lives on the cell rather than on the write that
+    /// produced it. (The emitter still sends an id; see <c>ConsoleCellSink.SetLink</c> for why it must.)
+    /// </para>
+    /// </summary>
+    private bool TryApplyHyperlink(ReadOnlySpan<char> body)
+    {
+        if (!body.StartsWith("8;"))
+        {
+            return false;
+        }
+
+        var rest = body[2..];
+        var semicolon = rest.IndexOf(';');
+        if (semicolon < 0)
+        {
+            // "8;" with no second separator is malformed: the URI field is not optional. Refusing it here
+            // rather than reading the params as a URI keeps a broken sequence from binding every following
+            // cell to a nonsense target.
+            return false;
+        }
+
+        var uri = rest[(semicolon + 1)..];
+        _link = uri.IsEmpty ? null : uri.ToString();
+        return true;
     }
 
     /// <summary>
@@ -438,5 +524,10 @@ public sealed class CellBuffer
         // A reset is something we DO understand, so it also clears the unmodellable state: whatever we
         // could not parse, the pen is now known again.
         _penUnmodellable = false;
+
+        // _link is deliberately NOT cleared. SGR and OSC 8 are separate state in a real terminal — \e[0m
+        // resets colour and attributes and leaves an open hyperlink open; only OSC 8 with an empty URI
+        // closes one. Clearing it here would also break the natural way to write a linked run, which is
+        // to state the pen inside the link (see CellLayout.DrawText).
     }
 }

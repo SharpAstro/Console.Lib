@@ -192,9 +192,8 @@ public static partial class MarkdownRenderer
     /// supporting terminals (Windows Terminal, iTerm2, WezTerm, kitty,
     /// mintty, GNOME Terminal, VS Code's integrated terminal, etc.)
     /// turn it into a clickable hyperlink targeting <paramref name="url"/>.
-    /// Format is <c>\e]8;;URL\aTEXT\e]8;;\a</c> — BEL-terminated OSC
-    /// (the ST-terminated form <c>\e\\</c> is equivalent but BEL has
-    /// wider terminal support, including Windows Terminal &lt; 1.18).
+    /// The sequences themselves live in <see cref="Osc8"/>, which is also
+    /// what <see cref="CellBuffer"/> parses back.
     /// </summary>
     /// <returns>(opener, closer) pair. Empty strings if
     /// <paramref name="mode"/> is <see cref="ColorMode.None"/> or
@@ -205,7 +204,7 @@ public static partial class MarkdownRenderer
     internal static (string Open, string Close) Hyperlink(string? url, ColorMode mode)
     {
         if (mode == ColorMode.None || string.IsNullOrEmpty(url)) return ("", "");
-        return ($"\e]8;;{url}\a", "\e]8;;\a");
+        return (Osc8.Open(url), Osc8.Close);
     }
 
     // ── Word wrapping (ANSI-aware) ────────────────────────────────────

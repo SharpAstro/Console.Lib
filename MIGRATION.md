@@ -1,5 +1,46 @@
 # Migration notes
 
+## 4.13 — `ICellSink` gains `SetLink`
+
+Only implementors of `ICellSink` are affected. Everything else — rows, nodes, widgets, hosts — is
+source-compatible, and gains hyperlinks by stating one.
+
+```csharp
+public void SetLink(string? url) { }   // a sink that does not model links
+```
+
+No default implementation, deliberately: a sink that silently ignored it would emit a frame that looks
+complete and has lost every link in it, and the omission surfaces as "the paths stopped being clickable"
+long after the sink was written.
+
+### Stating a link
+
+A node states one by carrying a `HitResult.LinkHit` — the hit it already needed for the click to work:
+
+```csharp
+Layout.Builder.Text(path, 1f, colour).WStar()
+    .Clickable(new HitResult.LinkHit(uri), _ => Open(path));
+```
+
+`CellLayout` paints that leaf's text inside an OSC 8 pair. The link resolves through the same
+nearest-enclosing walk as the background, so stating it on a row wrapper reaches the text underneath, and
+an inner link overrides an outer one. Only text is wrapped — the padding and fills around it are not part
+of the link, or a terminal underlines a hyperlink stretching across gaps with no text in them.
+
+There is no `Layout.Node.Link` property on purpose. Reusing the hit makes the drawn region and the
+clickable region the same arranged rect by construction; a second way to say it would allow a row that
+underlines text it cannot click, or clicks text it does not underline.
+
+### What changed underneath
+
+`Cell` gains `Link`, and `CellBuffer` now models OSC 8 rather than giving up on it. Before, a hyperlink
+made the pen unmodellable, so every linked cell was `CellKind.Opaque` — re-emitted on every frame, forever.
+That is invisible for one link in a paragraph and ruinous for a list whose every row carries one: the diff
+is bypassed for the whole column while the emitted-cell count still looks small. `LastFlushOpaqueCells` is
+the number that shows it. A linked row now diffs like any other.
+
+Other OSC sequences (a window title, a clipboard write) are unchanged and still go opaque.
+
 ## 4.10 — list and tree rows are layout trees
 
 `IRowFormatter` is gone. `ITreeNode<TSelf>.FormatNodeContent` is gone. Both are replaced by a method

@@ -233,12 +233,22 @@ public sealed class VirtualTerminal : IVirtualTerminal
         private VtStyle? _pen;
         private bool _reverse;
         private ColorMode _mode = ColorMode.Sgr16;
+        private string? _link;
+        private bool _linkKnown;
 
         public ColorMode Mode { set => _mode = value; }
 
         /// <summary>Forgets the pen, so the next run re-states it. Needed after anything that could have
         /// changed the terminal's state behind our back (a clear, a Sixel blit).</summary>
-        public void Invalidate() => _pen = null;
+        public void Invalidate()
+        {
+            _pen = null;
+
+            // An open hyperlink is terminal state as much as the pen is, and a clear does not close one.
+            // Forgetting it -- rather than assuming it closed -- makes the next SetLink re-state whatever it
+            // should be, including emitting the close for a link the terminal may still have open.
+            _linkKnown = false;
+        }
 
         /// <summary>
         /// Moves the cursor with a VT sequence in the SAME stream as the pen and the glyphs, rather than
@@ -271,6 +281,27 @@ public sealed class VirtualTerminal : IVirtualTerminal
             _reverse = reverse;
 
             System.Console.Write(PenEscape(style, _mode, reverse, mustStateReverse));
+        }
+
+        /// <summary>
+        /// States the hyperlink for the run about to be written, emitting only on a change — the same
+        /// "emit less" rule <see cref="SetPen"/> follows, and it matters more here: a list where every row
+        /// is a link would otherwise pay an open and a close per row per frame.
+        /// <para>
+        /// The id is what makes a DIFFED link hold together; see <see cref="Osc8.Open(string, string)"/>.
+        /// </para>
+        /// </summary>
+        public void SetLink(string? url)
+        {
+            if (_linkKnown && _link == url) return;
+
+            _link = url;
+            _linkKnown = true;
+
+            // ColorMode.None means "no escapes at all" for the pen, and a hyperlink is no different.
+            if (_mode == ColorMode.None) return;
+
+            System.Console.Write(url is null ? Osc8.Close : Osc8.Open(url, Osc8.IdFor(url)));
         }
 
         public void Write(ReadOnlySpan<char> run) => System.Console.Out.Write(run);
