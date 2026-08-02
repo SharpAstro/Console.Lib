@@ -8,7 +8,7 @@ on:
 
 env:
   # Release notes, one entry per Major.Minor. The version NUMBER is deliberately not here any more — it
-  # lives in src/Directory.Build.props (ConsoleLibVersion) and the build job reads it back, so it cannot
+  # lives in src/Directory.Build.props (VersionMajorMinor) and the build job reads it back, so it cannot
   # drift from what the packages declare. Add the entry here when you bump it there. (The entries stay in
   # the yml rather than moving next to the number because several contain a double hyphen, which is
   # illegal inside an XML comment.)
@@ -280,10 +280,10 @@ jobs:
       # else unexpected, or a renamed property, fail the run rather than quietly stamping every package
       # ".<run>".
       run: |
-        MM="$(dotnet msbuild src/Directory.Build.props -getProperty:ConsoleLibVersion -nologo)"
+        MM="$(dotnet msbuild src/Directory.Build.props -getProperty:VersionMajorMinor -nologo)"
         case "$MM" in
           [0-9]*.[0-9]*) ;;
-          *) echo "::error::ConsoleLibVersion did not resolve from src/Directory.Build.props (got '$MM')"; exit 1 ;;
+          *) echo "::error::VersionMajorMinor did not resolve from src/Directory.Build.props (got '$MM')"; exit 1 ;;
         esac
         echo "VERSION_PREFIX=${MM}.${{ github.run_number }}" >> "$GITHUB_ENV"
     - name: Restore dependencies

@@ -11,10 +11,10 @@
 
     <!-- mdcat's version is melded to Console.Lib's: CI passes -p:Version to the
          whole solution, so the published tool tracks the library version. Derived
-         from ConsoleLibVersion in ../Directory.Build.props, so the LOCAL build
+         from VersionMajorMinor in ../Directory.Build.props, so the LOCAL build
          agrees with what CI publishes instead of drifting (this read 3.15.0 while
          the library was on 4.8). -->
-    <VersionPrefix>$(ConsoleLibVersion).0</VersionPrefix>
+    <VersionPrefix>$(VersionMajorMinor).0</VersionPrefix>
 
     <!-- Published to nuget.org as a global tool (`dotnet tool install -g
          mdcat`) by the CI pipeline. We do NOT set GeneratePackageOnBuild:

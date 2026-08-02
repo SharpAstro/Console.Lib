@@ -34,24 +34,26 @@ These are passed to `dotnet build` as:
 
 ### Files to update when bumping the version
 
-**Two edits.** `<ConsoleLibVersion>` in `src/Directory.Build.props` is the single source of truth for the `X.Y`, and the workflow repeats it:
+**One edit.** `<VersionMajorMinor>` in `src/Directory.Build.props` is the single source of truth for the `X.Y`:
 
 | File | Property | Format | Example |
 |---|---|---|---|
-| `src/Directory.Build.props` | `<ConsoleLibVersion>` | `X.Y` | `2.0` |
-| `.github/workflows/dotnet.yml` | `VERSION_PREFIX` | `X.Y.${{ github.run_number }}` | `2.0.${{ github.run_number }}` |
+| `src/Directory.Build.props` | `<VersionMajorMinor>` | `X.Y` | `2.0` |
 
-Everything else derives from the first and must NOT be edited by hand:
+Everything else derives from it and must NOT be edited by hand:
 
 | File | Property | Derives as |
 |---|---|---|
-| `src/Console.Lib/Console.Lib.csproj` | `<VersionPrefix>` | `$(ConsoleLibVersion).0` |
-| `src/Console.Lib/Console.Lib.csproj` | `<AssemblyVersion>` | `$(ConsoleLibVersion).0.0` |
-| `src/MdCat/MdCat.csproj` | `<VersionPrefix>` | `$(ConsoleLibVersion).0` |
+| `src/Console.Lib/Console.Lib.csproj` | `<VersionPrefix>` | `$(VersionMajorMinor).0` |
+| `src/Console.Lib/Console.Lib.csproj` | `<AssemblyVersion>` | `$(VersionMajorMinor).0.0` |
+| `src/MdCat/MdCat.csproj` | `<VersionPrefix>` | `$(VersionMajorMinor).0` |
+| `.github/workflows/dotnet.yml` | `VERSION_PREFIX` | resolved in a build step, `$(VersionMajorMinor).<run>` |
 
 `VersionPrefix` is the local/debug package version. `AssemblyVersion` governs .NET assembly binding. `VERSION_PREFIX` drives the CI-published NuGet version. All share the same `X.Y` by construction now — they did not before, and `AssemblyVersion` sat at `3.6.0.0` from 4.1 through 4.8 without anyone noticing, because nothing compares them.
 
-The workflow's `VERSION_PREFIX` is the one value that cannot be derived: a workflow `env:` block cannot evaluate MSBuild. Making it derived means a computed step (`dotnet msbuild -getProperty:ConsoleLibVersion` into `$GITHUB_ENV`) instead of a static entry, which also has to relocate the release-note block living in that `env:`.
+The workflow value used to be the exception, a static `env:` entry restating the `X.Y`, because a workflow `env:` block cannot evaluate MSBuild. It is no longer: the build job resolves it in a step (`dotnet msbuild src/Directory.Build.props -getProperty:VersionMajorMinor` into `$GITHUB_ENV`) before it stamps `-p:Version`, so CI cannot publish a version the packages disagree with. `-getProperty` only *evaluates* the file, so the step needs no restore and runs first; a property that fails to resolve fails the run rather than quietly publishing everything as `.<run>`. The release-note block stays in that `env:` because several entries contain a double hyphen, which XML forbids inside a comment — add the entry there when you bump the number here.
+
+The property is called `VersionMajorMinor` rather than something Console.Lib-specific because **every SharpAstro repo now uses this same pattern under this same name** (DIR.Lib, SdlVulkan.Renderer, WebGl.Renderer, Codecs, Fonts.Lib, FITS.Lib, SER.Lib, Lzip.Lib, LAN.Lib, FC.SDK, QHYCCD.SDK, ZWOptical.SDK, TianWen.DAL). One name means one thing to grep for when checking whether a repo is on the pattern.
 
 `src/Console.Lib.Inspector/Console.Lib.Inspector.csproj` keeps its own `<VersionPrefix>` (`1.0.0`) on purpose — it is a separately versioned MCP-server package. CI overrides it via the solution-wide `-p:Version` regardless.
 
