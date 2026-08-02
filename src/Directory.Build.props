@@ -18,17 +18,19 @@
     mdcat's version is melded to the library's: CI passes one -p:Version to the whole solution, so the
     published tool tracks the library. Deriving its csproj value means the LOCAL build agrees too.
 
-    STILL DUPLICATED, unavoidably: .github/workflows/dotnet.yml's VERSION_PREFIX, which must read
-    X.Y.${{ github.run_number }}. A workflow's env: block cannot evaluate MSBuild, so the X.Y is repeated
-    there. Making even that derived means turning it into a computed step (`dotnet msbuild
-    -getProperty:ConsoleLibVersion` into $GITHUB_ENV) instead of a static env entry, which is worth doing
-    but restructures the release-note block that currently lives in that env.
+    CI derives it too, so this really is the only place. .github/workflows/dotnet.yml no longer carries a
+    static VERSION_PREFIX: a workflow env: block cannot evaluate MSBuild, so the build job resolves the
+    number in a step (`dotnet msbuild -getProperty:ConsoleLibVersion` into $GITHUB_ENV) before it stamps
+    -p:Version across the solution. CI therefore cannot publish a version the packages disagree with. The
+    release-note block stays in that env: several entries contain a double hyphen, which XML forbids
+    inside a comment, so the notes cannot move next to the number they describe — add the entry there
+    when you bump this.
 
     Console.Lib.Inspector keeps its own VersionPrefix (1.0.0) and is deliberately NOT derived: it is a
     separately versioned MCP-server package. CI overrides it anyway via the solution-wide -p:Version.
   -->
   <PropertyGroup>
-    <ConsoleLibVersion>4.11</ConsoleLibVersion>
+    <ConsoleLibVersion>4.12</ConsoleLibVersion>
   </PropertyGroup>
 
 </Project>
