@@ -281,6 +281,23 @@ shows it). The console sink emits an `id=`, so a link the diff splits into sever
 
 `ColorMode.None` emits no link, along with every other escape.
 
+#### Trimming an overlong run (4.14+)
+
+A cell surface measures in whole characters, so a run that does not fit its rect has to be cut. Which end
+it loses is the run's own business — `Layout.Content.Text.Trim`, via `Layout.Builder.Text(..., trim:)`:
+
+```csharp
+Layout.Builder.Text(path, 1f, colour, trim: TextTrim.Start).WStar()   // "…\ftw\Program.cs"
+```
+
+`TextTrim.End` (the default, and the historical behaviour) keeps the head — right for a label. A **path**
+needs the opposite: every path on a machine shares its head, so `C:\Users\seb\repos\so…` identifies
+nothing while `…\ftw\Program.cs` is the part being read. Before this, the only way to get that was to
+pre-truncate against the column width — which is exactly the arithmetic rows stopped owning in 4.10.
+
+At a width of one cell there is no room for a glyph *and* an ellipsis, so the cell goes to the surviving
+end's character rather than to a lone `…`.
+
 **Across surfaces.** `LinkHit` is a DIR.Lib hit, so the same authored tree carries the link to the pixel
 painter too. `PixelWidgetBase.PaintLayout` binds it as a clickable region *and* — from DIR.Lib 7.7 —
 routes the text under it through `SelectableTextRegion.Href`, which a DOM host renders as a real

@@ -9,10 +9,18 @@
 
   <ItemGroup>
     <PackageVersion Include="coverlet.collector" Version="10.0.0" />
-    <PackageVersion Include="DIR.Lib" Version="7.5.*" />
+    <PackageVersion Include="DIR.Lib" Version="7.7.*" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.5.1" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.300" />
-    <PackageVersion Include="SharpAstro.LALR.CC" Version="3.1.*" />
+    <!-- No SharpAstro.LALR.CC entry on purpose. The grammars and the LALR.CC
+         source generator moved to DIR.Lib.Markdown in v2.14, so no project in
+         this repo declares a PackageReference to it any more — it arrives
+         transitively through DIR.Lib, which owns the pin. A PackageVersion here
+         with nothing referencing it is inert: it cannot constrain the transitive
+         resolve (transitive pinning is off), it just reads like a pin and drifts.
+         This one sat at 3.1.* through the whole 4.x line saying nothing.
+         If a project here ever takes a direct dependency, restore fails loudly
+         with NU1010 — add the pin back then, tracking DIR.Lib's. -->
     <!-- Image-codec facade for markdown inline-image decode (ImageCodecs); pulls PNG/JPEG in lockstep. -->
     <PackageVersion Include="SharpAstro.Codecs" Version="3.6.*" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />

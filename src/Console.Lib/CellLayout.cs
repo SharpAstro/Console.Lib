@@ -304,6 +304,33 @@ public static class CellLayout
         WriteGlyph(viewport, right, bottom, '▛', pen); // bottom-right: lower-right omitted
     }
 
+    /// <summary>
+    /// Shortens <paramref name="s"/> to exactly <paramref name="maxW"/> cells, sacrificing the end
+    /// <paramref name="trim"/> names and spending one cell on the ellipsis.
+    /// <para>
+    /// A cell surface has to cut somewhere — it measures in whole characters — and WHICH end it cuts is the
+    /// run's business, not the painter's. Before <see cref="Layout.Content.Text.Trim"/> existed this was
+    /// unconditionally end-trimmed, so a caller with a path had to pre-truncate against a width it derived
+    /// itself; that width is the one thing a row no longer knows, so in practice the path column just lost
+    /// its filename.
+    /// </para>
+    /// <para>
+    /// At <paramref name="maxW"/> of 1 there is no room for both a glyph and an ellipsis, so the single cell
+    /// goes to the character from the surviving end rather than to a lone "…" that says nothing.
+    /// </para>
+    /// </summary>
+    private static string Ellipsize(string s, int maxW, TextTrim trim)
+    {
+        if (maxW <= 1)
+        {
+            return trim == TextTrim.Start ? s[^maxW..] : s[..maxW];
+        }
+
+        return trim == TextTrim.Start
+            ? '…' + s[(s.Length - maxW + 1)..]
+            : s[..(maxW - 1)] + '…';
+    }
+
     private static void WriteGlyph(ITerminalViewport viewport, int column, int row, char glyph, string pen)
     {
         viewport.SetCursorPosition(column, row);
@@ -336,7 +363,7 @@ public static class CellLayout
         var s = text.Value;
         if (s.Length > maxW)
         {
-            s = maxW > 1 ? s[..(maxW - 1)] + '…' : s[..maxW];
+            s = Ellipsize(s, maxW, text.Trim);
         }
 
         var len = s.Length;
