@@ -401,6 +401,18 @@ public sealed class TreeView<TItem> : Widget where TItem : class, ITreeNode<TIte
 
             if (HasScrollBar)
             {
+                // Position explicitly rather than trusting where the row left the cursor.
+                //
+                // Until 4.10 a row was one string of exactly contentWidth cells, written in sequence, so
+                // the cursor arrived here on its own. A row is now a layout tree, and CellLayout positions
+                // per text run and leaves the cursor after the LAST GLYPH it drew -- so the bar landed
+                // immediately right of each row's rightmost text, at a different column on every row. That
+                // reads as a stray block beside every label rather than as a scrollbar, and it shows up
+                // exactly when the tree overflows, which is when the bar is supposed to start helping.
+                //
+                // ScrollableList already carries this line; TreeView was missed when rows moved to trees.
+                if (!TrySetCursorPosition(Viewport, contentWidth, row)) return;
+
                 var onThumb = dataRow >= thumbTop && dataRow < thumbTop + thumbHeight;
                 var style = onThumb ? _thumbStyle : _scrollBarStyle;
                 var glyph = onThumb ? '\u2588' : '\u2502'; // █ on thumb, │ on track

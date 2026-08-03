@@ -30,7 +30,7 @@
     separately versioned MCP-server package. CI overrides it anyway via the solution-wide -p:Version.
   -->
   <PropertyGroup>
-    <VersionMajorMinor>4.14</VersionMajorMinor>
+    <VersionMajorMinor>4.15</VersionMajorMinor>
   </PropertyGroup>
 
 </Project>
