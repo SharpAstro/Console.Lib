@@ -299,6 +299,17 @@ env:
   # removal the author asked not to make. That degradation is what keeps one authored tree meaning the same
   # thing on a pixel surface and a cell one, which is the whole premise of sharing the tree. Repins DIR.Lib
   # 7.7.* -> 7.8.*. 3 tests, one of which pins Shrink against End so the two cannot silently diverge.
+  # Later in 4.16, no X.Y bump and NO published value changes: VersionPrefix and AssemblyVersion moved out
+  # of the csprojs and into src/Directory.Build.props, next to the number they derive from. Both were
+  # already derived here, so Console.Lib still builds 4.16.0.0 -- this is about there being one place
+  # instead of four to forget. DIR.Lib and SdlVulkan.Renderer had the same restatement NOT derived and
+  # shipped 6.4.0.0 and 6.11.0.0 for two majors; the family now states the rule once per repo, in the props.
+  # One behaviour change, local only: Console.Lib.Inspector no longer carries VersionPrefix 1.0.0. It was
+  # there to mark the inspector as separately versioned, but CI's solution-wide -p:Version overrode it on
+  # every run, so nuget.org has only ever had it in lockstep (4.3.1341 first, 4.16.1511 latest, never a
+  # 1.0.0). The literal delivered no separate versioning and only made local packs disagree with published
+  # ones; a local pack now reads 4.16.0, matching CI. Genuine divergence would need its own
+  # VersionMajorMinor and pack step.
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release

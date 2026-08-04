@@ -26,7 +26,11 @@
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>Console.Lib.Inspector</PackageId>
     <ToolCommandName>console-inspector</ToolCommandName>
-    <VersionPrefix>1.0.0</VersionPrefix>
+    <!-- No VersionPrefix: melded to the library via VersionMajorMinor in
+         ../Directory.Build.props. This used to read 1.0.0 to mark the inspector as
+         separately versioned, but CI's solution-wide -p:Version overrode it on every
+         run, so nuget.org only ever saw lockstep versions and the literal just made
+         local packs disagree. See the props comment before reinstating it. -->
     <Description>MCP server that discovers running Debug-build terminal apps (built on Console.Lib) and lets an AI agent read their screen as text, inspect app state, and drive them with injected keys and clicks.</Description>
     <PackageTags>mcp;ai;terminal;tui;console;debugging;inspector</PackageTags>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>

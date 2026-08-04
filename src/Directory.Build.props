@@ -2,21 +2,29 @@
 
   <!--
     THE version. Every other version value in the repo derives from this one, so a release is a
-    one-character edit here instead of three edits that can silently disagree:
+    one-character edit here — and the derivations now live HERE too, next to the number, rather than being
+    restated in each csproj. They used to be restated, and the restatements drifted:
 
-      src/Console.Lib/Console.Lib.csproj   VersionPrefix    $(VersionMajorMinor).0
-      src/Console.Lib/Console.Lib.csproj   AssemblyVersion  $(VersionMajorMinor).0.0
-      src/MdCat/MdCat.csproj               VersionPrefix    $(VersionMajorMinor).0
+      Console.Lib          AssemblyVersion  stuck at 3.6.0.0 from 4.1 through 4.8
+      MdCat                VersionPrefix    read 3.15.0 while the library was on 4.8
+      Console.Lib.Inspector VersionPrefix   read 1.0.0 for its entire life
 
-    It is the X.Y only, because that is the part the three share; the patch/build component differs by
-    consumer (the csprojs use .0 for local and debug builds, CI substitutes its run number).
+    It is the X.Y only, because that is the part every package shares; the patch/build component differs
+    by consumer (local and debug builds use .0, CI substitutes its run number).
 
-    AssemblyVersion is in the list on purpose. It had drifted to 3.6.0.0 and stayed there through every
-    bump from 4.1 to 4.8 while the other two moved together, which is exactly the failure a single source
-    of truth removes. It was invisible because nothing compares them.
+    AssemblyVersion is derived on purpose, and unconditionally. It is the one value CI does NOT stamp — the
+    workflow passes -p:Version and -p:FileVersion but never -p:AssemblyVersion — so a per-project literal
+    wins in exactly the build that ships. That is how DIR.Lib published 6.4.0.0 for two majors and
+    SdlVulkan.Renderer published 6.11.0.0; a stale VersionPrefix only spoils a local pack, a stale
+    AssemblyVersion spoils the package. Only Major.Minor is significant: the build counter stays out, so a
+    republish of the same X.Y does not change assembly identity.
 
-    mdcat's version is melded to the library's: CI passes one -p:Version to the whole solution, so the
-    published tool tracks the library. Deriving its csproj value means the LOCAL build agrees too.
+    Every package here is version-melded to the library, INCLUDING Console.Lib.Inspector. Its csproj used to
+    carry VersionPrefix 1.0.0 under the intent that it was separately versioned, but CI's solution-wide
+    -p:Version overrode that on every run, so nuget.org has only ever had it in lockstep (4.16.1511 today,
+    and 4.3.1341 as its first release — never a 1.0.0). The literal therefore did not deliver separate
+    versioning; it just made local packs disagree with published ones. If it should genuinely diverge, it
+    needs its own VersionMajorMinor and its own pack step, not a literal CI silently ignores.
 
     CI derives it too, so this really is the only place. .github/workflows/dotnet.yml no longer carries a
     static VERSION_PREFIX: a workflow env: block cannot evaluate MSBuild, so the build job resolves the
@@ -25,12 +33,13 @@
     release-note block stays in that env: several entries contain a double hyphen, which XML forbids
     inside a comment, so the notes cannot move next to the number they describe — add the entry there
     when you bump this.
-
-    Console.Lib.Inspector keeps its own VersionPrefix (1.0.0) and is deliberately NOT derived: it is a
-    separately versioned MCP-server package. CI overrides it anyway via the solution-wide -p:Version.
   -->
   <PropertyGroup>
     <VersionMajorMinor>4.16</VersionMajorMinor>
+    <!-- Local builds get Major.Minor.0; CI passes -p:Version=Major.Minor.<run><attempt>+<sha>, and the
+         condition lets it win. -->
+    <VersionPrefix Condition="'$(VersionPrefix)' == ''">$(VersionMajorMinor).0</VersionPrefix>
+    <AssemblyVersion>$(VersionMajorMinor).0.0</AssemblyVersion>
   </PropertyGroup>
 
 </Project>

@@ -6,9 +6,8 @@
     <Nullable>enable</Nullable>
     <IsAotCompatible>true</IsAotCompatible>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <!-- Both derived from VersionMajorMinor in ../Directory.Build.props; edit the version there. -->
-    <VersionPrefix>$(VersionMajorMinor).0</VersionPrefix>
-    <AssemblyVersion>$(VersionMajorMinor).0.0</AssemblyVersion>
+    <!-- No version properties here: VersionPrefix and AssemblyVersion are both derived from
+         VersionMajorMinor in ../Directory.Build.props. Edit the version there. -->
     <PackageID>Console.Lib</PackageID>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
