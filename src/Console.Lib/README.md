@@ -753,10 +753,32 @@ public class MyMenu(IVirtualTerminal terminal, TimeProvider timeProvider)
 }
 ```
 
+## Console size
+
+```csharp
+bool ok = ConsoleSize.TryGetWindowSize(out int width, out int height);
+int width = ConsoleSize.GetWidth();          // width alone, 80 if there is no console
+int width = ConsoleSize.GetWidth(fallback: 100);
+```
+
+Use these rather than `System.Console.WindowWidth` / `WindowHeight`. On Windows those
+throw `IOException` whenever stdout is redirected — piped to a pager, captured by a
+parent process — because the CLR sizes via `GetStdHandle(STD_OUTPUT_HANDLE)`, and that
+handle *is* the pipe. The console is still attached and still has a real width; only the
+handle the CLR asked was the wrong one, which is why swallowing the exception and
+guessing 80 columns produces output that is quietly narrower than the window forever.
+
+`TryGetWindowSize` tries the managed properties first (correct on every OS, and on
+Windows whenever stdout is not redirected), then falls back — Windows only — to opening
+the attached console's active screen buffer directly via `CONOUT$`. Both paths read at
+call time, so a live window resize is picked up by the next call instead of being fixed
+at startup. `false` means there is genuinely no console to measure (no TTY, a detached
+service, CI), at which point the caller's own default applies.
+
 ## Platform support
 
-- **Windows**: `WindowsConsoleInput` enables virtual terminal I/O and mouse tracking via Win32 `SetConsoleMode`. Restores original console mode on dispose.
-- **Unix/macOS**: VT100 escape sequences work natively. Mouse tracking uses the same SGR extended format.
+- **Windows**: `WindowsConsoleInput` enables virtual terminal I/O and mouse tracking via Win32 `SetConsoleMode`. Restores original console mode on dispose. It also backs `ConsoleSize`'s `CONOUT$` size probe (see above).
+- **Unix/macOS**: VT100 escape sequences work natively. Mouse tracking uses the same SGR extended format. Size comes from `System.Console` throughout — the runtime's own `TIOCGWINSZ` handling — with no native probing of our own.
 
 ## Terminal capability detection
 

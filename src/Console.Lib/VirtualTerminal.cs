@@ -40,9 +40,22 @@ public sealed class VirtualTerminal : IVirtualTerminal
         }
         catch (System.IO.IOException)
         {
-            // Console handle is invalid (e.g. no TTY attached) — degrade gracefully
+            // Console handle is invalid (e.g. no TTY attached, or stdout redirected) — degrade
+            // gracefully. CONOUT$ can often still measure the window (see ConsoleSize), and a
+            // real size beats 80x24, but _noConsole stays set either way: the DA1 and cell-size
+            // probes below WRITE to stdout and read the reply back, so under a redirected stdout
+            // they would inject escape sequences into whatever is consuming our output and then
+            // stall waiting for an answer that cannot arrive. Measuring is safe; asking is not.
             _noConsole = true;
-            _lastSize = (80, 24);
+            if (OperatingSystem.IsWindows()
+                && WindowsConsoleInput.TryGetConsoleScreenBufferSize(out var seedWidth, out var seedHeight))
+            {
+                _lastSize = (seedWidth, seedHeight);
+            }
+            else
+            {
+                _lastSize = (80, 24);
+            }
         }
 
         _cellSize = new TermCell(10, 20);
@@ -158,14 +171,14 @@ public sealed class VirtualTerminal : IVirtualTerminal
     {
         get
         {
-            try
+            // Read every time rather than cached, so a window resize lands on the next
+            // frame; ConsoleSize falls through to CONOUT$ when stdout is redirected, which
+            // is why this keeps tracking the real window even then.
+            if (ConsoleSize.TryGetWindowSize(out var width, out var height))
             {
-                _lastSize = (System.Console.WindowWidth, System.Console.WindowHeight);
+                _lastSize = (width, height);
             }
-            catch (System.IO.IOException)
-            {
-                // Console handle can become temporarily invalid — return last known good size
-            }
+            // Otherwise the console handle is unusable — return the last known good size.
             return _lastSize;
         }
     }
