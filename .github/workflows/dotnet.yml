@@ -310,6 +310,29 @@ env:
   # 1.0.0). The literal delivered no separate versioning and only made local packs disagree with published
   # ones; a local pack now reads 4.16.0, matching CI. Genuine divergence would need its own
   # VersionMajorMinor and pack step.
+  # 4.17 - ConsoleSize reads the terminal's real size when stdout is REDIRECTED, which is the case
+  # System.Console cannot answer: WindowWidth/Height size via GetStdHandle(STD_OUTPUT_HANDLE), and that
+  # handle IS the pipe once output is piped or captured, so the properties throw "handle is invalid"
+  # exactly when something is consuming our output. mdcat caught that and rendered at a hard-coded 80
+  # columns; the console was still attached and still 120 wide, only the handle asked was the wrong one,
+  # and because the number is a fallback rather than a failure nothing ever looked wrong -- output was
+  # merely narrower than the window forever. CONOUT$ opened with CreateFileW names the ATTACHED CONSOLE's
+  # active screen buffer independent of stdout, so GetConsoleScreenBufferInfo still answers; size comes
+  # from srWindow (Right-Left+1, the edges being INCLUSIVE) and NOT from dwSize, whose height is the
+  # scrollback -- commonly 9001 rows against a 25-row window, a wrong answer that looks like a right one.
+  # Read at call time, so a live RESIZE lands on the next read instead of being baked in at startup; a
+  # width passed at invocation could not do that. The handle is opened once per process and cached,
+  # failure included (no console at all: a detached service, CI), because VirtualTerminal.Size is read on
+  # every idle poll and nothing here attaches/detaches a console mid-run. VirtualTerminal keeps setting
+  # _noConsole under a redirected stdout even though CONOUT$ can now measure the window: the DA1 and
+  # cell-size probes WRITE to stdout and read the reply back, so clearing it would inject escape
+  # sequences into the consumer's pipe and then stall ~200ms awaiting an answer that cannot arrive.
+  # Measuring is safe; asking is not. mdcat's GetConsoleWidth and its byte-identical twin in
+  # examples/MarkdownConsole both delegate to ConsoleSize.GetWidth() and are deleted. Non-Windows
+  # behaviour is unchanged (System.Console throughout; no /dev/tty work). ADDITIVE: new public type, no
+  # existing signature moves. 6 tests over the srWindow arithmetic -- the inclusive +1 and the dwSize
+  # confusion are the two ways to be plausibly wrong here; the CONOUT$ handle path needs a real console
+  # and stays untested by design, as the rest of WindowsConsoleInput is.
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release

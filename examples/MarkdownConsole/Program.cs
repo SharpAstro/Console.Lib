@@ -44,7 +44,7 @@ internal static class Program
             : await DetectMathModeAsync();
 
         var mathFontPath = ResolveMathFont();
-        int width = parsed.Width ?? GetConsoleWidth();
+        int width = parsed.Width ?? CL.ConsoleSize.GetWidth();
 
         // Resolve which sources to render. In order of priority:
         //   --sample <id>    → render that one sample
@@ -144,19 +144,6 @@ internal static class Program
     {
         var candidate = Path.Combine(AppContext.BaseDirectory, "Fonts", "STIX2Math.otf");
         return File.Exists(candidate) ? candidate : null;
-    }
-
-    private static int GetConsoleWidth()
-    {
-        try
-        {
-            var w = SysConsole.WindowWidth;
-            return w > 0 ? w : 80;
-        }
-        catch
-        {
-            return 80;
-        }
     }
 
     // ── CLI parsing ──────────────────────────────────────────────────

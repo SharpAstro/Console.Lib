@@ -45,7 +45,7 @@ internal static class Program
             return 1;
         }
 
-        int width = options.Width ?? GetConsoleWidth();
+        int width = options.Width ?? ConsoleSize.GetWidth();
 
         var (colorMode, theme) = ResolveColorAndTheme(options.Color);
 
@@ -210,19 +210,6 @@ internal static class Program
     {
         var candidate = Path.Combine(AppContext.BaseDirectory, "Fonts", "STIX2Math.otf");
         return File.Exists(candidate) ? candidate : null;
-    }
-
-    private static int GetConsoleWidth()
-    {
-        try
-        {
-            var w = SysConsole.WindowWidth;
-            return w > 0 ? w : 80;
-        }
-        catch
-        {
-            return 80;
-        }
     }
 
     private record Options(string? FilePath, BoxRenderMode? Mode, int? Width, ColorMode? Color, bool Help = false);
