@@ -290,6 +290,15 @@ env:
   # is how it survived being stared at directly. First TreeView tests in the repo: 4, two of which fail
   # without the fix, over a fixture with deliberately RAGGED label widths -- uniform labels put the
   # misplaced bar in one column and look identical to a correct one.
+  # 4.16 - CellLayout states what the two NEW TextTrim members mean on a character grid (DIR.Lib 7.8, which
+  # teaches the pixel painter to fit a run to its arranged rect). Neither is expressible here, so each gets
+  # the nearest cell behaviour instead of falling through Ellipsize's not-Start branch by accident: Shrink
+  # asks for a smaller face and a grid has exactly one size, so it end-trims (a shorter WHOLE run being
+  # unavailable, the head is the next best thing); None asks to overflow, which here would overwrite the
+  # neighbouring cells, so it hard-clips -- the same cut with NO ellipsis, because nothing should claim a
+  # removal the author asked not to make. That degradation is what keeps one authored tree meaning the same
+  # thing on a pixel surface and a cell one, which is the whole premise of sharing the tree. Repins DIR.Lib
+  # 7.7.* -> 7.8.*. 3 tests, one of which pins Shrink against End so the two cannot silently diverge.
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release
