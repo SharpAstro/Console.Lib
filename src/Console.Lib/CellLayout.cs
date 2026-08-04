@@ -318,9 +318,22 @@ public static class CellLayout
     /// At <paramref name="maxW"/> of 1 there is no room for both a glyph and an ellipsis, so the single cell
     /// goes to the character from the surviving end rather than to a lone "…" that says nothing.
     /// </para>
+    /// <para>
+    /// Two of the policies a PIXEL surface can honour, this one cannot, so each degrades to the nearest cell
+    /// behaviour. <see cref="TextTrim.Shrink"/> asks for a smaller face and a character grid has exactly one
+    /// size, so it end-trims — a shorter whole run being unavailable, the head is the next best thing.
+    /// <see cref="TextTrim.None"/> asks to overflow, and here overflowing would overwrite a neighbouring
+    /// cell, so it hard-clips: the same cut with no ellipsis, because nothing should claim a removal the
+    /// author asked not to make.
+    /// </para>
     /// </summary>
     private static string Ellipsize(string s, int maxW, TextTrim trim)
     {
+        if (trim == TextTrim.None)
+        {
+            return s[..maxW];
+        }
+
         if (maxW <= 1)
         {
             return trim == TextTrim.Start ? s[^maxW..] : s[..maxW];

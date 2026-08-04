@@ -105,4 +105,34 @@ public class CellLayoutTrimTests
             Painted(Path, width, trim).Length.ShouldBe(width, $"width {width}");
         }
     }
+
+    // ---- The two policies a pixel surface can honour and a character grid cannot ----
+
+    /// <summary>
+    /// <see cref="TextTrim.Shrink"/> asks for a smaller face, and a cell grid has exactly one size. A shorter
+    /// whole run being unavailable, it end-trims: the head is the next best thing, and the tree still paints.
+    /// </summary>
+    [Fact]
+    public void Shrink_DegradesToAnEndTrim()
+        => Painted(Path, 12, TextTrim.Shrink).ShouldBe(Painted(Path, 12, TextTrim.End));
+
+    /// <summary>
+    /// <see cref="TextTrim.None"/> asks to overflow, which here would overwrite the neighbouring cells — so
+    /// it hard-clips instead, with NO ellipsis: nothing should claim a removal the author asked not to make.
+    /// </summary>
+    [Fact]
+    public void None_ClipsWithoutAnEllipsis()
+        => Painted(Path, 12, TextTrim.None).ShouldBe(@"C:\Users\seb");
+
+    /// <summary>Every policy still fills its rect exactly — the invariant a cell surface cannot break.</summary>
+    [Theory]
+    [InlineData(TextTrim.Shrink)]
+    [InlineData(TextTrim.None)]
+    public void TheDegradedPolicies_StillFillTheirRectExactly(TextTrim trim)
+    {
+        for (var width = 1; width <= 20; width++)
+        {
+            Painted(Path, width, trim).Length.ShouldBe(width, $"width {width}");
+        }
+    }
 }
