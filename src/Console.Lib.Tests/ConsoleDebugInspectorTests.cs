@@ -126,7 +126,7 @@ public sealed class ConsoleDebugInspectorTests
     {
         var (inspector, _) = Detached(new FakeScreen(10, 2, buffered: false));
 
-        Call(inspector, "screen").GetProperty("error").GetString().ShouldContain("EnableCellBuffer");
+        Call(inspector, "screen").GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("EnableCellBuffer");
     }
 
     [Fact]
@@ -240,7 +240,7 @@ public sealed class ConsoleDebugInspectorTests
         var result = Call(inspector, "key", "{\"key\":\"f\",\"mods\":\"cmd\"}");
 
         result.GetProperty("ok").GetBoolean().ShouldBeFalse();
-        result.GetProperty("reason").GetString().ShouldContain("cmd");
+        result.GetProperty("reason").GetString().ShouldNotBeNull().ShouldContain("cmd");
         screen.Injected.ShouldBeEmpty("a bare `f` would be the file selector, not a harmless no-op");
     }
 
@@ -304,7 +304,7 @@ public sealed class ConsoleDebugInspectorTests
         var events = Call(inspector, "inputLog").GetProperty("events");
 
         events.GetArrayLength().ShouldBe(2);
-        events[1].GetString().ShouldContain("MouseMove");
+        events[1].GetString().ShouldNotBeNull().ShouldContain("MouseMove");
     }
 
     private static List<ConsoleKey> Drain(FakeScreen screen)
@@ -342,14 +342,14 @@ public sealed class ConsoleDebugInspectorTests
             using var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true };
 
             writer.WriteLine("{\"id\":7,\"method\":\"ping\",\"params\":{}}");
-            var pong = JsonDocument.Parse(reader.ReadLine()!).RootElement;
+            var pong = JsonDocument.Parse(reader.ReadLine().ShouldNotBeNull()).RootElement;
             pong.GetProperty("id").GetInt32().ShouldBe(7, "the id must be echoed so replies can be matched");
             pong.GetProperty("result").GetProperty("app").GetString().ShouldBe("WireTest");
 
             writer.WriteLine("{\"id\":8,\"method\":\"nope\",\"params\":{}}");
-            var err = JsonDocument.Parse(reader.ReadLine()!).RootElement;
+            var err = JsonDocument.Parse(reader.ReadLine().ShouldNotBeNull()).RootElement;
             err.GetProperty("id").GetInt32().ShouldBe(8);
-            err.GetProperty("error").GetString().ShouldContain("nope");
+            err.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("nope");
         }
         finally
         {
