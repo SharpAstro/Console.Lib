@@ -31,6 +31,12 @@ internal sealed class FakeTerminal : IVirtualTerminal
     public void WriteLine(string? text = null) { }
     public void Flush() => FlushCount++;
 
+    /// <summary>Last caret parked by <see cref="SetCaret"/>; null after <see cref="HideCaret"/> (or never
+    /// parked). Recorded rather than defaulted away so widget tests can assert placement.</summary>
+    public (int Column, int Row, CaretStyle Style)? Caret { get; private set; }
+    public void SetCaret(int column, int row, CaretStyle style) => Caret = (column, row, style);
+    public void HideCaret() => Caret = null;
+
     /// <summary>How many times <see cref="Flush"/> was called — a flush mid-paint ships a half-painted
     /// diff, so tests assert on WHEN flushes happen, not just that output eventually goes out.</summary>
     public int FlushCount { get; private set; }

@@ -333,6 +333,26 @@ env:
   # existing signature moves. 6 tests over the srWindow arithmetic -- the inclusive +1 and the dwSize
   # confusion are the two ways to be plausibly wrong here; the CONOUT$ handle path needs a real console
   # and stays untested by design, as the rest of WindowsConsoleInput is.
+  # 4.18 - the caret is the terminal's REAL cursor. TextInputBar and TextArea gain an opt-in
+  # Caret(CaretStyle) that parks the actual cursor at the insertion point (DECSCUSR shapes 1-6;
+  # BlinkingBar is the thin editor bar) instead of painting a reverse-video cell -- the terminal draws
+  # and blinks the caret itself, which no cell paint can imitate: a painted caret can never be thinner
+  # than a cell, nor blink without repaint traffic. Plumbing: ITerminalViewport.SetCaret/HideCaret
+  # (default no-ops, so fakes and capture surfaces ignore them), TerminalViewport translates like any
+  # cell write, and VirtualTerminal applies the request at the END of Flush -- after the cell diff,
+  # retracted during the paint so a visible cursor never rides the runs (or a raw Sixel blit). Shape and
+  # visibility emit only on a CHANGE (the pen's emit-less rule); position emits every time, because the
+  # paint just moved the real cursor as a side effect of writing. Sticky until HideCaret: the focus
+  # owner decides when the caret goes away, since an on-demand painter may not re-render every frame.
+  # ColorMode.None suppresses it like every other escape. Dispose restores the user's configured shape
+  # (DECSCUSR 0) iff one was ever set -- the shape is NOT alternate-screen state and would otherwise
+  # survive into the shell prompt -- and hands a normal-buffer session its cursor back. Widgets land the
+  # caret on the exact cell the painted block occupied: label + separator for the bar (surrogate pair =
+  # one cell), gutter + the click mapping's cell accounting for the area (tab = TabWidth, pair = 1), so
+  # a click and the caret it places round-trip to the same cell; a cursor clipped off the content area
+  # withdraws the caret rather than leaving it standing on the wrong cell. Terminals without DECSCUSR
+  # show their default cursor at the parked cell -- degraded to a block, never wrong. ADDITIVE: new
+  # CaretStyle enum + default interface members. 24 test cases.
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release

@@ -4,7 +4,8 @@ namespace Console.Lib;
 
 /// <summary>
 /// Single-line text input widget that renders a <see cref="TextInputState"/> with a visible
-/// reverse-video cursor. Handles keyboard input routing: navigation keys go to
+/// reverse-video cursor — or, opted in via <see cref="Caret"/>, with the terminal's REAL cursor
+/// parked at the insertion point. Handles keyboard input routing: navigation keys go to
 /// <see cref="TextInputState.HandleKey"/>, printable characters go to
 /// <see cref="TextInputState.InsertText"/>.
 /// </summary>
@@ -13,6 +14,7 @@ public class TextInputBar(ITerminalViewport viewport) : Widget(viewport)
     private string _label = "";
     private VtStyle _style = new(SgrColor.BrightWhite, SgrColor.BrightBlack);
     private VtStyle _labelStyle = new(SgrColor.BrightCyan, SgrColor.BrightBlack);
+    private CaretStyle? _caret;
 
     /// <summary>The text input state to render and edit.</summary>
     public TextInputState? State { get; set; }
@@ -25,6 +27,15 @@ public class TextInputBar(ITerminalViewport viewport) : Widget(viewport)
 
     /// <summary>Sets the style for the label.</summary>
     public TextInputBar LabelStyle(VtStyle style) { _labelStyle = style; return this; }
+
+    /// <summary>
+    /// Renders the cursor as the terminal's REAL caret in this shape (parked via
+    /// <see cref="ITerminalViewport.SetCaret"/>) instead of painting the reverse-video cell —
+    /// <see cref="CaretStyle.BlinkingBar"/> is the thin blinking prompt of a modern editor. The caret is
+    /// sticky terminal state: a host that moves focus off this widget calls
+    /// <see cref="ITerminalViewport.HideCaret"/>. Default (unset) keeps the painted block.
+    /// </summary>
+    public TextInputBar Caret(CaretStyle style) { _caret = style; return this; }
 
     /// <summary>
     /// Renders the label and input field with a reverse-video cursor.
@@ -46,7 +57,7 @@ public class TextInputBar(ITerminalViewport viewport) : Widget(viewport)
         var after = cursorPos < text.Length ? text[(cursorPos + 1)..] : "";
 
         var labelPart = _label.Length > 0 ? $"{_labelStyle.Apply(colorMode)}{_label} " : "";
-        var fieldPart = State is not null
+        var fieldPart = State is not null && _caret is null
             ? $"{_style.Apply(colorMode)}{before}{VtStyle.ReverseOn}{cursorChar}{VtStyle.ReverseOff}{after}"
             : $"{_style.Apply(colorMode)}{text}";
 
@@ -56,6 +67,27 @@ public class TextInputBar(ITerminalViewport viewport) : Widget(viewport)
         var padding = Math.Max(0, width - visibleLen);
 
         Viewport.Write($"{content}{new string(' ', padding)}{VtStyle.Reset}");
+
+        if (State is not null && _caret is { } caretStyle)
+        {
+            // The cell the reverse-video block would have occupied: label + its separating space, then one
+            // cell per UTF-16 char before the cursor — except a surrogate PAIR, which the terminal renders
+            // as one cell. (East-Asian double-width is the same known limitation as everywhere else here.)
+            var labelCells = _label.Length > 0 ? _label.Length + 1 : 0;
+            Viewport.SetCaret(labelCells + CellCount(text.AsSpan(0, cursorPos)), 0, caretStyle);
+        }
+    }
+
+    /// <summary>Cells a char span occupies on screen: surrogate pairs are one cell, everything else 1:1.</summary>
+    private static int CellCount(ReadOnlySpan<char> s)
+    {
+        var cells = 0;
+        for (var i = 0; i < s.Length; i++)
+        {
+            if (char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1])) i++;
+            cells++;
+        }
+        return cells;
     }
 
     /// <summary>

@@ -26,6 +26,21 @@ public interface ITerminalViewport
     /// </summary>
     void MarkRawRegion(int column, int row, int width, int height) { }
 
+    /// <summary>
+    /// Parks the terminal's REAL cursor at a viewport cell as the text caret, applied at the end of the
+    /// next <see cref="Flush"/>. The terminal draws — and blinks — the caret itself, which is what buys the
+    /// thin editor bar (<see cref="CaretStyle.BlinkingBar"/>): a painted caret can never be thinner than a
+    /// cell, nor blink without repaint traffic. Sticky until <see cref="HideCaret"/> — the caller that owns
+    /// focus decides when the caret goes away, because an on-demand painter may not re-render (and so could
+    /// not re-request it) every frame. Default no-op, so surfaces without a real cursor (test fakes,
+    /// capture buffers) ignore it.
+    /// </summary>
+    void SetCaret(int column, int row, CaretStyle style) { }
+
+    /// <summary>Withdraws a caret parked by <see cref="SetCaret"/>: the real cursor hides again at the end
+    /// of the next <see cref="Flush"/>. Default no-op.</summary>
+    void HideCaret() { }
+
     /// <summary>Viewport size in pixels (columns * cellWidth, rows * cellHeight).</summary>
     (uint Width, uint Height) PixelSize
     {

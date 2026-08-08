@@ -127,10 +127,14 @@ public interface ITerminalViewport
     void Flush();
     Stream OutputStream { get; }
     ColorMode ColorMode => ColorMode.Sgr16; // default: 16-color SGR
+    void SetCaret(int column, int row, CaretStyle style) { } // default: no-op
+    void HideCaret() { }                                     // default: no-op
 }
 ```
 
 `TermCell` holds the pixel dimensions of a single terminal character cell, queried from the terminal during initialization via the `\e[16t` control sequence.
+
+`SetCaret` parks the terminal's **real** cursor at a cell as the text caret, applied at the end of the next `Flush` (after any cell diff, hidden during the paint). The terminal draws — and blinks — the caret itself, which is what buys the thin editor bar (`CaretStyle.BlinkingBar`, DECSCUSR): a painted caret can never be thinner than a cell, nor blink without repaint traffic. Sticky until `HideCaret`; the focus owner decides when it goes away. `VirtualTerminal` restores the user's configured cursor shape on dispose, and `ColorMode.None` suppresses the caret like every other escape.
 
 ### TerminalViewportExtensions
 
@@ -473,13 +477,16 @@ while (true)
 
 `TextAreaState` exposes the buffer contents as `ReadOnlySpan<byte>` (`SpanBeforeGap` / `SpanAfterGap`) and `ReadOnlyMemory<byte>` (`MemoryBeforeGap` / `MemoryAfterGap`) for zero-alloc consumers that want to feed the bytes into a lexer / pipe / encoder without materialising the whole text.
 
+`.Caret(CaretStyle.BlinkingBar)` swaps the painted reverse-video cursor for the terminal's real cursor parked at the insertion point — the thin blinking caret of a modern editor. Placement shares the click mapping's cell accounting, so a click and the caret it places round-trip to the same cell.
+
 ### TextInputBar
 
-Single-line editable bar with a styled label, backed by `TextInputState` (cursor + insertion model, history-friendly). Navigation keys route to `TextInputState.HandleKey`; printable codepoints from `ConsoleInputEvent.KeyChar` route to `InsertText`. A reverse-video cursor is drawn at the insertion point.
+Single-line editable bar with a styled label, backed by `TextInputState` (cursor + insertion model, history-friendly). Navigation keys route to `TextInputState.HandleKey`; printable codepoints from `ConsoleInputEvent.KeyChar` route to `InsertText`. A reverse-video cursor is drawn at the insertion point — or, with `.Caret(CaretStyle.BlinkingBar)`, the terminal's real cursor is parked there instead (thin blinking bar, drawn and blinked by the terminal).
 
 ```csharp
 var prompt = new TextInputBar(viewport)
     .Label(":")
+    .Caret(CaretStyle.BlinkingBar)
     .Style(new VtStyle(SgrColor.BrightWhite, SgrColor.Black));
 prompt.State = new TextInputState();
 prompt.HandleInput(term.TryReadInput());

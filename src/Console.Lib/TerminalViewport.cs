@@ -55,6 +55,13 @@ public sealed class TerminalViewport(ITerminalViewport parent, int columnOffset,
         => parent.MarkRawRegion(_columnOffset + column, _rowOffset + row,
             Math.Min(width, _width), Math.Min(height, _height));
 
+    public void SetCaret(int column, int row, CaretStyle style)
+        => parent.SetCaret(
+            _columnOffset + Math.Clamp(column, 0, Math.Max(0, _width - 1)),
+            _rowOffset + Math.Clamp(row, 0, Math.Max(0, _height - 1)), style);
+
+    public void HideCaret() => parent.HideCaret();
+
     public void Write(string text) => parent.Write(text);
 
     public void WriteLine(string? text = null) => parent.WriteLine(text);

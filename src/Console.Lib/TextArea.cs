@@ -6,7 +6,9 @@ namespace Console.Lib;
 /// <summary>
 /// Multi-line text editor widget. Renders a <see cref="TextAreaState"/> into a
 /// terminal viewport with a reverse-video block cursor and follow-the-cursor
-/// scrolling. Optional left-side line-number gutter (vim-style <c>~</c> markers
+/// scrolling — or, opted in via <see cref="Caret"/>, with the terminal's REAL
+/// cursor parked at the insertion point (the thin blinking bar of a modern
+/// editor). Optional left-side line-number gutter (vim-style <c>~</c> markers
 /// past the end of buffer).
 /// <para>
 /// Keystrokes split between two methods so callers can control which kinds of
@@ -67,6 +69,7 @@ public sealed class TextArea(ITerminalViewport viewport) : Widget(viewport)
     private VtStyle _gutterStyle = new(SgrColor.BrightBlack, SgrColor.Black);
     private bool _showGutter = true;
     private int _scrollLine;
+    private CaretStyle? _caret;
 
     /// <summary>The text-area state (cursor + buffer) this widget renders. Null until the caller assigns one.</summary>
     public TextAreaState? State { get; set; }
@@ -76,6 +79,15 @@ public sealed class TextArea(ITerminalViewport viewport) : Widget(viewport)
 
     /// <summary>Sets the gutter style (line numbers + tilde markers).</summary>
     public TextArea GutterStyle(VtStyle style) { _gutterStyle = style; return this; }
+
+    /// <summary>
+    /// Renders the cursor as the terminal's REAL caret in this shape (parked via
+    /// <see cref="ITerminalViewport.SetCaret"/>) instead of painting the reverse-video cell —
+    /// <see cref="CaretStyle.BlinkingBar"/> is the thin blinking caret of a modern editor. Sticky terminal
+    /// state: a host that moves focus off this widget calls <see cref="ITerminalViewport.HideCaret"/>.
+    /// Default (unset) keeps the painted block.
+    /// </summary>
+    public TextArea Caret(CaretStyle style) { _caret = style; return this; }
 
     /// <summary>Show or hide the line-number gutter. Default: visible.</summary>
     public TextArea ShowGutter(bool show) { _showGutter = show; return this; }
@@ -145,6 +157,23 @@ public sealed class TextArea(ITerminalViewport viewport) : Widget(viewport)
                 Viewport.Write(sb.ToString());
             }
         }
+
+        if (_caret is { } caretStyle)
+        {
+            // Park the real cursor on the cell the reverse-video block would have occupied. Byte→cell uses
+            // the same accounting as click mapping (CellOffsetToByteOffset), so a click and the caret it
+            // produces round-trip to the same cell. Clipped off the content area = no caret, matching the
+            // painted cell, which AppendLine's budget would have dropped too.
+            var cursorCells = ByteOffsetToCellOffset(State.GetLine(cline), ccol);
+            if (cursorCells < contentWidth)
+            {
+                Viewport.SetCaret(gutterWidth + cursorCells, cline - _scrollLine, caretStyle);
+            }
+            else
+            {
+                Viewport.HideCaret();
+            }
+        }
     }
 
     private void AppendLine(StringBuilder sb, int line, int cursorLine, int cursorCol, int contentWidth, ColorMode colorMode)
@@ -165,8 +194,10 @@ public sealed class TextArea(ITerminalViewport viewport) : Widget(viewport)
         // For lines without the cursor, emit everything as plain text. Padding
         // fills the rest of the row with the line's background style so the
         // cursor row visually matches the rest.
+        // In caret mode (_caret set) the cursor row emits as plain text too:
+        // the REAL cursor parked by Render marks the position instead.
         var written = 0;
-        if (cursorCharOffset >= 0 && cursorCharOffset <= lineText.Length)
+        if (_caret is null && cursorCharOffset >= 0 && cursorCharOffset <= lineText.Length)
         {
             written += AppendClipped(sb, lineText.AsSpan(0, cursorCharOffset), contentWidth - written);
             if (written < contentWidth)
@@ -381,6 +412,40 @@ public sealed class TextArea(ITerminalViewport viewport) : Widget(viewport)
             cells += cellAdv;
         }
         return bytes;
+    }
+
+    /// <summary>
+    /// Byte offset → cell column: <see cref="CellOffsetToByteOffset"/> run in the other direction, with the
+    /// identical per-codepoint accounting (tab = <see cref="TabWidth"/> cells, surrogate pair = 1 cell,
+    /// everything else 1 cell). Used by the caret-mode render to park the REAL cursor: sharing the click
+    /// mapping's accounting means a click and the caret it places round-trip to the same cell. Same
+    /// East-Asian-Width limitation as the class doc describes.
+    /// </summary>
+    private static int ByteOffsetToCellOffset(string lineText, int byteOffset)
+    {
+        if (byteOffset <= 0 || lineText.Length == 0) return 0;
+        var bytes = 0;
+        var cells = 0;
+        for (var i = 0; i < lineText.Length; i++)
+        {
+            if (bytes >= byteOffset) return cells;
+            var c = lineText[i];
+            if (c == '\t')
+            {
+                bytes += 1;
+                cells += TabWidth;
+            }
+            else if (char.IsHighSurrogate(c) && i + 1 < lineText.Length && char.IsLowSurrogate(lineText[i + 1]))
+            {
+                bytes += 4;
+                cells += 1;
+                i++;
+            }
+            else if (c < 0x80) { bytes += 1; cells += 1; }
+            else if (c < 0x800) { bytes += 2; cells += 1; }
+            else { bytes += 3; cells += 1; }
+        }
+        return cells;
     }
 
     /// <summary>

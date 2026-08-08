@@ -19,6 +19,19 @@ public sealed class VirtualTerminal : IVirtualTerminal
     private TermCell? _cellSize;
     private bool _alternateScreen;
     private Stream? _stdIn;
+
+    /// <summary>The pending caret request (<see cref="SetCaret"/>); null = no caret. Applied at the END of
+    /// <see cref="Flush"/>, never at request time, so painting can never drag a visible cursor around.</summary>
+    private (int Column, int Row, CaretStyle Style)? _caret;
+
+    /// <summary>Whether the real cursor is currently shown BY THE CARET MACHINERY (DECTCEM ?25h emitted and
+    /// not yet retracted). Deliberately not "is the cursor visible": in normal-buffer mode the cursor starts
+    /// visible without us ever touching it, and this flag must not claim credit for that.</summary>
+    private bool _caretShown;
+
+    /// <summary>Last DECSCUSR shape emitted; null = never emitted (terminal still has the user's default).
+    /// Doubles as the "was the caret ever used" fact <see cref="DisposeAsync"/> keys the shape restore on.</summary>
+    private CaretStyle? _caretShape;
     private static readonly bool s_isInputRedirected = System.Console.IsInputRedirected;
     private static readonly bool s_isOutputRedirected = System.Console.IsOutputRedirected;
     private static readonly bool s_noColor = Environment.GetEnvironmentVariable("NO_COLOR") is not null;
@@ -151,7 +164,8 @@ public sealed class VirtualTerminal : IVirtualTerminal
         }
 
         System.Console.Write("\e[?1049h"); // Enter alternate buffer
-        System.Console.Write("\e[?25l");   // Hide cursor
+        System.Console.Write(HideCursorEscape); // Hide cursor
+        _caretShown = false;
         System.Console.Write("\e[?1000h"); // VT200 mouse tracking (basic button press/release and wheel)
         System.Console.Write("\e[?1002h"); // Button-motion tracking (drag reports while a button is held)
         System.Console.Write("\e[?1006h"); // SGR extended tracking
@@ -326,6 +340,45 @@ public sealed class VirtualTerminal : IVirtualTerminal
     /// </summary>
     internal static string MoveEscape(int column, int row) => $"\e[{row + 1};{column + 1}H";
 
+    /// <summary>DECTCEM set: show the cursor.</summary>
+    internal const string ShowCursorEscape = "\e[?25h";
+
+    /// <summary>DECTCEM reset: hide the cursor.</summary>
+    internal const string HideCursorEscape = "\e[?25l";
+
+    /// <summary>
+    /// DECSCUSR: select the cursor's SHAPE. The space before the <c>q</c> is an intermediate byte — part of
+    /// the sequence, not a typo.
+    /// </summary>
+    internal static string CaretEscape(CaretStyle style) => $"\e[{(int)style} q";
+
+    /// <summary>DECSCUSR 0: back to whatever shape the user configured their terminal to. Emitted on
+    /// dispose iff a shape was ever set, because DECSCUSR is not alternate-screen state — an unrestored bar
+    /// would survive into the user's shell prompt.</summary>
+    internal const string ResetCaretShapeEscape = "\e[0 q";
+
+    /// <summary>
+    /// The escape sequence that reconciles the terminal's cursor with the pending caret request, plus the
+    /// state to remember afterwards. Shape and visibility are emitted only on a CHANGE — the pen's "emit
+    /// less" rule — but the position is emitted every time: the paint that just ran moves the real cursor
+    /// as a side effect of writing, so the previous position can never be trusted. Pulled out of
+    /// <see cref="ApplyCaret"/> so the protocol is assertable without a console.
+    /// </summary>
+    internal static (string Escape, bool Shown, CaretStyle? Shape) CaretTransition(
+        (int Column, int Row, CaretStyle Style)? caret, bool shown, CaretStyle? shape)
+    {
+        if (caret is not { } c)
+        {
+            return (shown ? HideCursorEscape : "", false, shape);
+        }
+
+        var escape = new StringBuilder(24);
+        if (shape != c.Style) escape.Append(CaretEscape(c.Style));
+        escape.Append(MoveEscape(c.Column, c.Row));
+        if (!shown) escape.Append(ShowCursorEscape);
+        return (escape.ToString(), true, c.Style);
+    }
+
     /// <summary>
     /// The escape sequence that puts the terminal into <paramref name="style"/>, plus the reverse-video
     /// attribute when <paramref name="mustStateReverse"/> says the terminal's current attribute cannot be
@@ -365,6 +418,10 @@ public sealed class VirtualTerminal : IVirtualTerminal
             return;
         }
 
+        // Immediate mode has no frame boundary to hide the caret at (buffered mode hides in Flush, before
+        // the diff), so the first direct write of a new paint retracts it — otherwise the visible cursor
+        // rides along with every cell the frame touches.
+        if (_caretShown) HideCaretNow();
         System.Console.SetCursorPosition(col, row);
     }
 
@@ -376,10 +433,32 @@ public sealed class VirtualTerminal : IVirtualTerminal
             return;
         }
 
+        if (_caretShown) HideCaretNow();
         System.Console.Write(text);
     }
 
-    public void WriteLine(string? text = null) => System.Console.WriteLine(text);
+    public void WriteLine(string? text = null)
+    {
+        // WriteLine bypasses the cell buffer even when one is enabled, so it retracts the caret either way.
+        if (_caretShown) HideCaretNow();
+        System.Console.WriteLine(text);
+    }
+
+    /// <summary>
+    /// Parks the terminal's REAL cursor at a cell as the text caret; <see cref="Flush"/> applies it after
+    /// the paint is out. See <see cref="ITerminalViewport.SetCaret"/> for the contract; the mechanism —
+    /// DECSCUSR shape plus DECTCEM show, both emitted only on change — lives in <see cref="CaretTransition"/>.
+    /// </summary>
+    public void SetCaret(int column, int row, CaretStyle style)
+    {
+        var (width, height) = Size;
+        _caret = (Math.Clamp(column, 0, Math.Max(0, width - 1)),
+                  Math.Clamp(row, 0, Math.Max(0, height - 1)),
+                  style);
+    }
+
+    /// <inheritdoc cref="ITerminalViewport.HideCaret"/>
+    public void HideCaret() => _caret = null;
 
     public void Flush()
     {
@@ -395,12 +474,40 @@ public sealed class VirtualTerminal : IVirtualTerminal
                 sink.Invalidate();
             }
 
+            // The diff moves the real cursor per run; with a caret showing that is a cursor visibly darting
+            // across the screen, so it hides for the paint and re-appears (below) once the frame is out.
+            if (_caretShown) HideCaretNow();
+
             sink.Mode = ColorMode;
             FlushedCellsTotal += buffer.Flush(sink);
             FlushedOpaqueCellsTotal += buffer.LastFlushOpaqueCells;
         }
 
+        ApplyCaret();
         System.Console.Out.Flush();
+    }
+
+    /// <summary>Retracts the caret's DECTCEM show immediately — the paint-side half of the caret protocol;
+    /// <see cref="ApplyCaret"/> is the flush-side half that brings it back.</summary>
+    private void HideCaretNow()
+    {
+        System.Console.Write(HideCursorEscape);
+        _caretShown = false;
+    }
+
+    /// <summary>
+    /// Emits whatever the pending caret request requires — shape (on change only), position, visibility (on
+    /// change only) — and records what the terminal now has. <see cref="ColorMode.None"/> means "no escape
+    /// sequences at all" for the pen and the hyperlinks, and the caret is no different.
+    /// </summary>
+    private void ApplyCaret()
+    {
+        if (ColorMode == ColorMode.None) return;
+
+        var (escape, shown, shape) = CaretTransition(_caret, _caretShown, _caretShape);
+        if (escape.Length > 0) System.Console.Write(escape);
+        _caretShown = shown;
+        _caretShape = shape;
     }
 
     /// <summary>
@@ -420,11 +527,15 @@ public sealed class VirtualTerminal : IVirtualTerminal
 
         if (CellBuffer is null)
         {
+            if (_caretShown) HideCaretNow();
             System.Console.SetCursorPosition(col, r);
             return;
         }
 
         Flush();
+        // Flush just re-applied the caret; raw bytes are about to stream, and a visible cursor would ride
+        // the blit. Retract it — the next Flush brings it back.
+        if (_caretShown) HideCaretNow();
         System.Console.SetCursorPosition(col, r);
         System.Console.Out.Flush();
         _sink?.Invalidate();
@@ -532,13 +643,21 @@ public sealed class VirtualTerminal : IVirtualTerminal
 
     public ValueTask DisposeAsync()
     {
+        if (_caretShape is not null)
+        {
+            System.Console.Write(ResetCaretShapeEscape);
+            // In normal-buffer mode there is no unconditional show below, and the caret machinery may have
+            // left the cursor retracted mid-paint — hand the user's shell a visible cursor back.
+            if (!_alternateScreen) System.Console.Write(ShowCursorEscape);
+        }
+
         if (_alternateScreen)
         {
             System.Console.Write("\e[?1000l"); // Disable VT200 mouse tracking
             System.Console.Write("\e[?1002l"); // Disable button-motion tracking
             System.Console.Write("\e[?1006l"); // Disable SGR extended tracking
 
-            System.Console.Write("\e[?25h");   // Show cursor
+            System.Console.Write(ShowCursorEscape); // Show cursor
             System.Console.Write("\e[?1049l"); // Leave alternate buffer
         }
 
@@ -600,14 +719,14 @@ public sealed class VirtualTerminal : IVirtualTerminal
     /// </summary>
     private ConsoleInputEvent ParseSgrInput()
     {
-        if (_stdIn is not { })
+        if (_stdIn is not { } stdIn)
         {
             throw new InvalidOperationException("Standard input stream is not available.");
         }
 
         var sb = new StringBuilder();
 
-        var @byte = _stdIn.ReadByte(); // Consume the initial ESC
+        var @byte = stdIn.ReadByte(); // Consume the initial ESC
 
         if (@byte == -1)
         {
@@ -619,13 +738,13 @@ public sealed class VirtualTerminal : IVirtualTerminal
             // Buffer UTF-8 continuation bytes for non-ASCII codepoints so non-US-layout
             // input (é, ñ, 中, 🙂, …) survives the byte stream. ASCII bytes return a
             // single-byte Rune; control bytes (< 0x20 or 0x7F) skip KeyChar entirely.
-            var keyChar = TryReadRuneFrom(@byte, _stdIn!);
+            var keyChar = TryReadRuneFrom(@byte, stdIn);
             return new(null, key, modifiers, keyChar);
         }
 
         while (s_isInputRedirected ? System.Console.In.Peek() != -1 : System.Console.KeyAvailable)
         {
-            var ch = _stdIn.ReadByte();
+            var ch = stdIn.ReadByte();
             if (ch == -1)
             {
                 return default;
