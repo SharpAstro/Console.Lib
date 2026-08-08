@@ -396,6 +396,8 @@ bar.Text(" Ready")
    .Render();
 ```
 
+`.Caret(column, style)` parks the terminal's real cursor at a column of the **left** text — the caret for a bar that packs several editable fields into one composed line, where `TextInputBar` (which derives the column from its own `TextInputState`) doesn't fit. The bar owns the clipping decision because it owns the truncation: a column the ellipsis ate, or one past the room the right text left, withdraws the caret rather than parking it on a cell showing something else. Opt-in per bar — a bar that never calls `Caret` never touches it, so a status bar painted after the focused editor can't erase that editor's caret. Pass `null` to withdraw.
+
 ### ScrollableList\<TItem\>
 
 Multi-row scrollable list with an optional header. Items must implement `IRowFormatter`:

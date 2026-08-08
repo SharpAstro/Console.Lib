@@ -281,6 +281,112 @@ public sealed class CaretTests
         viewport.CaretHidden.ShouldBeTrue();
     }
 
+    // -----------------------------------------------------------------------
+    // TextBar — the caller composes the text and passes the column, but the BAR
+    // owns the clipping decision, because the bar owns the truncation.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void TextBar_WithoutCaretCall_NeverTouchesTheCaret()
+    {
+        // Most bars are labels. If rendering one withdrew the caret, any status bar painted after the
+        // focused editor would erase that editor's caret every frame.
+        var viewport = new RecordingViewport(20, 1);
+        var bar = new TextBar(viewport).Text("Site: 33S 151E");
+
+        bar.Render();
+
+        viewport.Caret.ShouldBeNull();
+        viewport.CaretHidden.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void TextBar_Caret_ParksAtColumnOfLeftText()
+    {
+        var viewport = new RecordingViewport(20, 1);
+        var bar = new TextBar(viewport).Text(" Lat: [33.8]").Caret(8, CaretStyle.BlinkingBar);
+
+        bar.Render();
+
+        viewport.Caret.ShouldBe((8, 0, CaretStyle.BlinkingBar));
+    }
+
+    [Fact]
+    public void TextBar_Caret_ColumnJustPastTheTextIsAnInsertionPoint()
+    {
+        // A caret one past the last character is where typing appends; the cell is blank padding, not
+        // truncated content, so it is a legitimate park.
+        var viewport = new RecordingViewport(20, 1);
+        var bar = new TextBar(viewport).Text("abc").Caret(3, CaretStyle.BlinkingBar);
+
+        bar.Render();
+
+        viewport.Caret.ShouldBe((3, 0, CaretStyle.BlinkingBar));
+    }
+
+    [Fact]
+    public void TextBar_Caret_NullWithdraws()
+    {
+        var viewport = new RecordingViewport(20, 1);
+        var bar = new TextBar(viewport).Text("abc").Caret(1, CaretStyle.BlinkingBar);
+
+        bar.Render();
+        viewport.Caret.ShouldNotBeNull();
+
+        bar.Caret(null, CaretStyle.BlinkingBar).Render();
+
+        viewport.Caret.ShouldBeNull();
+        viewport.CaretHidden.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void TextBar_Caret_ColumnEatenByTheEllipsisWithdraws()
+    {
+        // padWidth 19, text 25 chars -> left renders as text[..18] + ellipsis. Column 18 IS the ellipsis:
+        // it stands for text the user cannot see, so a caret there points at nothing.
+        var viewport = new RecordingViewport(20, 1);
+        var bar = new TextBar(viewport).Text(new string('x', 25)).RightText("R");
+
+        bar.Caret(17, CaretStyle.BlinkingBar).Render();
+        viewport.Caret.ShouldBe((17, 0, CaretStyle.BlinkingBar));
+
+        bar.Caret(18, CaretStyle.BlinkingBar).Render();
+
+        viewport.Caret.ShouldBeNull();
+        viewport.CaretHidden.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void TextBar_Caret_ColumnInsideTheRightTextRegionWithdraws()
+    {
+        // The right text wins the row's tail; a caret parked under it would sit on the hint, not the
+        // field being edited.
+        var viewport = new RecordingViewport(20, 1);
+        var bar = new TextBar(viewport).Text("short").RightText(new string('R', 10));
+
+        bar.Caret(9, CaretStyle.BlinkingBar).Render();
+        viewport.Caret.ShouldBe((9, 0, CaretStyle.BlinkingBar));
+
+        bar.Caret(10, CaretStyle.BlinkingBar).Render();
+
+        viewport.Caret.ShouldBeNull();
+        viewport.CaretHidden.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void TextBar_Caret_ZeroWidthRowWithdraws()
+    {
+        // A bar squeezed to nothing paints nothing, and a caret left parked from the last frame would
+        // stand on a row this render never drew.
+        var viewport = new RecordingViewport(0, 1);
+        var bar = new TextBar(viewport).Text("abc").Caret(1, CaretStyle.BlinkingBar);
+
+        bar.Render();
+
+        viewport.Caret.ShouldBeNull();
+        viewport.CaretHidden.ShouldBeTrue();
+    }
+
     private static TextInputState TypedState(string text)
     {
         var state = new TextInputState();

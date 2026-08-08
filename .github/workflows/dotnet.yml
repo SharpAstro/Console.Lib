@@ -353,6 +353,14 @@ env:
   # withdraws the caret rather than leaving it standing on the wrong cell. Terminals without DECSCUSR
   # show their default cursor at the parked cell -- degraded to a block, never wrong. ADDITIVE: new
   # CaretStyle enum + default interface members. 24 test cases.
+  # 4.19 - TextBar.Caret(column, style): the caret for a bar whose text the CALLER composes. TextInputBar
+  # derives the column from its own TextInputState, but a bar packing several fields into one line (tianwen's
+  # site row: Lat / Lon / Elev) composes the string itself, so it passes the column in. The bar owns the
+  # CLIPPING decision, because it owns the truncation -- a column the ellipsis ate, or one past the room the
+  # right text left, withdraws the caret instead of parking it on a cell that shows something else. Caret is
+  # opt-in per bar and, once called, that bar reasserts or withdraws every Render: a bar that never calls it
+  # never touches the caret, so a status bar painted after the focused editor cannot erase the editor's
+  # caret. A row squeezed to zero width withdraws too. ADDITIVE. 7 test cases.
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release
