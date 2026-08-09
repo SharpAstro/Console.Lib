@@ -361,6 +361,24 @@ env:
   # opt-in per bar and, once called, that bar reasserts or withdraws every Render: a bar that never calls it
   # never touches the caret, so a status bar painted after the focused editor cannot erase the editor's
   # caret. A row squeezed to zero width withdraws too. ADDITIVE. 7 test cases.
+  # 4.20 - lockstep rebuild against DIR.Lib 7.14 (7.11 -> 7.14). No Console.Lib code change. Two of the
+  # three minors in that range change measured text WIDTH, which reaches this package because it ships
+  # pixel painters (RgbaImageRenderer, SixelRgbaImageRenderer) as well as the cell grid. The CELL surface
+  # is untouched by both: there one character is one cell, whatever the font's metrics say.
+  # DIR.Lib 7.12 is additive -- TextInputRenderer takes a palette, the shape TabBar got in 7.10 -- and is
+  # the upstream half of this package's own TextInputBar theming.
+  # DIR.Lib 7.13 bounds the SDF atlas's rasterize retry (a glyph that can never rasterize is given up on
+  # instead of pinning IsDirty true forever) and ALSO, unannounced at the time and only written up in
+  # 7.14's notes, takes a whitespace advance from the font instead of borrowing the 'n' glyph's. In DejaVu
+  # every measured space had been 1.99x too wide, so on a pixel surface a space-padded run now measures
+  # nearly half a space narrower per space. Any column lined up with space padding therefore moves; pad
+  # with U+2007 FIGURE SPACE instead, which a font defines to advance like a digit.
+  # DIR.Lib 7.14 makes TextFit.ShrinkToWidth return a size it actually measured, so a run fitted with
+  # TextTrim.Shrink no longer draws a fraction of a pixel past the rect it was just fitted to. Shrink is
+  # opt-in and the default is End, so a caller that never asks for it renders byte-identically.
+  # Released alongside SdlVulkan.Renderer 7.11 and WebGl.Renderer 1.18 rather than alone: a consumer
+  # holding two backends built against different DIR.Lib minors unifies on the higher one by luck, not
+  # by intent, which is how WebGl.Renderer twice ended up two minors behind.
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release

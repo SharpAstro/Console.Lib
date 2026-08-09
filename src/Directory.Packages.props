@@ -9,7 +9,7 @@
 
   <ItemGroup>
     <PackageVersion Include="coverlet.collector" Version="10.0.0" />
-    <PackageVersion Include="DIR.Lib" Version="7.11.*" />
+    <PackageVersion Include="DIR.Lib" Version="7.14.*" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.5.1" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.300" />
     <!-- No SharpAstro.LALR.CC entry on purpose. The grammars and the LALR.CC
