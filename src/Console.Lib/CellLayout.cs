@@ -138,12 +138,46 @@ public static class CellLayout
                 case Layout.Content.Box box when box.Color.Alpha > 0:
                     FillCells(viewport, rect, box.Color, mode, under, rounded);
                     break;
+                case Layout.Content.Icon icon:
+                    DrawText(viewport, rect, IconGlyph(icon), mode, under, null);
+                    break;
                 case Layout.Content.Fill fill:
                     drawFill?.Invoke(fill, rect);
                     break;
             }
         }
     }
+
+    /// <summary>
+    /// The glyph a named icon becomes on a character grid, as a synthesized centred text run -- a cell
+    /// surface cannot draw the pixel painter's rectangles, so this is the other half of naming icons by
+    /// meaning rather than by drawing.
+    /// <para>
+    /// Both glyphs are chosen from the ranges a terminal font is relied on to carry: U+2580..259F block
+    /// elements and U+2200..22FF mathematical operators, which is the same well every border, scrollbar and
+    /// tree marker in this library already draws from. Written as escape sequences rather than literals so a
+    /// search-and-replace tool can match them, matching how consumers spell their tab icons.
+    /// </para>
+    /// </summary>
+    private static Layout.Content.Text IconGlyph(Layout.Content.Icon icon) =>
+        new(icon.Kind switch
+        {
+            // Quadrant upper-right + lower-left: a 2x2 of filled squares at one cell.
+            Layout.IconKind.Grid => "\u259E",
+            // "Identical to": three stacked bars, which is the list icon exactly.
+            Layout.IconKind.List => "\u2261",
+            // Just the letter: one cell has no room for the brackets, and ASCII 'A' is the safest
+            // glyph there is. The meaning is what has to survive the crossing, not the frame.
+            Layout.IconKind.Auto => "A",
+            // A kind with no glyph yet shows as a visible placeholder rather than an empty cell, the cell
+            // counterpart of the pixel painter drawing nothing for an unhandled kind.
+            _ => "?",
+        }, icon.Size)
+        {
+            Color = icon.Color,
+            HAlign = TextAlign.Center,
+            VAlign = TextAlign.Center,
+        };
 
     /// <summary>
     /// Reverse-order (top-most wins) hit test in cell coordinates: invokes the matched leaf's
@@ -219,6 +253,7 @@ public static class CellLayout
     {
         Layout.Content.Text t => $"Text \"{t.Value}\"",
         Layout.Content.Box b => b.Color.Alpha > 0 ? "Box(filled)" : "Box(spacer)",
+        Layout.Content.Icon i => $"Icon({i.Kind})",
         Layout.Content.Fill f => f.Key is { } key ? $"Fill(\"{key}\")" : "Fill",
         _ => "Content?",
     };

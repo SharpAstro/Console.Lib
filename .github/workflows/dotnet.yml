@@ -379,6 +379,14 @@ env:
   # Released alongside SdlVulkan.Renderer 7.11 and WebGl.Renderer 1.18 rather than alone: a consumer
   # holding two backends built against different DIR.Lib minors unifies on the higher one by luck, not
   # by intent, which is how WebGl.Renderer twice ended up two minors behind.
+  # 4.21 - CellLayout paints DIR.Lib 7.18's Content.Icon: the same node the pixel painter constructs
+  #        from rectangles becomes a centred glyph here, because a character grid cannot draw those
+  #        rectangles. Grid is U+259E (quadrant blocks), List is U+2261, Auto is plain ASCII A -- one
+  #        cell has no room for its viewfinder brackets, and the meaning is what has to survive the
+  #        crossing. Every glyph is drawn from the ranges a terminal font is relied on to carry, which
+  #        is the same well every border, scrollbar and tree marker in this library already draws from.
+  #        Re-pins DIR.Lib 7.14 -> 7.18. Also adds a shared CellBufferViewport to the test project:
+  #        four test files each carried a private copy, and a fifth was the wrong answer.
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release
