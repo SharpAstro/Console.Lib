@@ -153,10 +153,18 @@ public static class CellLayout
     /// surface cannot draw the pixel painter's rectangles, so this is the other half of naming icons by
     /// meaning rather than by drawing.
     /// <para>
-    /// Both glyphs are chosen from the ranges a terminal font is relied on to carry: U+2580..259F block
-    /// elements and U+2200..22FF mathematical operators, which is the same well every border, scrollbar and
-    /// tree marker in this library already draws from. Written as escape sequences rather than literals so a
-    /// search-and-replace tool can match them, matching how consumers spell their tab icons.
+    /// Every glyph is chosen from the ranges a terminal font is relied on to carry: U+2580..259F block
+    /// elements, U+2200..22FF mathematical operators and U+25A0..25FF geometric shapes, which is the same
+    /// well every border, scrollbar and tree marker in this library already draws from. Written as escape
+    /// sequences rather than literals so a search-and-replace tool can match them, matching how consumers
+    /// spell their tab icons.
+    /// </para>
+    /// <para>
+    /// The three theme marks deliberately do NOT reach for the sun and moon of U+2600..263F, which is where
+    /// the pixel painter's drawings would send you. Those live in Miscellaneous Symbols, a pictographic
+    /// block a monospace face is under no obligation to cover, and the whole reason an icon is named rather
+    /// than spelled is that the cell surface should not gamble on coverage. The circles say the same thing
+    /// with the same three-way distinction: empty, half, full.
     /// </para>
     /// </summary>
     private static Layout.Content.Text IconGlyph(Layout.Content.Icon icon) =>
@@ -169,6 +177,12 @@ public static class CellLayout
             // Just the letter: one cell has no room for the brackets, and ASCII 'A' is the safest
             // glyph there is. The meaning is what has to survive the crossing, not the frame.
             Layout.IconKind.Auto => "A",
+            // The theme trio as unfilled / half / filled circle, which carries the light-to-dark ordering
+            // the three states actually form -- a terminal cannot show a sun's rays or a crescent's horns
+            // at one cell anyway, so the ordering is the part worth preserving.
+            Layout.IconKind.ThemeLight => "\u25CB",
+            Layout.IconKind.ThemeSystem => "\u25D0",
+            Layout.IconKind.ThemeDark => "\u25CF",
             // A kind with no glyph yet shows as a visible placeholder rather than an empty cell, the cell
             // counterpart of the pixel painter drawing nothing for an unhandled kind.
             _ => "?",

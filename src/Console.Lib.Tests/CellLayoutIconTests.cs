@@ -20,6 +20,9 @@ public class CellLayoutIconTests
     [InlineData(Layout.IconKind.Grid, '\u259E')]
     [InlineData(Layout.IconKind.List, '\u2261')]
     [InlineData(Layout.IconKind.Auto, 'A')]
+    [InlineData(Layout.IconKind.ThemeLight, '\u25CB')]
+    [InlineData(Layout.IconKind.ThemeSystem, '\u25D0')]
+    [InlineData(Layout.IconKind.ThemeDark, '\u25CF')]
     public void AnIconBecomesItsGlyph_CentredInTheArrangedRect(Layout.IconKind kind, char expected)
     {
         var buffer = new CellBuffer { ColorMode = ColorMode.Sgr16 };

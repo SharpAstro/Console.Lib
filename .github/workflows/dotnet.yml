@@ -387,6 +387,14 @@ env:
   #        is the same well every border, scrollbar and tree marker in this library already draws from.
   #        Re-pins DIR.Lib 7.14 -> 7.18. Also adds a shared CellBufferViewport to the test project:
   #        four test files each carried a private copy, and a fifth was the wrong answer.
+  # 4.22 - The cell half of DIR.Lib 7.19's three theme marks. CellLayout maps ThemeLight /
+  #        ThemeSystem / ThemeDark to the geometric-shapes circles U+25CB / U+25D0 / U+25CF, so a theme
+  #        control authored once paints a sun, a divided disc and a crescent on a GPU surface and an
+  #        empty, half and full circle here. Deliberately NOT the sun and moon of U+2600..263F, which is
+  #        where the pixel drawings point: that block is pictographic and a monospace face is under no
+  #        obligation to carry it, and not gambling on coverage is the whole reason an icon names its
+  #        meaning instead of spelling a codepoint. The circles keep the light-to-dark ordering, which
+  #        is what survives the crossing to a single cell.
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release
