@@ -395,6 +395,11 @@ env:
   #        obligation to carry it, and not gambling on coverage is the whole reason an icon names its
   #        meaning instead of spelling a codepoint. The circles keep the light-to-dark ordering, which
   #        is what survives the crossing to a single cell.
+  # 4.23 - Follows DIR.Lib to 7.21, whose Layout.CrossAlign this library gets for free: the cell
+  #        painter arranges through the same engine, so a TUI row can now centre its controls across
+  #        its axis with .CrossCenter() instead of padding the container. DIR.Lib 7.20 is in this range
+  #        too (an icon draws at its declared size, not stretched to its cell), which affects only the
+  #        pixel painter. No code change here.
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release
