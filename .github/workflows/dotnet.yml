@@ -400,6 +400,19 @@ env:
   #        its axis with .CrossCenter() instead of padding the container. DIR.Lib 7.20 is in this range
   #        too (an icon draws at its declared size, not stretched to its cell), which affects only the
   #        pixel painter. No code change here.
+  # 4.24 - CellLayout paints DIR.Lib 7.28's Layout.Content.TextInput, so an editable field is ONE
+  #        declaration that works on a terminal and a GPU surface alike. Three things a cell surface
+  #        has to answer differently, each a decision rather than a limitation: the FILL is the field
+  #        (a one-row box cannot also carry a border, so focus is the background alone), the caret is
+  #        the terminal's REAL one via SetCaret (a painted block can be neither thin nor blinking), and
+  #        an over-long value SCROLLS rather than ellipsizing -- an ellipsis in an editable field sits
+  #        exactly where the text being edited belongs, and the caret would have no real cell to land
+  #        on. CellLayout.HitTest derives a field's hit from the CONTENT, matching the pixel painter, so
+  #        a field is clickable because it is a field. CellLayout.TextInputs(arranged) is the cell
+  #        answer to IPixelWidget.GetRegisteredTextInputs: it feeds TextInputInteraction's TabFields, so
+  #        a terminal host shares Tab cycling instead of hand-rolling it, in the order the fields were
+  #        painted. Describe names a focused field, because "which box has the keyboard" is the
+  #        question a text-input bug starts from and is otherwise invisible in a text dump.
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release

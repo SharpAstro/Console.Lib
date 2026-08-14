@@ -141,6 +141,9 @@ public static class CellLayout
                 case Layout.Content.Icon icon:
                     DrawText(viewport, rect, IconGlyph(icon), mode, under, null);
                     break;
+                case Layout.Content.TextInput field:
+                    DrawTextInput(viewport, rect, field, mode, under, rounded);
+                    break;
                 case Layout.Content.Fill fill:
                     drawFill?.Invoke(fill, rect);
                     break;
@@ -194,6 +197,108 @@ public static class CellLayout
         };
 
     /// <summary>
+    /// A text field on a character grid. Three things it does differently from the pixel renderer, each
+    /// because the surface can genuinely only say one of them:
+    /// <list type="bullet">
+    /// <item><b>The fill IS the field.</b> A terminal cannot spare a row and a column for the 1px border the
+    /// pixel renderer draws, and a one-row field bordered in box-drawing characters would be three rows tall.
+    /// So focus is carried by the background alone, which the palette already distinguishes
+    /// (<see cref="TextInputColors.BackgroundActive"/>).</item>
+    /// <item><b>The caret is the terminal's REAL one</b> (<see cref="ITerminalViewport.SetCaret"/>), not a
+    /// painted cell: it can be thinner than a cell and it blinks with no repaint traffic, neither of which a
+    /// drawn block manages. This is the same choice the hand-rolled TUI site row already made, and the
+    /// reason it could be retired in favour of this leaf rather than reimplemented.</item>
+    /// <item><b>An over-long value scrolls; it does not ellipsize.</b> See <see cref="VisibleOffset"/>.</item>
+    /// </list>
+    /// </summary>
+    private static void DrawTextInput(ITerminalViewport viewport, Rect<int> rect,
+        Layout.Content.TextInput field, ColorMode mode, RGBAColor32 under, bool rounded)
+    {
+        var (vw, vh) = viewport.Size;
+        if (rect.Width <= 0 || rect.Height <= 0)
+        {
+            return;
+        }
+
+        var startCol = Math.Max(0, rect.X);
+        var maxW = Math.Min(rect.Right, vw) - startCol;
+        if (maxW <= 0)
+        {
+            return;
+        }
+
+        var state = field.State;
+        var colors = field.Colors ?? TextInputRenderer.Colors;
+        var bg = state.IsActive ? colors.BackgroundActive : colors.Background;
+
+        FillCells(viewport, rect, bg, mode, under, rounded);
+
+        var row = rect.Y + (rect.Height - 1) / 2;
+        if (row < 0 || row >= vh)
+        {
+            return;
+        }
+
+        // Placeholder only while empty AND unfocused, matching the pixel renderer: under a live caret a
+        // placeholder reads as text the user can edit, and the first keystroke appearing to REPLACE it is
+        // then indistinguishable from an insert that went wrong.
+        var showPlaceholder = state.Text.Length == 0 && !state.IsActive;
+        var value = showPlaceholder ? state.Placeholder : state.Text;
+        var fg = showPlaceholder ? colors.Placeholder : colors.Text;
+
+        var cursor = Math.Clamp(state.CursorPos, 0, state.Text.Length);
+        var offset = showPlaceholder ? 0 : VisibleOffset(cursor, maxW);
+        var visibleLength = Math.Clamp(value.Length - offset, 0, maxW);
+
+        if (visibleLength > 0)
+        {
+            viewport.SetCursorPosition(startCol, row);
+            viewport.Write($"{new VtStyle(fg, bg).Apply(mode)}{value.Substring(offset, visibleLength)}{VtStyle.Reset}");
+        }
+
+        // Selection restates the colours of the cells that are selected, over a run already drawn, rather
+        // than splitting the first pass into segments -- one clipped range instead of three.
+        if (state.IsActive && state.HasSelection)
+        {
+            var selStart = Math.Max(state.SelectionStart, offset);
+            var selEnd = Math.Min(state.SelectionEnd, offset + visibleLength);
+            if (selEnd > selStart)
+            {
+                viewport.SetCursorPosition(startCol + (selStart - offset), row);
+                viewport.Write($"{new VtStyle(fg, colors.Selection).Apply(mode)}{value[selStart..selEnd]}{VtStyle.Reset}");
+            }
+        }
+
+        if (state.IsActive)
+        {
+            viewport.SetCaret(startCol + (cursor - offset), row, CaretStyle.BlinkingBar);
+        }
+    }
+
+    /// <summary>
+    /// The first character index visible in a field <paramref name="maxChars"/> wide: the least scroll that
+    /// keeps the caret inside the field.
+    /// <para>
+    /// A field cannot ellipsize the way a label does. The <c>…</c> would sit exactly where the text being
+    /// edited belongs, and the caret would have no real cell to land on -- so an over-long value scrolls, and
+    /// the caret is what it follows.
+    /// </para>
+    /// <para>
+    /// The <c>+ 1</c> is the whole subtlety: a caret sits BETWEEN characters, so a caret at the end of the
+    /// value needs a cell of its own past the last glyph. Without it the window is the last
+    /// <paramref name="maxChars"/> characters and the caret lands one cell outside the field, on whatever a
+    /// neighbour painted there.
+    /// </para>
+    /// <para>
+    /// Deliberately char-based, and so cell-only: a proportional surface solves the same problem in pixels,
+    /// which is different arithmetic rather than this scaled. Today it does not solve it at all --
+    /// <see cref="TextInputRenderer"/> draws from the left edge and lets the rect clip -- which is
+    /// pre-existing and left alone rather than half-fixed on one surface.
+    /// </para>
+    /// </summary>
+    private static int VisibleOffset(int cursor, int maxChars) => Math.Max(0, cursor - maxChars + 1);
+
+    /// <summary>
     /// Reverse-order (top-most wins) hit test in cell coordinates: invokes the matched leaf's
     /// <see cref="Layout.Content.OnClick"/> and returns its <see cref="Layout.Content.Hit"/>, or null.
     /// </summary>
@@ -203,7 +308,7 @@ public static class CellLayout
         for (var i = arranged.Length - 1; i >= 0; i--)
         {
             var (node, rect) = arranged[i];
-            if (node.Hit is { } hit && rect.Contains(column, row))
+            if (HitOf(node) is { } hit && rect.Contains(column, row))
             {
                 node.OnClick?.Invoke(modifiers);
                 return hit;
@@ -211,6 +316,51 @@ public static class CellLayout
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// What clicking this node means: its own <see cref="Layout.Node.Hit"/>, or -- for a
+    /// <see cref="Layout.Content.TextInput"/> leaf -- the focus hit that comes with BEING a field.
+    /// <para>
+    /// Derived from the CONTENT rather than required on the node, which is the same rule the pixel painter
+    /// follows when it registers the region while drawing the field. Both surfaces therefore answer from the
+    /// leaf itself, so a field is clickable because it is a field: a consumer cannot declare one that is
+    /// unfocusable by forgetting a hit, and cannot un-declare it by putting a <c>.Clickable()</c> of its own
+    /// on the same node.
+    /// </para>
+    /// <para>
+    /// The field wins over a node hit on the same node for the same reason it wins on pixels, where its
+    /// registration lands last: a wrapper's handler must not swallow the click that focuses the field.
+    /// </para>
+    /// </summary>
+    private static HitResult? HitOf(Layout.Node node) =>
+        node is Layout.Node.Leaf { Content: Layout.Content.TextInput field }
+            ? new HitResult.TextInputHit(field.State)
+            : node.Hit;
+
+    /// <summary>
+    /// Every text field in the arranged tree, in paint order -- the cell-surface answer to
+    /// <c>IPixelWidget.GetRegisteredTextInputs</c>, and what a terminal host feeds
+    /// <c>TextInputInteraction.KeyContext.TabFields</c> so Tab cycles fields in the order they appear.
+    /// <para>
+    /// Read off the tree rather than accumulated during <see cref="Paint"/>, so it is answerable without
+    /// having painted and cannot go stale against a tree that was rebuilt since. Order is the flat pre-order
+    /// the engine produced, which IS the visual order, so tab order needs no declaring and no maintaining.
+    /// </para>
+    /// </summary>
+    public static List<TextInputState> TextInputs(ImmutableArray<Layout.ArrangedNode<int>> arranged)
+    {
+        var result = new List<TextInputState>();
+        foreach (var an in arranged)
+        {
+            if (an.Node is Layout.Node.Leaf { Content: Layout.Content.TextInput field }
+                && !result.Contains(field.State))
+            {
+                result.Add(field.State);
+            }
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -268,6 +418,9 @@ public static class CellLayout
         Layout.Content.Text t => $"Text \"{t.Value}\"",
         Layout.Content.Box b => b.Color.Alpha > 0 ? "Box(filled)" : "Box(spacer)",
         Layout.Content.Icon i => $"Icon({i.Kind})",
+        // The focus marker is the point of dumping a field at all: "which box has the keyboard" is the one
+        // question a text-input bug starts from, and it is otherwise invisible in a text dump.
+        Layout.Content.TextInput t => $"TextInput(\"{t.State.Text}\"{(t.State.IsActive ? ", active" : "")})",
         Layout.Content.Fill f => f.Key is { } key ? $"Fill(\"{key}\")" : "Fill",
         _ => "Content?",
     };
