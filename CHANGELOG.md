@@ -9,6 +9,29 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 4.26
+
+CellLayout maps DIR.Lib 8.3's IconKind.Plus and Minus: ASCII "+", and U+2212 MINUS SIGN rather than
+the ASCII hyphen. The pair exists so the two marks line up in a stepper, and hyphen-minus is the one
+character that reliably breaks that -- most faces draw it shorter and higher than the plus's crossbar,
+being a hyphen first and an operator second. U+2212 sits on the same axis by definition, and comes
+from the Mathematical Operators block the list icon already draws from.
+
+It also fills a hole that had been open for four minor versions. CaretUp and CaretDown arrived in
+DIR.Lib 7.23 and were never mapped here, so both rendered as the "?" placeholder on every terminal.
+Nothing failed, which is exactly the problem: the fallback exists so a forgotten kind degrades rather
+than throws, and that also makes it silent. They are U+25B2 and U+25BC now, filled to match the pixel
+drawings, whose reason for being filled rather than chevrons applies here too -- one cell holds a
+two-stroke chevron as a hairline with a hole in it, and hinting closes the hole first.
+
+So the change that matters is the test. EveryIconKindHasAGlyph enumerates IconKind and fails on any
+kind that falls back, which turns "the next person remembers" into something the build says out loud.
+The vocabulary is documented as costing a drawing upstream and a glyph here, and nothing was
+collecting the second half.
+
+Requires DIR.Lib 8.3, a FLOOR rather than a follow, since the two enum members do not exist before it.
+The pin therefore cannot move ahead of a published DIR.Lib: 8.3 goes to nuget.org first, this second.
+
 ## 4.25
 
 No-code lockstep rebuild against DIR.Lib 7.29. Required rather than bookkeeping this time:

@@ -35,7 +35,7 @@
     when you bump this.
   -->
   <PropertyGroup>
-    <VersionMajorMinor>4.25</VersionMajorMinor>
+    <VersionMajorMinor>4.26</VersionMajorMinor>
     <!-- Local builds get Major.Minor.0; CI passes -p:Version=Major.Minor.<run><attempt>+<sha>, and the
          condition lets it win. -->
     <VersionPrefix Condition="'$(VersionPrefix)' == ''">$(VersionMajorMinor).0</VersionPrefix>

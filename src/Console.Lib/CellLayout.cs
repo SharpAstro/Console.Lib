@@ -156,11 +156,11 @@ public static class CellLayout
     /// surface cannot draw the pixel painter's rectangles, so this is the other half of naming icons by
     /// meaning rather than by drawing.
     /// <para>
-    /// Every glyph is chosen from the ranges a terminal font is relied on to carry: U+2580..259F block
-    /// elements, U+2200..22FF mathematical operators and U+25A0..25FF geometric shapes, which is the same
-    /// well every border, scrollbar and tree marker in this library already draws from. Written as escape
-    /// sequences rather than literals so a search-and-replace tool can match them, matching how consumers
-    /// spell their tab icons.
+    /// Every glyph is chosen from the ranges a terminal font is relied on to carry: plain ASCII where the
+    /// mark has an honest one, then U+2580..259F block elements, U+2200..22FF mathematical operators and
+    /// U+25A0..25FF geometric shapes, which is the same well every border, scrollbar and tree marker in this
+    /// library already draws from. Written as escape sequences rather than literals so a search-and-replace
+    /// tool can match them, matching how consumers spell their tab icons.
     /// </para>
     /// <para>
     /// The three theme marks deliberately do NOT reach for the sun and moon of U+2600..263F, which is where
@@ -177,6 +177,18 @@ public static class CellLayout
             Layout.IconKind.Grid => "\u259E",
             // "Identical to": three stacked bars, which is the list icon exactly.
             Layout.IconKind.List => "\u2261",
+            // Filled triangles, matching the pixel drawings -- which are filled rather than chevrons for a
+            // reason that applies here too: a terminal has one cell, and a two-stroke chevron in it is a
+            // hairline with a hole that the font's hinting closes up at small point sizes.
+            Layout.IconKind.CaretUp => "\u25B2",
+            Layout.IconKind.CaretDown => "\u25BC",
+            // ASCII plus, and the MATHEMATICAL minus rather than the ASCII hyphen. The pair exists so the
+            // two marks line up in a stepper, and hyphen-minus is the one character that reliably breaks
+            // that: most faces draw it shorter and higher than the plus's crossbar, because it is a
+            // hyphen first and an operator second. U+2212 is defined to sit on the same axis, and lives in
+            // the Mathematical Operators block this file already draws the list icon from.
+            Layout.IconKind.Plus => "+",
+            Layout.IconKind.Minus => "\u2212",
             // Just the letter: one cell has no room for the brackets, and ASCII 'A' is the safest
             // glyph there is. The meaning is what has to survive the crossing, not the frame.
             Layout.IconKind.Auto => "A",

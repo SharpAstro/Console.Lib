@@ -20,6 +20,10 @@ public class CellLayoutIconTests
     [InlineData(Layout.IconKind.Grid, '\u259E')]
     [InlineData(Layout.IconKind.List, '\u2261')]
     [InlineData(Layout.IconKind.Auto, 'A')]
+    [InlineData(Layout.IconKind.CaretUp, '\u25B2')]
+    [InlineData(Layout.IconKind.CaretDown, '\u25BC')]
+    [InlineData(Layout.IconKind.Plus, '+')]
+    [InlineData(Layout.IconKind.Minus, '\u2212')]
     [InlineData(Layout.IconKind.ThemeLight, '\u25CB')]
     [InlineData(Layout.IconKind.ThemeSystem, '\u25D0')]
     [InlineData(Layout.IconKind.ThemeDark, '\u25CF')]
@@ -37,6 +41,42 @@ public class CellLayoutIconTests
 
         buffer.BackAt(2, 0).Glyph.ShouldBe(expected);
         buffer.BackAt(2, 0).Kind.ShouldBe(CellKind.Text);
+    }
+
+    /// <summary>
+    /// EVERY kind has a glyph -- the assertion the theory above cannot make, because a theory only covers the
+    /// rows someone remembered to write.
+    /// <para>
+    /// This is not hypothetical. <see cref="Layout.IconKind.CaretUp"/> and <see cref="Layout.IconKind.CaretDown"/>
+    /// were added upstream and went unmapped here for four minor versions, rendering as the <c>?</c>
+    /// placeholder on every terminal. Nothing failed: the fallback exists precisely so a forgotten kind
+    /// degrades instead of throwing, which also makes it silent. Enumerating the enum is what turns "the
+    /// next person remembers" into something the build says out loud, and the cost of a new kind -- a
+    /// drawing there, a glyph here -- is the deal the icon vocabulary is documented as making.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void EveryIconKindHasAGlyph_SoNoneFallsBackToThePlaceholder()
+    {
+        var unmapped = Enum.GetValues<Layout.IconKind>()
+            .Where(kind => GlyphOf(kind) == '?')
+            .ToArray();
+
+        unmapped.ShouldBeEmpty($"these kinds have no cell glyph: {string.Join(", ", unmapped)}");
+    }
+
+    /// <summary>Paints one icon into a 3x1 grid and reads back the glyph it became.</summary>
+    private static char GlyphOf(Layout.IconKind kind)
+    {
+        var buffer = new CellBuffer { ColorMode = ColorMode.Sgr16 };
+        buffer.Resize(3, 1);
+        var viewport = new CellBufferViewport(buffer, 3, 1);
+
+        var tree = new Layout.Node.Stack([Layout.Builder.Icon(kind, 1f).WStar().HStar().RowH(1)]);
+        CellLayout.Paint(viewport, Layout.Engine.Arrange(
+            tree, new Rect<int>(0, 0, 3, 1), CellMeasureContext.CellAuthored));
+
+        return buffer.BackAt(1, 0).Glyph;
     }
 
     /// <summary>

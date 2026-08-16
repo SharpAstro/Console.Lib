@@ -9,9 +9,11 @@
 
   <ItemGroup>
     <PackageVersion Include="coverlet.collector" Version="10.0.0" />
-    <!-- 7.28 is a FLOOR, not a follow: CellLayout paints Layout.Content.TextInput, which does not
-         exist before it. Anything older fails to compile here rather than merely missing a feature. -->
-    <PackageVersion Include="DIR.Lib" Version="7.29.*" />
+    <!-- 8.3 is a FLOOR, not a follow: CellLayout maps IconKind.Plus and Minus, which do not exist
+         before it (as 7.28 was the floor for Layout.Content.TextInput). Anything older fails to
+         compile here rather than merely missing a feature — so this pin can never move ahead of a
+         PUBLISHED DIR.Lib, and bumping it is the second half of a release, never the first. -->
+    <PackageVersion Include="DIR.Lib" Version="8.3.*" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.5.1" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.300" />
     <!-- No SharpAstro.LALR.CC entry on purpose. The grammars and the LALR.CC
