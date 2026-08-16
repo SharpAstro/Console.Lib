@@ -34,7 +34,7 @@ These are passed to `dotnet build` as:
 
 ### Files to update when bumping the version
 
-**One edit.** `<VersionMajorMinor>` in `src/Directory.Build.props` is the single source of truth for the `X.Y`:
+**One edit, plus the note.** `<VersionMajorMinor>` in `src/Directory.Build.props` is the single source of truth for the `X.Y`, and the matching entry goes in [CHANGELOG.md](CHANGELOG.md) at the repo root in the same commit — newest first, one `## Major.Minor` section each. (The notes used to live in a comment block in `.github/workflows/dotnet.yml`; nothing ever read them there, and they had grown to 414 of that file's 481 lines.)
 
 | File | Property | Format | Example |
 |---|---|---|---|
