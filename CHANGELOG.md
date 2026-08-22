@@ -9,6 +9,14 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 4.27
+
+Rebuilt against DIR.Lib 8.8, whose layout capture is now unconditional -- the arranged tree is what
+damage-based repaint diffs against, so it is no longer gated on the inspector being attached. Nothing
+in Console.Lib changes behaviour: a cell surface already paints by diffing (`CellBuffer`), which is the
+model the pixel side has now adopted, and `LayoutInspection` survives as an obsolete no-op so no call
+site here needed touching.
+
 ## 4.26
 
 CellLayout maps DIR.Lib 8.3's IconKind.Plus and Minus: ASCII "+", and U+2212 MINUS SIGN rather than
