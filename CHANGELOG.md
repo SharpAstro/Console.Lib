@@ -9,6 +9,16 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 4.28
+
+Honours `TextTrim.Middle`, added in DIR.Lib 8.9 for a run whose two ENDS both carry meaning -- a file
+path, or a filter-curve provenance line naming a product and its measured peak. Unlike `Shrink` and
+`None`, this policy needs no degradation on a character grid: it is a character-count cut like `Start`
+and `End`, so `CellLayout` implements it exactly rather than falling back to end-trimming.
+
+The tie-break matches the one the single-cell case already made: the ellipsis takes the odd cell and
+the head keeps the remainder, so at width 2 the tail is what goes.
+
 ## 4.27
 
 Rebuilt against DIR.Lib 8.8, whose layout capture is now unconditional -- the arranged tree is what

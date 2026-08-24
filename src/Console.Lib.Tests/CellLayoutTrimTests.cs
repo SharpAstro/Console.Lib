@@ -71,9 +71,27 @@ public class CellLayoutTrimTests
     public void StartTrim_KeepsTheTail()
         => Painted(Path, 12, TextTrim.Start).ShouldBe(@"…\Program.cs");
 
+    /// <summary>
+    /// The policy a cell surface honours EXACTLY as a pixel one does, unlike Shrink: it is a
+    /// character-count cut, so there is nothing to degrade. A tree authored once for both surfaces
+    /// therefore cuts the same way on each.
+    /// </summary>
+    [Fact]
+    public void MiddleTrim_KeepsBothEnds()
+        => Painted(Path, 12, TextTrim.Middle).ShouldBe(@"C:\Us…ram.cs");
+
+    /// <summary>
+    /// Two cells leave one to split between two ends, so the head takes it -- the same
+    /// surviving-end-is-the-head tie-break the maxW &lt;= 1 case makes.
+    /// </summary>
+    [Fact]
+    public void MiddleTrim_WithRoomForOneGlyphAndTheEllipsis_KeepsTheHead()
+        => Painted(Path, 2, TextTrim.Middle).ShouldBe("C…");
+
     [Theory]
     [InlineData(TextTrim.End)]
     [InlineData(TextTrim.Start)]
+    [InlineData(TextTrim.Middle)]
     public void ARunThatFits_IsUntouched(TextTrim trim)
         => Painted("short", 10, trim).ShouldBe("short     ");
 

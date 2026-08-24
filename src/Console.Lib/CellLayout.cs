@@ -533,6 +533,10 @@ public static class CellLayout
     /// goes to the character from the surviving end rather than to a lone "…" that says nothing.
     /// </para>
     /// <para>
+    /// <see cref="TextTrim.Middle"/> needs no degradation: it is a character-count cut like Start and End,
+    /// so a cell surface honours it exactly as a pixel one does.
+    /// </para>
+    /// <para>
     /// Two of the policies a PIXEL surface can honour, this one cannot, so each degrades to the nearest cell
     /// behaviour. <see cref="TextTrim.Shrink"/> asks for a smaller face and a character grid has exactly one
     /// size, so it end-trims — a shorter whole run being unavailable, the head is the next best thing.
@@ -551,6 +555,17 @@ public static class CellLayout
         if (maxW <= 1)
         {
             return trim == TextTrim.Start ? s[^maxW..] : s[..maxW];
+        }
+
+        if (trim == TextTrim.Middle)
+        {
+            // Equal count from each end, the ellipsis taking the odd cell. At maxW 2 that leaves one
+            // cell to split between two ends, so the head keeps it and the tail is dropped -- the
+            // same "the surviving end is the head" tie-break the maxW <= 1 case above makes.
+            var keep = (maxW - 1) / 2;
+            return keep == 0
+                ? s[..(maxW - 1)] + '…'
+                : s[..keep] + '…' + s[^(maxW - 1 - keep)..];
         }
 
         return trim == TextTrim.Start
