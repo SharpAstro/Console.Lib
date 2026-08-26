@@ -144,6 +144,52 @@ public sealed class InspectorTools
         => (await s.SendAsync(await Resolve(d, instance, ct), "click",
             $"{{\"column\":{column},\"row\":{row}}}", ct)).GetRawText();
 
+    [McpServerTool, Description("Drag from one CELL to another: a press at the first, motion while the button is held, a release at the second. Motion is reported once per cell crossed, which is what a real terminal does (mode 1002 reports on change, at cell resolution). There is no hover verb because a terminal only reports motion while a button is held.")]
+    public static async Task<string> drag(InspectorDiscoveryClient d, InspectorSocketClient s,
+        [Description("Start column, 0-based.")] int column1,
+        [Description("Start row, 0-based.")] int row1,
+        [Description("End column, 0-based.")] int column2,
+        [Description("End row, 0-based.")] int row2,
+        [Description("Interpolation steps; defaults to one per cell of the longer axis. Extra steps never produce duplicate reports.")] int steps = 0,
+        [Description("Target instance pid (0 = the only running instance).")] int instance = 0,
+        CancellationToken ct = default)
+    {
+        var target = await Resolve(d, instance, ct);
+        var stepsField = steps > 0 ? $",\"steps\":{steps}" : "";
+        return (await s.SendAsync(target, "drag",
+            $"{{\"column1\":{column1},\"row1\":{row1},\"column2\":{column2},\"row2\":{row2}{stepsField}}}",
+            ct)).GetRawText();
+    }
+
+    [McpServerTool, Description("Press and HOLD the mouse button at a CELL. Pair with move/release to drive a drag one event at a time -- which is the only way to see an app mid-drag, since an atomic drag arrives all at once and a consumer that coalesces motion renders none of the intermediate positions.")]
+    public static async Task<string> press(InspectorDiscoveryClient d, InspectorSocketClient s,
+        [Description("Column, 0-based.")] int column,
+        [Description("Row, 0-based.")] int row,
+        [Description("Target instance pid (0 = the only running instance).")] int instance = 0,
+        CancellationToken ct = default)
+        => (await s.SendAsync(await Resolve(d, instance, ct), "press",
+            $"{{\"column\":{column},\"row\":{row}}}", ct)).GetRawText();
+
+    [McpServerTool, Description("Move the held pointer to a CELL, reporting once per cell crossed. REFUSED unless a button is held: a terminal reports motion only during a drag (mode 1002), so there is no hover to synthesize.")]
+    public static async Task<string> move(InspectorDiscoveryClient d, InspectorSocketClient s,
+        [Description("Column, 0-based.")] int column,
+        [Description("Row, 0-based.")] int row,
+        [Description("Target instance pid (0 = the only running instance).")] int instance = 0,
+        CancellationToken ct = default)
+        => (await s.SendAsync(await Resolve(d, instance, ct), "move",
+            $"{{\"column\":{column},\"row\":{row}}}", ct)).GetRawText();
+
+    [McpServerTool, Description("Release the held mouse button, where it is unless a cell is named.")]
+    public static async Task<string> release(InspectorDiscoveryClient d, InspectorSocketClient s,
+        [Description("Column, 0-based. Omit (-1) to release where the pointer is.")] int column = -1,
+        [Description("Row, 0-based. Omit (-1) to release where the pointer is.")] int row = -1,
+        [Description("Target instance pid (0 = the only running instance).")] int instance = 0,
+        CancellationToken ct = default)
+    {
+        var at = column >= 0 && row >= 0 ? $"{{\"column\":{column},\"row\":{row}}}" : "{}";
+        return (await s.SendAsync(await Resolve(d, instance, ct), "release", at, ct)).GetRawText();
+    }
+
     /// <summary>
     /// Picks the target instance. Zero means "the only one", which is the normal case; it fails loudly when
     /// several are running rather than guessing, because driving the wrong app looks like the right app

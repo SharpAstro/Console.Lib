@@ -9,6 +9,36 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 4.29
+
+The debug inspector can drive a DRAG. It had exactly one pointer verb, `click`, which injects a press
+and a release at the same cell with no motion between them, so no terminal app could have a drag
+synthesized against it at all -- which meant anything that follows the pointer (a drag ghost, a
+rubber band, a pan) was unverifiable end-to-end no matter how well it worked.
+
+Four verbs now: `press`, `move`, `release`, and an atomic `drag` built from them.
+
+**Prefer the stepped verbs, and this is the whole reason they exist.** An atomic `drag` lands in the
+input queue all at once, so a consumer that coalesces motion -- drop the render when another event is
+already queued, carry its damage forward -- correctly renders NONE of the intermediate positions. The
+gesture completes, every report arrives, and nothing mid-drag is ever painted. So `drag` can prove a
+gesture but can never prove the thing that follows the pointer; only one event in flight at a time
+reproduces a human drag closely enough to observe it. Coalescing is what a well-behaved consumer does,
+so this is not a niche case.
+
+Two details keep the synthesized stream faithful to what a terminal can actually emit:
+
+- **`move` is refused when no button is held**, rather than injected anyway. Mode 1002 is BUTTON-motion
+  tracking, so a terminal never sends a hover report. Synthesizing one would let hover-driven behaviour
+  pass a test through a door that is nailed shut in production -- the failure this prevents is a GREEN
+  test, not a red one. This is a deliberate divergence from SdlVulkan.Renderer's inspector, which does
+  have a bare `move`, because on a GPU host hover is real.
+- **Motion is reported once per cell CROSSED**, not once per interpolation step: a terminal reports a
+  position when it changes, and its resolution is a cell. Asking for more `steps` than the path has
+  cells yields the cells, not repeats.
+
+The MCP server exposes all four as tools.
+
 ## 4.28
 
 Honours `TextTrim.Middle`, added in DIR.Lib 8.9 for a run whose two ENDS both carry meaning -- a file

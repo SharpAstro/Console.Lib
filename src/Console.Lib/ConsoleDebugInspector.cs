@@ -38,7 +38,7 @@ public interface IInspectableTerminal
 ///
 /// <para><b>Methods.</b> <c>ping</c> (core), <c>screen</c> — every row as text, <c>row</c> — one row,
 /// <c>cell</c> — glyph plus pen at a position, <c>appState</c> — the host's own snapshot, <c>key</c>,
-/// <c>click</c>, <c>size</c>, <c>inputLog</c> — the last N events with the state they changed.</para>
+/// <c>click</c>, <c>drag</c>, <c>size</c>, <c>inputLog</c> — the last N events with the state they changed.</para>
 ///
 /// <para>DEBUG only, loopback only.</para>
 /// </summary>
@@ -124,6 +124,10 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
         "inputLog" => InputLog(),
         "key" => Key(p),
         "click" => Click(p),
+        "drag" => Drag(p),
+        "press" => Press(p),
+        "move" => Move(p),
+        "release" => Release(p),
         _ => null,
     };
 
@@ -315,17 +319,163 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
     {
         var column = Int(p, "column", 0);
         var row = Int(p, "row", 0);
-        var cell = _terminal.CellSize;
-
-        // Centre of the cell, so a rounding difference cannot land on a neighbour.
-        var x = column * cell.Width + cell.Width / 2;
-        var y = row * cell.Height + cell.Height / 2;
+        var (x, y) = CellCentre(column, row);
 
         _terminal.Inject(new ConsoleInputEvent(new MouseEvent(0, x, y, IsRelease: false), ConsoleKey.None, 0));
         _terminal.Inject(new ConsoleInputEvent(new MouseEvent(0, x, y, IsRelease: true), ConsoleKey.None, 0));
 
         return $"{{\"ok\":true,\"x\":{x},\"y\":{y}}}";
     }
+
+    /// <summary>
+    /// Injects a DRAG: a press at the first cell, motion while the button is held, then a release at the
+    /// second. Addressed in cells for the same reason <see cref="Click"/> is.
+    /// </summary>
+    /// <remarks>
+    /// <para>Motion is emitted once per CELL CROSSED rather than once per interpolation step, because that
+    /// is what a terminal does: mode 1002 reports a position when it CHANGES, and its resolution is a cell.
+    /// So asking for more steps than the path has cells yields the cells, not repeats -- a duplicate report
+    /// is an event no terminal emits, and a consumer that coalesces motion would swallow the difference
+    /// until something downstream counted them.</para>
+    /// <para>There is deliberately NO bare <c>move</c> verb here, though the SDL/Vulkan inspector has one.
+    /// Mode 1002 is BUTTON-motion tracking: a terminal reports movement only while a button is held, so
+    /// hover is not something a terminal app can receive. A synthetic hover would let behaviour pass a test
+    /// on input that cannot reach it in production.</para>
+    /// </remarks>
+    private string Drag(JsonElement p)
+    {
+        var column1 = Int(p, "column1", 0);
+        var row1 = Int(p, "row1", 0);
+        var column2 = Int(p, "column2", 0);
+        var row2 = Int(p, "row2", 0);
+
+        InjectPress(column1, row1);
+        var motion = InjectMotionTo(column2, row2, Steps(p, column1, row1, column2, row2));
+        var (endX, endY) = InjectRelease(column2, row2);
+
+        return $"{{\"ok\":true,\"motion\":{motion},\"x\":{endX},\"y\":{endY}}}";
+    }
+
+    /// <summary>
+    /// The halves of a drag as SEPARATE calls, so a driver can look at the app BETWEEN them.
+    /// </summary>
+    /// <remarks>
+    /// <para><see cref="Drag"/> cannot answer "does the dragged thing follow the pointer", and that is not
+    /// a gap in this inspector -- it is the app being right. A consumer that coalesces motion (drop the
+    /// render when another event is already queued, carry its damage forward) sees a whole injected drag
+    /// sitting in the queue at once and correctly renders NONE of the intermediate positions. The gesture
+    /// completes, every report arrives, and nothing mid-drag is ever painted. Only one event in flight at a
+    /// time reproduces a human drag closely enough to observe it.</para>
+    /// </remarks>
+    private string Press(JsonElement p)
+    {
+        var (x, y) = InjectPress(Int(p, "column", 0), Int(p, "row", 0));
+        return $"{{\"ok\":true,\"x\":{x},\"y\":{y}}}";
+    }
+
+    /// <summary>Motion to a cell, reported once per cell crossed from wherever the button went down.</summary>
+    /// <remarks>
+    /// Refused when no button is held, rather than sent anyway. Mode 1002 is BUTTON-motion tracking: a
+    /// terminal reports movement only during a drag, so a hover report is an event no terminal emits.
+    /// Injecting one would let hover-driven behaviour pass a test through a door that is nailed shut in
+    /// production -- the failure this refusal prevents is a GREEN test, not a red one.
+    /// </remarks>
+    private string Move(JsonElement p)
+    {
+        if (_held is not { } held)
+        {
+            throw new InvalidOperationException(
+                "no button is held, and a terminal reports motion only while one is (mode 1002 is " +
+                "button-motion tracking, not any-event tracking). Send 'press' first.");
+        }
+
+        var column = Int(p, "column", held.Column);
+        var row = Int(p, "row", held.Row);
+        var motion = InjectMotionTo(column, row, Steps(p, held.Column, held.Row, column, row));
+        var (x, y) = CellCentre(column, row);
+        return $"{{\"ok\":true,\"motion\":{motion},\"x\":{x},\"y\":{y}}}";
+    }
+
+    /// <summary>Releases the held button, at the cell it is on unless another is named.</summary>
+    private string Release(JsonElement p)
+    {
+        if (_held is not { } held)
+        {
+            throw new InvalidOperationException("no button is held; send 'press' first.");
+        }
+
+        var (x, y) = InjectRelease(Int(p, "column", held.Column), Int(p, "row", held.Row));
+        return $"{{\"ok\":true,\"x\":{x},\"y\":{y}}}";
+    }
+
+    /// <summary>
+    /// One step per cell of the longer axis already visits every cell on the path; a caller can ask for more
+    /// to walk a diagonal more finely, but never for fewer events than the path crosses cells.
+    /// </summary>
+    private static int Steps(JsonElement p, int column1, int row1, int column2, int row2)
+    {
+        var span = Math.Max(Math.Abs(column2 - column1), Math.Abs(row2 - row1));
+        return Math.Clamp(Int(p, "steps", Math.Max(span, 1)), 1, 64);
+    }
+
+    private (int X, int Y) InjectPress(int column, int row)
+    {
+        var (x, y) = CellCentre(column, row);
+        _terminal.Inject(new ConsoleInputEvent(
+            new MouseEvent(0, x, y, IsRelease: false), ConsoleKey.None, 0));
+        _held = (column, row);
+        return (x, y);
+    }
+
+    /// <summary>
+    /// Walks to the target cell, emitting one report per cell ENTERED, and returns how many there were.
+    /// </summary>
+    private int InjectMotionTo(int column, int row, int steps)
+    {
+        var (fromColumn, fromRow) = _held ?? (column, row);
+        var (lastColumn, lastRow) = (fromColumn, fromRow);
+        var motion = 0;
+
+        for (var i = 1; i <= steps; i++)
+        {
+            var t = (double)i / steps;
+            var stepColumn = (int)Math.Round(fromColumn + (column - fromColumn) * t);
+            var stepRow = (int)Math.Round(fromRow + (row - fromRow) * t);
+            if (stepColumn == lastColumn && stepRow == lastRow) continue;
+
+            var (x, y) = CellCentre(stepColumn, stepRow);
+            _terminal.Inject(new ConsoleInputEvent(
+                new MouseEvent(0, x, y, IsRelease: false) { IsMotion = true }, ConsoleKey.None, 0));
+            (lastColumn, lastRow) = (stepColumn, stepRow);
+            motion++;
+        }
+
+        if (_held is not null) _held = (lastColumn, lastRow);
+        return motion;
+    }
+
+    private (int X, int Y) InjectRelease(int column, int row)
+    {
+        var (x, y) = CellCentre(column, row);
+        _terminal.Inject(new ConsoleInputEvent(
+            new MouseEvent(0, x, y, IsRelease: true), ConsoleKey.None, 0));
+        _held = null;
+        return (x, y);
+    }
+
+    /// <summary>Centre of a cell, so a rounding difference cannot land the pointer on a neighbour.</summary>
+    private (int X, int Y) CellCentre(int column, int row)
+    {
+        var cell = _terminal.CellSize;
+        return (column * cell.Width + cell.Width / 2, row * cell.Height + cell.Height / 2);
+    }
+
+    /// <summary>
+    /// The cell the held button is on, or null when nothing is pressed. This is a POINTER cursor, not a
+    /// gesture state machine: it exists so <c>move</c> knows where it is moving FROM and can refuse to
+    /// report motion that no terminal would send.
+    /// </summary>
+    private (int Column, int Row)? _held;
 
     public void Dispose() => _core?.Dispose();
 }

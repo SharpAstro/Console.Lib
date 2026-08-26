@@ -278,6 +278,140 @@ public sealed class ConsoleDebugInspectorTests
             "an injected click must never look like a drag report");
     }
 
+    /// <summary>
+    /// A drag is the one gesture a click cannot stand in for: press, motion WHILE HELD, release. The motion
+    /// arm is the whole point — it is what a ghost that follows the cursor, or any drag-to-pan, actually
+    /// consumes, and until this verb existed no terminal app could have one driven at all.
+    /// </summary>
+    [Fact]
+    public void Drag_PressesMovesWhileHeldThenReleases()
+    {
+        var (inspector, screen) = Detached();
+
+        Call(inspector, "drag", "{\"column1\":2,\"row1\":1,\"column2\":5,\"row2\":1}");
+
+        var events = new List<ConsoleInputEvent>();
+        while (screen.Injected.TryDequeue(out var evt)) events.Add(evt);
+
+        events.Count.ShouldBe(5, "press, one report per cell crossed, release");
+        events[0].Mouse!.Value.IsRelease.ShouldBeFalse();
+        events[0].Mouse!.Value.IsMotion.ShouldBeFalse("the press opens the drag, it is not a motion report");
+        events[0].Mouse!.Value.X.ShouldBe(2 * 10 + 5);
+
+        events[1..^1].ShouldAllBe(e => e.Mouse!.Value.IsMotion && !e.Mouse!.Value.IsRelease);
+        events[1..^1].Select(e => e.Mouse!.Value.X).ShouldBe([3 * 10 + 5, 4 * 10 + 5, 5 * 10 + 5]);
+
+        events[^1].Mouse!.Value.IsRelease.ShouldBeTrue();
+        events[^1].Mouse!.Value.X.ShouldBe(5 * 10 + 5);
+    }
+
+    /// <summary>
+    /// Steps interpolate the PATH, they do not multiply the REPORTS. A terminal reports a position when it
+    /// changes and its resolution is a cell, so asking for 64 steps across three cells must still yield
+    /// three reports — a repeat would be an event no terminal emits.
+    /// </summary>
+    [Fact]
+    public void Drag_ReportsOncePerCellCrossedHoweverManyStepsAreAsked()
+    {
+        var (inspector, screen) = Detached();
+
+        Call(inspector, "drag", "{\"column1\":0,\"row1\":0,\"column2\":3,\"row2\":0,\"steps\":64}");
+
+        var motion = new List<ConsoleInputEvent>();
+        while (screen.Injected.TryDequeue(out var evt))
+        {
+            if (evt.Mouse is { IsMotion: true }) motion.Add(evt);
+        }
+
+        motion.Select(e => e.Mouse!.Value.X).ShouldBe([1 * 10 + 5, 2 * 10 + 5, 3 * 10 + 5]);
+    }
+
+    /// <summary>
+    /// A drag that begins and ends on the same cell is a press and a release with nothing between — the
+    /// terminal has nothing to report, since the position never changed. It must NOT fabricate a motion
+    /// event, which is what a naive one-step-minimum loop would do.
+    /// </summary>
+    [Fact]
+    public void Drag_WithinOneCellReportsNoMotion()
+    {
+        var (inspector, screen) = Detached();
+
+        var result = Call(inspector, "drag", "{\"column1\":4,\"row1\":4,\"column2\":4,\"row2\":4}");
+
+        result.GetProperty("motion").GetInt32().ShouldBe(0);
+        var events = new List<ConsoleInputEvent>();
+        while (screen.Injected.TryDequeue(out var evt)) events.Add(evt);
+        events.Count.ShouldBe(2, "press and release, and nothing to report in between");
+    }
+
+    /// <summary>
+    /// press / move / release deliver the same three-part gesture ONE event at a time, which is the only
+    /// way to observe an app mid-drag: a consumer that coalesces motion renders none of the intermediate
+    /// positions of a drag that arrives all at once, correctly, so an atomic drag can prove the gesture but
+    /// never the thing that follows the pointer.
+    /// </summary>
+    [Fact]
+    public void PressMoveRelease_DeliverTheGestureOneEventAtATime()
+    {
+        var (inspector, screen) = Detached();
+
+        Call(inspector, "press", "{\"column\":2,\"row\":1}");
+        var pressed = DrainEvents(screen);
+        pressed.Count.ShouldBe(1, "a press is one event, with nothing behind it in the queue");
+        pressed[0].Mouse!.Value.IsMotion.ShouldBeFalse();
+        pressed[0].Mouse!.Value.IsRelease.ShouldBeFalse();
+
+        Call(inspector, "move", "{\"column\":4,\"row\":1}").GetProperty("motion").GetInt32().ShouldBe(2);
+        var moved = DrainEvents(screen);
+        moved.Select(e => e.Mouse!.Value.X).ShouldBe([3 * 10 + 5, 4 * 10 + 5]);
+        moved.ShouldAllBe(e => e.Mouse!.Value.IsMotion, "everything between press and release is motion");
+
+        Call(inspector, "release");
+        var released = DrainEvents(screen);
+        released.Count.ShouldBe(1);
+        released[0].Mouse!.Value.IsRelease.ShouldBeTrue();
+        released[0].Mouse!.Value.X.ShouldBe(4 * 10 + 5, "the release lands where the motion left off");
+    }
+
+    /// <summary>
+    /// Motion with no button held is REFUSED, not injected. Mode 1002 is button-motion tracking, so a
+    /// terminal never sends a hover report; synthesizing one would let hover behaviour pass a test through
+    /// a door that is nailed shut in production. The failure being prevented is a GREEN test.
+    /// </summary>
+    [Fact]
+    public void Move_WithNoButtonHeld_IsRefusedRatherThanInjected()
+    {
+        var (inspector, screen) = Detached();
+
+        var refusal = Should.Throw<InvalidOperationException>(
+            () => Call(inspector, "move", "{\"column\":4,\"row\":1}"));
+
+        refusal.Message.ShouldContain("press");
+        DrainEvents(screen).ShouldBeEmpty("a refused verb must not leave half a gesture in the queue");
+    }
+
+    /// <summary>A release ends the drag, so the next move has nothing to move from and is refused again.</summary>
+    [Fact]
+    public void Move_AfterRelease_IsRefusedAgain()
+    {
+        var (inspector, screen) = Detached();
+
+        Call(inspector, "press", "{\"column\":1,\"row\":1}");
+        Call(inspector, "release");
+        DrainEvents(screen);
+
+        Should.Throw<InvalidOperationException>(() => Call(inspector, "move", "{\"column\":3,\"row\":1}"));
+        DrainEvents(screen).ShouldBeEmpty();
+    }
+
+    /// <summary>Every injected event, as events -- the sibling of the key-only <c>Drain</c> below.</summary>
+    private static List<ConsoleInputEvent> DrainEvents(FakeScreen screen)
+    {
+        var events = new List<ConsoleInputEvent>();
+        while (screen.Injected.TryDequeue(out var evt)) events.Add(evt);
+        return events;
+    }
+
     [Fact]
     public void AppState_ReturnsWhateverTheHostSnapshots()
     {
