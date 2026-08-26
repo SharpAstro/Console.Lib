@@ -80,7 +80,11 @@ builder.Services
               - screen / row / cell  read the terminal as TEXT. Assert on words, not pixels.
               - app_state            what the app thinks is happening. Usually the fastest answer.
               - input_log            what input actually arrived and what it changed. Best for input bugs.
-              - key / keys / click   drive it.
+              - key / keys / click / drag   drive it.
+              - press / move / release      a drag ONE event at a time, so you can look
+                                            at the app between them. `drag` cannot show you
+                                            anything mid-gesture: it arrives all at once and
+                                            an app that coalesces motion renders none of it.
 
             Two things worth knowing:
               - screen shows CELLS only. A Sixel image (a chess board) occupies cells that read blank, and
