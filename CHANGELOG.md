@@ -9,6 +9,23 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 4.30
+
+Local Markdown links didn't open. `[docs](docs/foo.md)` rendered as an OSC 8 hyperlink the same as any
+`https://` link, but the target was the raw href verbatim -- a bare relative path, not a URI -- and
+Windows Terminal (rightly) refuses to Ctrl+Click one, reporting "invalid link". Images already had a
+host-supplied resolver for exactly this (`MarkdownImageOptions.Resolver`); links had no equivalent.
+
+`MarkdownRenderer.Render` / `RenderLines` (and `MarkdownWidget.LinkResolver`) now take an optional
+`Func<string, string>? linkResolver`, threaded through every place a link can appear -- paragraphs,
+headings, lists, table cells. It rewrites only the OSC 8 target; the visible `(url)` text after the
+label still shows the original href, so plain-text dumps and copy-paste are unaffected.
+
+mdcat wires one up: an href that already parses as an absolute URI (`http(s)://`, `mailto:`, an
+already-`file://` link, a rooted Windows path) passes through unchanged; a `#anchor`-only href is left
+alone too, since there's nothing on disk to point at; everything else resolves against the document's
+directory -- the same base dir local images already resolve against -- into a `file://` URI.
+
 ## 4.29
 
 The debug inspector can drive a DRAG. It had exactly one pointer verb, `click`, which injects a press

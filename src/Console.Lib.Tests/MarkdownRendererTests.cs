@@ -92,6 +92,46 @@ public sealed class MarkdownRendererTests
         result.ShouldBe($"{oscOpen}{Underline}{Cyan}click{Reset}{oscClose}{Dim} (http://example.com){Reset}");
     }
 
+    // ── Link resolution ───────────────────────────────────────────────
+    // A bare relative href (`docs/foo.md`) isn't a valid absolute URI, so
+    // terminals reject it as an OSC 8 target ("invalid link" in Windows
+    // Terminal). `linkResolver` lets a host (mdcat) rewrite the OSC 8 target
+    // — e.g. into a `file://` URI — while the visible `(url)` text keeps
+    // showing the original href.
+
+    [Fact]
+    public void RenderLines_LinkResolver_RewritesOsc8TargetOnly()
+    {
+        var lines = MarkdownRenderer.RenderLines(
+            "[docs](docs/foo.md)", 80, ColorMode.Sgr16,
+            linkResolver: url => $"file:///base/{url}");
+
+        var line = lines[0];
+        line.ShouldContain("\e]8;;file:///base/docs/foo.md\a");
+        line.ShouldContain("(docs/foo.md)"); // visible text stays the original href
+        line.ShouldNotContain("\e]8;;docs/foo.md\a");
+    }
+
+    [Fact]
+    public void RenderLines_NoLinkResolver_EmitsRawUrlUnchanged()
+    {
+        var lines = MarkdownRenderer.RenderLines("[docs](docs/foo.md)", 80, ColorMode.Sgr16);
+        lines[0].ShouldContain("\e]8;;docs/foo.md\a");
+    }
+
+    [Fact]
+    public void RenderLines_LinkResolver_AppliesInsideHeadingsListsAndTables()
+    {
+        var md = "# [H](h.md)\n\n- [L](l.md)\n\n| Col |\n| --- |\n| [T](t.md) |";
+        var lines = MarkdownRenderer.RenderLines(
+            md, 80, ColorMode.Sgr16, linkResolver: url => $"resolved/{url}");
+
+        var joined = string.Join("\n", lines);
+        joined.ShouldContain("\e]8;;resolved/h.md\a");
+        joined.ShouldContain("\e]8;;resolved/l.md\a");
+        joined.ShouldContain("\e]8;;resolved/t.md\a");
+    }
+
     [Fact]
     public void FormatInline_BackslashEscape()
     {

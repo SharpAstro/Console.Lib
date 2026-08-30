@@ -20,6 +20,7 @@ public class MarkdownWidget(ITerminalViewport viewport) : Widget(viewport)
     private BoxRenderMode? _mathMode;
     private string? _mathFontPath;
     private MarkdownImageOptions? _images;
+    private Func<string, string>? _linkResolver;
 
     /// <summary>
     /// The color theme used for rendering. Defaults to <see cref="MarkdownTheme.Default"/>.
@@ -69,6 +70,19 @@ public class MarkdownWidget(ITerminalViewport viewport) : Widget(viewport)
     {
         get => _images;
         set { if (!Equals(_images, value)) { _images = value; _renderedLines = null; } }
+    }
+
+    /// <summary>
+    /// Maps a Markdown link's raw href to the URI placed in its OSC 8 hyperlink
+    /// target. <c>null</c> (default) emits the href unchanged. See
+    /// <see cref="MarkdownRenderer.Render"/> for why a host typically supplies one
+    /// (a bare relative href isn't a valid absolute URI, so terminals reject it as
+    /// a clickable target). Setting this invalidates the line cache.
+    /// </summary>
+    public Func<string, string>? LinkResolver
+    {
+        get => _linkResolver;
+        set { if (!Equals(_linkResolver, value)) { _linkResolver = value; _renderedLines = null; } }
     }
 
     /// <summary>
@@ -138,7 +152,7 @@ public class MarkdownWidget(ITerminalViewport viewport) : Widget(viewport)
 
         _renderedLines = MarkdownRenderer.RenderLines(
             _markdown, currentWidth, Viewport.ColorMode, Theme,
-            mathMode: _mathMode, mathFontPath: _mathFontPath, images: _images);
+            mathMode: _mathMode, mathFontPath: _mathFontPath, images: _images, linkResolver: _linkResolver);
         _renderedWidth = currentWidth;
         return _renderedLines;
     }

@@ -54,13 +54,14 @@ internal static class Program
         // when math mode is already pinned and colour (hence images) is off.
         BoxRenderMode? mathMode = options.Mode;
         MarkdownImageOptions? images = null;
+        var baseDir = ResolveDocumentBaseDir(options.FilePath);
         if (mathMode == null || colorMode != ColorMode.None)
         {
             var probe = await ProbeTerminalAsync();
             if (mathMode == null && probe.Available)
                 mathMode = probe.Sixel ? BoxRenderMode.Sixel : BoxRenderMode.Sextant;
             if (colorMode != ColorMode.None)
-                images = BuildImageOptions(probe, options.Mode, options.FilePath);
+                images = BuildImageOptions(probe, options.Mode, baseDir);
         }
 
         // Render into a buffer first, then flush. The renderer writes
@@ -80,7 +81,8 @@ internal static class Program
                 theme: theme,
                 mathMode: mathMode,
                 mathFontPath: ResolveMathFont(),
-                images: images);
+                images: images,
+                linkResolver: url => ResolveLocalLink(url, baseDir));
         }
         catch (Exception ex)
         {
@@ -150,7 +152,7 @@ internal static class Program
     /// <c>--mode</c> raster choice overrides the detected capability so images
     /// share the math encoding the user asked for.
     /// </summary>
-    private static MarkdownImageOptions? BuildImageOptions(TerminalProbe probe, BoxRenderMode? explicitMode, string? filePath)
+    private static MarkdownImageOptions? BuildImageOptions(TerminalProbe probe, BoxRenderMode? explicitMode, string baseDir)
     {
         if (!probe.Available) return null;
         var mode = explicitMode ?? probe.ImageCap switch
@@ -161,14 +163,13 @@ internal static class Program
         };
         if (mode is not { } m) return null;
 
-        var baseDir = ResolveImageBaseDir(filePath);
         var cellW = probe.CellW > 0 ? probe.CellW : 10;
         var cellH = probe.CellH > 0 ? probe.CellH : 20;
         return new MarkdownImageOptions(src => LoadLocalImage(src, baseDir), m, cellW, cellH);
     }
 
-    /// <summary>Directory image sources resolve against: the document's folder, else CWD (stdin).</summary>
-    private static string ResolveImageBaseDir(string? filePath)
+    /// <summary>Directory relative image sources and links resolve against: the document's folder, else CWD (stdin).</summary>
+    private static string ResolveDocumentBaseDir(string? filePath)
     {
         if (filePath is not null && filePath != "-")
         {
@@ -203,6 +204,33 @@ internal static class Program
         catch
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Resolves a Markdown link href for the OSC 8 hyperlink target. A bare
+    /// relative href (<c>docs/foo.md</c>, <c>LICENSE</c>) is not a valid absolute
+    /// URI, so terminals reject it as a clickable target ("invalid link" in
+    /// Windows Terminal) even though the label still renders. An href that
+    /// already parses as an absolute URI — <c>http(s)://</c>, <c>mailto:</c>, an
+    /// already-<c>file://</c> link, or (per <see cref="Uri"/>'s own parsing) a
+    /// rooted Windows path or UNC share — is left untouched; everything else
+    /// resolves against <paramref name="baseDir"/> into a <c>file://</c> URI, the
+    /// same base directory local images resolve against. A leading <c>#</c>
+    /// (an in-page anchor) is left alone too: there's no file on disk to point at.
+    /// </summary>
+    private static string ResolveLocalLink(string url, string baseDir)
+    {
+        if (string.IsNullOrWhiteSpace(url) || url[0] == '#') return url;
+        if (Uri.TryCreate(url, UriKind.Absolute, out _)) return url;
+        try
+        {
+            var fullPath = Path.GetFullPath(Path.Combine(baseDir, url));
+            return new Uri(fullPath).AbsoluteUri;
+        }
+        catch
+        {
+            return url;
         }
     }
 

@@ -28,7 +28,7 @@ public static partial class MarkdownRenderer
     public static List<string> RenderLinesLalr(string markdown, int width,
         ColorMode colorMode = ColorMode.TrueColor, MarkdownTheme? theme = null,
         BoxRenderMode? mathMode = null, string? mathFontPath = null,
-        MarkdownImageOptions? images = null)
+        MarkdownImageOptions? images = null, Func<string, string>? linkResolver = null)
     {
         if (string.IsNullOrWhiteSpace(markdown)) return new List<string>();
 
@@ -40,7 +40,7 @@ public static partial class MarkdownRenderer
         foreach (var block in blocks)
         {
             if (!first) result.Add(string.Empty);
-            RenderMdBlock(block, width, colorMode, theme, result, mathMode, mathFontPath, images);
+            RenderMdBlock(block, width, colorMode, theme, result, mathMode, mathFontPath, images, linkResolver);
             first = false;
         }
 
@@ -53,12 +53,13 @@ public static partial class MarkdownRenderer
 
     private static void RenderMdBlock(MdBlock block, int width, ColorMode colorMode,
         MarkdownTheme theme, List<string> result,
-        BoxRenderMode? mathMode, string? mathFontPath, MarkdownImageOptions? images)
+        BoxRenderMode? mathMode, string? mathFontPath, MarkdownImageOptions? images,
+        Func<string, string>? linkResolver)
     {
         switch (block)
         {
             case MdHeading h:
-                RenderMdHeading(h, width, colorMode, theme, result);
+                RenderMdHeading(h, width, colorMode, theme, result, linkResolver);
                 break;
             case MdThematicBreak:
                 result.Add($"{Resolve(theme.Dim, colorMode)}{new string('─', width)}{Rst(colorMode)}");
@@ -75,7 +76,7 @@ public static partial class MarkdownRenderer
                         break;
                     }
                     var sb = new StringBuilder();
-                    RenderMdInlines(p.Content, sb, bold: false, italic: false, colorMode, theme);
+                    RenderMdInlines(p.Content, sb, bold: false, italic: false, colorMode, theme, linkResolver);
                     result.AddRange(WordWrap(sb.ToString(), width));
                     break;
                 }
@@ -86,16 +87,16 @@ public static partial class MarkdownRenderer
                 RenderMdMathBlock(m, width, colorMode, theme, result, mathMode, mathFontPath);
                 break;
             case MdList l:
-                RenderMdList(l, width, colorMode, theme, result, mathMode, mathFontPath, images, nestLevel: 0);
+                RenderMdList(l, width, colorMode, theme, result, mathMode, mathFontPath, images, linkResolver, nestLevel: 0);
                 break;
             case MdTable t:
-                RenderMdTable(t, colorMode, theme, result);
+                RenderMdTable(t, colorMode, theme, result, linkResolver);
                 break;
         }
     }
 
     private static void RenderMdHeading(MdHeading h, int width, ColorMode colorMode,
-        MarkdownTheme theme, List<string> result)
+        MarkdownTheme theme, List<string> result, Func<string, string>? linkResolver)
     {
         var color = h.Level switch
         {
@@ -104,7 +105,7 @@ public static partial class MarkdownRenderer
             _ => Resolve(theme.Heading3, colorMode),
         };
         var sb = new StringBuilder();
-        RenderMdInlines(h.Content, sb, bold: false, italic: false, colorMode, theme);
+        RenderMdInlines(h.Content, sb, bold: false, italic: false, colorMode, theme, linkResolver);
         var text = $"{BoldAttr(colorMode)}{color}{sb}{Rst(colorMode)}";
         result.AddRange(WordWrap(text, width));
     }
@@ -150,7 +151,8 @@ public static partial class MarkdownRenderer
 
     private static void RenderMdList(MdList list, int width, ColorMode colorMode,
         MarkdownTheme theme, List<string> result,
-        BoxRenderMode? mathMode, string? mathFontPath, MarkdownImageOptions? images, int nestLevel)
+        BoxRenderMode? mathMode, string? mathFontPath, MarkdownImageOptions? images,
+        Func<string, string>? linkResolver, int nestLevel)
     {
         var bulletColor = Resolve(theme.Bullet, colorMode);
         var dimColor = Resolve(theme.Dim, colorMode);
@@ -176,14 +178,14 @@ public static partial class MarkdownRenderer
                 if (body is MdParagraph para)
                 {
                     var sb = new StringBuilder();
-                    RenderMdInlines(para.Content, sb, bold: false, italic: false, colorMode, theme);
+                    RenderMdInlines(para.Content, sb, bold: false, italic: false, colorMode, theme, linkResolver);
                     var prefix = firstBlock ? $"{indent}{marker} " : contIndent;
                     var wrapped = WordWrap($"{prefix}{sb}", width, contIndent);
                     result.AddRange(wrapped);
                 }
                 else if (body is MdList nestedList)
                 {
-                    RenderMdList(nestedList, width, colorMode, theme, result, mathMode, mathFontPath, images, nestLevel + 1);
+                    RenderMdList(nestedList, width, colorMode, theme, result, mathMode, mathFontPath, images, linkResolver, nestLevel + 1);
                 }
                 else
                 {
@@ -191,7 +193,7 @@ public static partial class MarkdownRenderer
                     // block dispatcher; the indentation isn't preserved
                     // perfectly here (the existing Markdig path has the
                     // same approximation) but the content surfaces.
-                    RenderMdBlock(body, width, colorMode, theme, result, mathMode, mathFontPath, images);
+                    RenderMdBlock(body, width, colorMode, theme, result, mathMode, mathFontPath, images, linkResolver);
                 }
                 firstBlock = false;
             }
@@ -209,7 +211,7 @@ public static partial class MarkdownRenderer
     /// </para>
     /// </summary>
     private static void RenderMdTable(MdTable t, ColorMode colorMode,
-        MarkdownTheme theme, List<string> result)
+        MarkdownTheme theme, List<string> result, Func<string, string>? linkResolver = null)
     {
         var rst = Rst(colorMode);
         var bold = BoldAttr(colorMode);
@@ -217,7 +219,7 @@ public static partial class MarkdownRenderer
         var headers = new string[t.Headers.Count];
         for (var c = 0; c < headers.Length; c++)
         {
-            headers[c] = $"{bold}{FormatInlinesToString(t.Headers[c], colorMode, theme)}{rst}";
+            headers[c] = $"{bold}{FormatInlinesToString(t.Headers[c], colorMode, theme, linkResolver)}{rst}";
         }
 
         var rows = new List<IReadOnlyList<string>>(t.Rows.Count);
@@ -226,7 +228,7 @@ public static partial class MarkdownRenderer
             var cells = new string[row.Count];
             for (var c = 0; c < cells.Length; c++)
             {
-                cells[c] = FormatInlinesToString(row[c], colorMode, theme);
+                cells[c] = FormatInlinesToString(row[c], colorMode, theme, linkResolver);
             }
             rows.Add(cells);
         }
@@ -246,17 +248,19 @@ public static partial class MarkdownRenderer
             BorderStyle.Light, Resolve(theme.Dim, colorMode), rst, VisibleLength);
     }
 
-    private static string FormatInlinesToString(IReadOnlyList<MdInline> inlines, ColorMode colorMode, MarkdownTheme theme)
+    private static string FormatInlinesToString(IReadOnlyList<MdInline> inlines, ColorMode colorMode,
+        MarkdownTheme theme, Func<string, string>? linkResolver = null)
     {
         var sb = new StringBuilder();
-        RenderMdInlines(inlines, sb, bold: false, italic: false, colorMode, theme);
+        RenderMdInlines(inlines, sb, bold: false, italic: false, colorMode, theme, linkResolver);
         return sb.ToString();
     }
 
     // ── Inline dispatch ───────────────────────────────────────────────
 
     private static void RenderMdInlines(IReadOnlyList<MdInline> inlines, StringBuilder sb,
-        bool bold, bool italic, ColorMode colorMode, MarkdownTheme theme)
+        bool bold, bool italic, ColorMode colorMode, MarkdownTheme theme,
+        Func<string, string>? linkResolver = null)
     {
         var rst = Rst(colorMode);
         var boldAttr = BoldAttr(colorMode);
@@ -282,7 +286,7 @@ public static partial class MarkdownRenderer
                         var newItalic = italic || em.Level == 1 || em.Level >= 3;
                         if (newBold && !bold) sb.Append(boldAttr);
                         if (newItalic && !italic) sb.Append(italicAttr);
-                        RenderMdInlines(em.Content, sb, newBold, newItalic, colorMode, theme);
+                        RenderMdInlines(em.Content, sb, newBold, newItalic, colorMode, theme, linkResolver);
                         if (newBold && !bold) sb.Append(NoBoldAttr(colorMode));
                         if (newItalic && !italic) sb.Append(NoItalicAttr(colorMode));
                         break;
@@ -300,10 +304,20 @@ public static partial class MarkdownRenderer
                         // `(url)` text after the label stays so the URL
                         // is visible to readers + copy-pasteable from
                         // terminals that don't render the hyperlink.
-                        var (hOpen, hClose) = Hyperlink(link.Url, colorMode);
+                        //
+                        // The OSC 8 *target* runs through linkResolver (host-supplied,
+                        // e.g. mdcat resolving a relative href against the document's
+                        // directory into a file:// URI) since a bare relative href is
+                        // not a valid absolute URI and terminals reject it as a
+                        // clickable target ("invalid link" in Windows Terminal). The
+                        // visible `(url)` text below always shows the original href.
+                        var resolvedUrl = !string.IsNullOrEmpty(link.Url) && linkResolver is not null
+                            ? linkResolver(link.Url)
+                            : link.Url;
+                        var (hOpen, hClose) = Hyperlink(resolvedUrl, colorMode);
                         sb.Append(hOpen);
                         sb.Append($"{UnderlineAttr(colorMode)}{linkColor}");
-                        RenderMdInlines(link.Text, sb, bold: false, italic: false, colorMode, theme);
+                        RenderMdInlines(link.Text, sb, bold: false, italic: false, colorMode, theme, linkResolver);
                         sb.Append(rst);
                         sb.Append(hClose);
                         if (!string.IsNullOrEmpty(link.Url))
@@ -319,7 +333,7 @@ public static partial class MarkdownRenderer
                         // render the alt text. An empty alt shows the source
                         // filename, dimmed, so the image isn't silently blank.
                         var altSb = new StringBuilder();
-                        RenderMdInlines(image.Alt, altSb, bold, italic, colorMode, theme);
+                        RenderMdInlines(image.Alt, altSb, bold, italic, colorMode, theme, linkResolver);
                         if (VisibleLength(altSb.ToString()) == 0)
                         {
                             var dimColor = Resolve(theme.Dim, colorMode);
@@ -340,7 +354,7 @@ public static partial class MarkdownRenderer
                         {
                             var fg = Resolve(rgba, colorMode);
                             sb.Append(rst).Append(fg);
-                            RenderMdInlines(color.Text, sb, bold: false, italic: false, colorMode, theme);
+                            RenderMdInlines(color.Text, sb, bold: false, italic: false, colorMode, theme, linkResolver);
                             sb.Append(rst);
                             if (bold) sb.Append(boldAttr);
                             if (italic) sb.Append(italicAttr);
@@ -349,7 +363,7 @@ public static partial class MarkdownRenderer
                         {
                             // Unknown colour name — fall through to literal `[text]{name}`.
                             sb.Append('[');
-                            RenderMdInlines(color.Text, sb, bold, italic, colorMode, theme);
+                            RenderMdInlines(color.Text, sb, bold, italic, colorMode, theme, linkResolver);
                             sb.Append(']').Append('{').Append(color.Color).Append('}');
                         }
                         break;

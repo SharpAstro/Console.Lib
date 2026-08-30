@@ -49,12 +49,22 @@ public static partial class MarkdownRenderer
     /// rasterized (Sixel / sextant / half-block per <see cref="MarkdownImageOptions.Mode"/>)
     /// using the supplied resolver. Default null renders every image as alt text.
     /// Images that appear mid-paragraph always render as alt text.</param>
+    /// <param name="linkResolver">Maps a Markdown link's raw <c>url</c> (from
+    /// <c>[text](url)</c>) to the URI actually placed in the OSC 8 hyperlink target.
+    /// Default null emits the raw url unchanged. A bare relative href (e.g.
+    /// <c>docs/foo.md</c>) is not a valid absolute URI, so terminals reject it as a
+    /// clickable target ("invalid link" in Windows Terminal) — a host that knows the
+    /// document's own path can supply a resolver that turns such hrefs into
+    /// <c>file://</c> URIs. The renderer never resolves paths itself, mirroring
+    /// <paramref name="images"/>'s <see cref="MarkdownImageOptions.Resolver"/>. The
+    /// visible <c>(url)</c> text after the label always shows the original,
+    /// unresolved href.</param>
     public static void Render(string markdown, TextWriter output, int width,
         ColorMode colorMode = ColorMode.TrueColor, MarkdownTheme? theme = null,
         BoxRenderMode? mathMode = null, string? mathFontPath = null,
-        MarkdownImageOptions? images = null)
+        MarkdownImageOptions? images = null, Func<string, string>? linkResolver = null)
     {
-        foreach (var line in RenderLines(markdown, width, colorMode, theme, mathMode, mathFontPath, images))
+        foreach (var line in RenderLines(markdown, width, colorMode, theme, mathMode, mathFontPath, images, linkResolver))
             output.WriteLine(line);
     }
 
@@ -64,11 +74,12 @@ public static partial class MarkdownRenderer
     /// <param name="mathMode">See <see cref="Render"/> for the math-mode semantics.</param>
     /// <param name="mathFontPath">See <see cref="Render"/> for the math-font semantics.</param>
     /// <param name="images">See <see cref="Render"/> for the image semantics.</param>
+    /// <param name="linkResolver">See <see cref="Render"/> for the link-resolution semantics.</param>
     public static List<string> RenderLines(string markdown, int width,
         ColorMode colorMode = ColorMode.TrueColor, MarkdownTheme? theme = null,
         BoxRenderMode? mathMode = null, string? mathFontPath = null,
-        MarkdownImageOptions? images = null)
-        => RenderLinesLalr(markdown, width, colorMode, theme, mathMode, mathFontPath, images);
+        MarkdownImageOptions? images = null, Func<string, string>? linkResolver = null)
+        => RenderLinesLalr(markdown, width, colorMode, theme, mathMode, mathFontPath, images, linkResolver);
 
     private static bool TryRenderMathBox(string source, BoxRenderMode mode,
         string? callerFontPath, List<string> result)
