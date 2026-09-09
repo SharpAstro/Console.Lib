@@ -9,6 +9,8 @@
     <!-- No version properties here: VersionPrefix and AssemblyVersion are both derived from
          VersionMajorMinor in ../Directory.Build.props. Edit the version there. -->
     <PackageID>Console.Lib</PackageID>
+    <Description>Terminal application toolkit for .NET: dock-based layouts that recompute on resize, a widget set (text bars, scrollable lists, tree views, text areas, menus, Markdown), mouse and keyboard input, VT styling, and a fast Sixel graphics encoder with sextant / half-block fallbacks. Built on DIR.Lib, AOT compatible.</Description>
+    <PackageTags>console terminal tui sixel vt ansi widgets layout aot</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <RepositoryUrl>https://github.com/SharpAstro/Console.Lib.git</RepositoryUrl>
