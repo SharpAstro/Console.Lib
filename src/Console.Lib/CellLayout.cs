@@ -198,6 +198,25 @@ public static class CellLayout
             Layout.IconKind.ThemeLight => "\u25CB",
             Layout.IconKind.ThemeSystem => "\u25D0",
             Layout.IconKind.ThemeDark => "\u25CF",
+            // The three tool-palette marks (DIR.Lib 8.11 and 8.12). Each follows this file's rule of
+            // preferring a block a monospace face actually covers over the pictograph that looks most
+            // like the pixel drawing.
+            //
+            // Search is a lens with a handle, and DIR.Lib's own note names U+1F50D with U+2315 "for a
+            // narrow cell" -- a terminal cell IS the narrow case, permanently, so the alternative is
+            // the only candidate here. U+1F50D is in Miscellaneous Symbols and Pictographs, the same
+            // emoji territory the theme marks above refuse for exactly this reason.
+            Layout.IconKind.Search => "⌕",
+            // Pan is four barbed arrows from a centre, stroked rather than filled so it reads by its
+            // arms reaching out. The HEAVY open-centre cross rather than the light one, on the same
+            // reasoning the carets are filled triangles: at one cell a hairline stroke is what the
+            // font's hinting closes up. The open centre is also what keeps it from reading as Plus.
+            Layout.IconKind.Pan => "✜",
+            // IBeam is a stem with a serif at each end, and APL's I-beam is precisely that shape and
+            // is named it. Like Minus it cannot ink its full square -- it is tall and narrow by
+            // definition -- and the serifs are the load-bearing part: a bare stem at cell size is a
+            // box-drawing separator, which is the one thing it must not be mistaken for.
+            Layout.IconKind.IBeam => "⌶",
             // A kind with no glyph yet shows as a visible placeholder rather than an empty cell, the cell
             // counterpart of the pixel painter drawing nothing for an unhandled kind.
             _ => "?",

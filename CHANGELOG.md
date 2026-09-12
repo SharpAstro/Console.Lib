@@ -9,6 +9,26 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 4.31
+
+Rebuilt against **DIR.Lib 8.19** (from 8.9) and **SharpAstro.Codecs 3.14** (from 3.8), so the backend
+is compiled and tested against the versions a consumer will actually load rather than relying on
+NuGet unifying it upward by luck.
+
+Ten minors of DIR.Lib is the widest gap any backend had. Two of them are worth naming:
+
+- **8.13 moved the text baseline onto the FACE** rather than the measured ink of each run, which is a
+  flagged behaviour change and the reason this bump is not a formality. It needed no code here: the
+  cell surface positions text by cell, not by baseline, so the change lands entirely in the pixel
+  renderer's favour — rows that used to stair-step now line up — and all 521 tests pass unchanged.
+- **8.11 and 8.12 added three `IconKind`s** (`Search`, `Pan`, `IBeam`) for a tool palette, which the
+  cell surface had no glyphs for. `CellLayoutIconTests` caught it exactly as designed: they were
+  falling back to the "?" placeholder. Now mapped, each to a block a monospace face actually covers
+  rather than to the pictograph that most resembles the pixel drawing — U+2315 TELEPHONE RECORDER for
+  the lens (DIR.Lib's own note names it as the narrow-cell choice, and a cell is permanently the
+  narrow case), U+271C HEAVY OPEN CENTRE CROSS for the pan, and U+2336 APL FUNCTIONAL SYMBOL I-BEAM,
+  which is named for the shape it is asked to draw.
+
 ## 4.30
 
 Local Markdown links didn't open. `[docs](docs/foo.md)` rendered as an OSC 8 hyperlink the same as any
