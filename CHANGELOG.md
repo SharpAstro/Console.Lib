@@ -9,6 +9,20 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+
+## 4.33
+
+Rebuilt against **DIR.Lib 9.0** (from 8.20).
+
+**No code change here, and none was needed.** DIR.Lib 9.0's break is in the pre-layout scale's
+currency: `ListScrollController.SetExtent`, `TapOrDragGesture.Arm`, `FloatingPalette`'s offsets and
+the layout helpers' `dpiScale:` argument now take a `DesignScale` — surface units per design unit, per
+axis — instead of a bare float. This backend calls none of them, which was checked rather than
+assumed.
+
+It is released anyway, and that is the point of a lockstep: a consumer holding two backends that pin
+different DIR.Lib majors does not get a choice about which one wins, it gets whichever NuGet unifies
+to. 9.0 is the first DIR.Lib major where that would be a break rather than a surprise.
 ## 4.31
 
 Rebuilt against **DIR.Lib 8.19** (from 8.9) and **SharpAstro.Codecs 3.14** (from 3.8), so the backend
