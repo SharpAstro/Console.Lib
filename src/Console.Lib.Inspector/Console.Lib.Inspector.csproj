@@ -18,9 +18,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>true</InvariantGlobalization>
 
-    <!-- Outside the library's Directory.Packages.props subtree conceptually: pin our own versions. -->
-    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
-
     <PackAsTool>true</PackAsTool>
     <PackageType>McpServer</PackageType>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -40,8 +37,14 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
+    <!-- Versionless: this project is inside ../Directory.Packages.props's subtree and now uses it.
+         It opted out until 2026-09-14, on the reasoning that a sidecar which references nothing from
+         the library should pin its own versions. True about the DEPENDENCY, and still true, but it
+         put the numbers in a file no repo-wide sweep reads: the MCP SDK sat a whole major behind
+         until the commit before this one, and Hosting is still two patches back. Independence is
+         about what this project references, not about where its versions are written down. -->
+    <PackageReference Include="ModelContextProtocol" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
   </ItemGroup>
 
   <ItemGroup>

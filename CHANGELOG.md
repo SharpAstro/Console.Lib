@@ -23,6 +23,11 @@ assumed.
 It is released anyway, and that is the point of a lockstep: a consumer holding two backends that pin
 different DIR.Lib majors does not get a choice about which one wins, it gets whichever NuGet unifies
 to. 9.0 is the first DIR.Lib major where that would be a break rather than a surprise.
+*Later in 4.33:* `Console.Lib.Inspector` joined central package management. It had pinned inline on
+the reasoning that a sidecar referencing nothing from the library should own its versions — true of
+the dependency, but it put the numbers where no repo-wide sweep reads them, and both had drifted.
+Versions are unchanged, so consumers see nothing.
+
 ## 4.31
 
 Rebuilt against **DIR.Lib 8.19** (from 8.9) and **SharpAstro.Codecs 3.14** (from 3.8), so the backend

@@ -14,7 +14,11 @@
          compile here rather than merely missing a feature — so this pin can never move ahead of a
          PUBLISHED DIR.Lib, and bumping it is the second half of a release, never the first. -->
     <PackageVersion Include="DIR.Lib" Version="9.0.*" />
+    <!-- Console.Lib.Inspector's own two: the MCP sidecar references nothing from the library, but
+         its pins belong here anyway so a sweep of this file sees the whole repo. -->
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.5.1" />
+    <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
     <!-- No SharpAstro.LALR.CC entry on purpose. The grammars and the LALR.CC
          source generator moved to DIR.Lib.Markdown in v2.14, so no project in
          this repo declares a PackageReference to it any more — it arrives
