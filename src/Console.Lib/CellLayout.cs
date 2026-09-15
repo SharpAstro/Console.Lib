@@ -182,6 +182,13 @@ public static class CellLayout
             // hairline with a hole that the font's hinting closes up at small point sizes.
             Layout.IconKind.CaretUp => "\u25B2",
             Layout.IconKind.CaretDown => "\u25BC",
+            // The horizontal pair, from the same filled-triangle block so all four share a weight. New in
+            // DIR.Lib 9.2, and the reason a kind added there is a two-repo change: the pixel side draws it
+            // and the cell side spells it, and a kind with only one of those falls back to the placeholder.
+            // `EveryIconKindHasAGlyph_SoNoneFallsBackToThePlaceholder` is what says so, and it is exactly
+            // the test that caught these two.
+            Layout.IconKind.CaretLeft => "\u25C0",
+            Layout.IconKind.CaretRight => "\u25B6",
             // ASCII plus, and the MATHEMATICAL minus rather than the ASCII hyphen. The pair exists so the
             // two marks line up in a stepper, and hyphen-minus is the one character that reliably breaks
             // that: most faces draw it shorter and higher than the plus's crossbar, because it is a
