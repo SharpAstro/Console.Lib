@@ -28,6 +28,14 @@ the reasoning that a sidecar referencing nothing from the library should own its
 the dependency, but it put the numbers where no repo-wide sweep reads them, and both had drifted.
 Versions are unchanged, so consumers see nothing.
 
+*Later in 4.33:* republished so the **DIR.Lib floor this package declares** moves onto the 9.0 build
+that takes `SharpAstro.Fonts` 1.12.901, and with it `SharpAstro.Png` 3.14. Nothing here changed: the
+pin is `9.0.*` and floats onto it by itself. The publish is the whole of it. A package declares the
+floor its own pack resolved, and NuGet hands a consumer exactly that floor for a transitive
+dependency, never the newest — so anyone reaching Png only through this backend was restoring a
+decoder six published families behind the Codecs repo, and would have kept restoring it however often
+Fonts.Lib or DIR.Lib republished.
+
 ## 4.31
 
 Rebuilt against **DIR.Lib 8.19** (from 8.9) and **SharpAstro.Codecs 3.14** (from 3.8), so the backend
