@@ -10,6 +10,24 @@ Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); th
 changed and why.
 
 
+## 4.34
+
+Rebuilt against **DIR.Lib 9.1** (from 9.0), and this time the rebuild is the fix, not the hygiene.
+
+DIR.Lib 9.1 turned `HitResult.TextInputHit(TextInputState)` into `TextInputHit(TextInputState,
+TextInputGeometry Painted = default)`. In source that is additive, and the 9.1 notes say so; in the
+assembly it is not, because an optional parameter on a record's primary constructor REPLACES the old
+constructor rather than adding beside it. `CellLayout.HitOf` constructs that record with one argument,
+so 4.33, compiled against 9.0, throws `MissingMethodException` from every mouse hit test the moment a
+consumer resolves DIR.Lib 9.1 next to it. It is the only site in this library that constructs the type,
+and no source here changes: recompiling against 9.1 binds the new constructor.
+
+Found on the package path, where CI and every consumer live. It is invisible on a dev box that builds
+DIR.Lib from the sibling checkout, which is why it shipped: a sibling that pins `9.0.*` and a consumer
+that moves to `9.1.*` unify silently on 9.1, and only the runtime notices. The lesson is DIR.Lib's to
+carry (a record a sibling constructs gains a parameter through an explicit old-arity constructor, or
+through a major); this entry is the half a consumer can act on.
+
 ## 4.33
 
 Rebuilt against **DIR.Lib 9.0** (from 8.20).
