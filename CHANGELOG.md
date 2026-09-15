@@ -10,6 +10,24 @@ Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); th
 changed and why.
 
 
+## 4.35
+
+Rebuilt against **DIR.Lib 9.2** (from 9.1), the wave that gave the engine the router, the slider and the
+popover. Nothing in 9.2 is a source break for this library and no cell code changed to accommodate it, so
+the rebuild is mostly hygiene. One thing is not.
+
+**The caret family grew a horizontal pair, and a cell glyph is the other half of adding one.**
+`IconKind.CaretLeft` and `CaretRight` are new in 9.2, drawn there as filled triangles for the pixel
+surface; this release spells them `◀` and `▶`, from the same block as the vertical pair so all
+four share a weight. Without them both kinds fall back to the placeholder in every terminal.
+
+Worth stating plainly, because it is the running cost of the one-node-two-drawings design: **adding an
+`IconKind` upstream is a two-repo change**, and this is the half that is easy to forget, since DIR.Lib's
+own tests pass without it. What catches it is
+`CellLayoutIconTests.EveryIconKindHasAGlyph_SoNoneFallsBackToThePlaceholder`, which enumerates the enum
+rather than listing the kinds it already knows, so a kind added upstream fails it the moment the pin
+moves. That is how these two were found, before 9.2 shipped rather than after.
+
 ## 4.34
 
 Rebuilt against **DIR.Lib 9.1** (from 9.0), and this time the rebuild is the fix, not the hygiene.
