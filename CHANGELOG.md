@@ -10,6 +10,19 @@ Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); th
 changed and why.
 
 
+## 4.37
+
+**Rebuilt against DIR.Lib 9.4.** Three additions to `Layout.Node.Wrap`, all of which a cell surface
+gets for free because the wrap engine is shared: `FirstLineReserve` (only the FIRST line stops short,
+so a run flows UNDER a floated corner instead of beside it on every line the way a `Dock` would),
+`LeadingGap` on a child (group separation that is suppressed when the child starts a line, where a
+spacer node between groups would indent the wrapped row), and `MaxLines` (past the cap the tail is
+DROPPED rather than clipped -- a clipped child still registers its region and keeps taking the clicks
+aimed at whatever covers it).
+
+Nothing in Console.Lib calls them yet. This is a currency rebuild, so the declared dependency range
+moves and nothing else does.
+
 ## 4.36
 
 **Rebuilt against DIR.Lib 9.3**, which adds `Layout.Builder.Dropdown` and `PopoverState.ContentKeys`.
