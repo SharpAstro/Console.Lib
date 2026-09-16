@@ -10,6 +10,18 @@ Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); th
 changed and why.
 
 
+## 4.36
+
+**Rebuilt against DIR.Lib 9.3**, which adds `Layout.Builder.Dropdown` and `PopoverState.ContentKeys`.
+Nothing here changes: the rebuild exists because a consuming surface has to be compiled against the same
+engine the rest of the chain is, and 9.1 is the reason that is mandatory rather than a nicety -- an
+optional parameter added to a record's primary constructor is source-compatible and a BINARY break, so a
+Console.Lib built against 9.0 threw `MissingMethodException` on every terminal hit test against the
+published 9.1.
+
+The cell surface gains nothing automatically. `ScrollableList<T>` is still a second implementation of
+`ListCursor` + `ListScrollController`, and rebasing it on those two is C1, still outstanding.
+
 ## 4.35
 
 Rebuilt against **DIR.Lib 9.2** (from 9.1), the wave that gave the engine the router, the slider and the
