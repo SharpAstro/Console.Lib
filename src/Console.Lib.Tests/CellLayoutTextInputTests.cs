@@ -1,4 +1,4 @@
-using System.Collections.Immutable;
+﻿using System.Collections.Immutable;
 using DIR.Lib;
 using Shouldly;
 using Xunit;
@@ -26,6 +26,20 @@ namespace Console.Lib.Tests;
 /// </summary>
 public class CellLayoutTextInputTests
 {
+    /// <summary>
+    /// The window's one focus owner. DIR.Lib 10.0 made <c>TextInputState.Activate</c> internal, so "this
+    /// field has the keyboard" is said the way a host says it -- and one owner per test class rather than
+    /// one per call, because two owners is the bug the type exists to prevent and a test should not model
+    /// the shape it is meant to rule out.
+    /// </summary>
+    private readonly TextInputFocus _focus = new();
+
+    private TextInputState Focused(TextInputState state)
+    {
+        _focus.Focus(state);
+        return state;
+    }
+
     /// <summary>
     /// Paints into a real <see cref="CellBuffer"/> (so per-cell pens are assertable) AND records the caret
     /// requests, which are the field's other output and go nowhere near the cell grid.
@@ -96,7 +110,7 @@ public class CellLayoutTextInputTests
     public void AFocusedEmptyField_ShowsNoPlaceholder()
     {
         var state = new TextInputState { Placeholder = "Lat" };
-        state.Activate();
+        Focused(state);
 
         var (buffer, viewport) = Paint(state, width: 8);
 
@@ -120,7 +134,7 @@ public class CellLayoutTextInputTests
     public void AFocusedField_PutsTheTerminalCaretAtTheCursor()
     {
         var state = new TextInputState { Text = "abcdef" };
-        state.Activate();
+        Focused(state);
         state.CursorPos = 2;
 
         var (_, viewport) = Paint(state, width: 12);
@@ -145,7 +159,7 @@ public class CellLayoutTextInputTests
     public void ACaretAtTheEndOfAFullField_GetsItsOwnCell()
     {
         var state = new TextInputState { Text = "0123456789" };   // exactly the field width
-        state.Activate();
+        Focused(state);
         state.CursorPos = state.Text.Length;
 
         var (buffer, viewport) = Paint(state, width: 10);
@@ -165,7 +179,7 @@ public class CellLayoutTextInputTests
     public void AnOverlongValue_ScrollsToTheCaretInsteadOfEllipsizing()
     {
         var state = new TextInputState { Text = "0123456789ABCDEF" };
-        state.Activate();
+        Focused(state);
         state.CursorPos = state.Text.Length;
 
         var (buffer, viewport) = Paint(state, width: 10);
@@ -184,7 +198,7 @@ public class CellLayoutTextInputTests
     public void MovingTheCaretBack_ScrollsTheWindowBackToTheHead()
     {
         var state = new TextInputState { Text = "0123456789ABCDEF" };
-        state.Activate();
+        Focused(state);
         state.CursorPos = 0;
 
         var (buffer, viewport) = Paint(state, width: 10);
@@ -204,7 +218,7 @@ public class CellLayoutTextInputTests
     public void FocusIsVisibleWithoutABorder_ThroughTheBackgroundAlone()
     {
         var focused = new TextInputState { Text = "abc" };
-        focused.Activate();
+        Focused(focused);
 
         var (idleBuffer, _) = Paint(new TextInputState { Text = "abc" }, width: 8);
         var (focusedBuffer, _) = Paint(focused, width: 8);
@@ -230,7 +244,7 @@ public class CellLayoutTextInputTests
     public void ASelection_RestatesTheBackgroundOfExactlyTheSelectedCells()
     {
         var state = new TextInputState { Text = "abcdef" };
-        state.Activate();
+        Focused(state);
         state.SelectionAnchor = 1;
         state.CursorPos = 4;
 
@@ -288,7 +302,7 @@ public class CellLayoutTextInputTests
     {
         var idle = new TextInputState { Text = "idle" };
         var busy = new TextInputState { Text = "busy" };
-        busy.Activate();
+        Focused(busy);
 
         var tree = Layout.Builder.VStack(
             Layout.Builder.TextInput(idle, 1f).RowH(1).WStar(),
