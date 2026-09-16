@@ -373,7 +373,12 @@ public static class CellLayout
     /// </summary>
     private static HitResult? HitOf(Layout.Node node) =>
         node is Layout.Node.Leaf { Content: Layout.Content.TextInput field }
-            ? new HitResult.TextInputHit(field.State)
+            // No painted geometry, and that is a statement rather than an omission: the geometry exists so
+            // a press can be resolved to a CHARACTER, and this surface does not do that -- a terminal
+            // reports a cell, and the caret is moved with the arrows. DIR.Lib 10.0 made the parameter
+            // required for exactly this reason; a default read as "geometry optional" while silently
+            // putting every caret at the start of the field. Wire CaretIndexAt here before filling it in.
+            ? new HitResult.TextInputHit(field.State, default)
             : node.Hit;
 
     /// <summary>
