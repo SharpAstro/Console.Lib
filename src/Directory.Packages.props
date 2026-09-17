@@ -13,7 +13,7 @@
          before it (as 7.28 was the floor for Layout.Content.TextInput). Anything older fails to
          compile here rather than merely missing a feature — so this pin can never move ahead of a
          PUBLISHED DIR.Lib, and bumping it is the second half of a release, never the first. -->
-    <PackageVersion Include="DIR.Lib" Version="9.4.*" />
+    <PackageVersion Include="DIR.Lib" Version="10.0.*" />
     <!-- Console.Lib.Inspector's own two: the MCP sidecar references nothing from the library, but
          its pins belong here anyway so a sweep of this file sees the whole repo. -->
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
