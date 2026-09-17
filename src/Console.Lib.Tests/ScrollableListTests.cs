@@ -10,6 +10,13 @@ namespace Console.Lib.Tests;
 /// The mouse-drag and scrollbar paths are covered by the wider integration
 /// tests; these focus on the cursor model added alongside the original
 /// scroll-only API.
+/// <para>
+/// That model is DIR.Lib's since Console.Lib 5.0 -- a <see cref="ListCursor"/> and a
+/// <see cref="ListScrollController"/> rather than a private index and a private clamp beside them. Every
+/// test below predates the rebase and passed through it unchanged, which is the evidence that mattered:
+/// the behaviour was already the engine's, written twice. The two at the end are new, and they are the
+/// ones that would catch it drifting apart again.
+/// </para>
 /// </summary>
 public sealed class ScrollableListTests
 {
@@ -590,4 +597,57 @@ public sealed class ScrollableListTests
         list.HitTestRow(1, (int)(3 * cell.Height) + 1).ShouldBeNull("left of the viewport");
     }
 
+    // ---- one list model ------------------------------------------------------------------
+
+    /// <summary>
+    /// The arrows go where <see cref="ListCursor.Step"/> says, over the same window of rows -- because
+    /// they ARE that call now. Driven side by side rather than asserted on a literal, so this fails if
+    /// either the list stops delegating or the engine's walk changes under it, which is the pair of
+    /// events a hand-written second copy could never report.
+    /// </summary>
+    [Theory]
+    [InlineData(0, +1)]
+    [InlineData(0, +20)]
+    [InlineData(30, -1)]
+    [InlineData(30, -20)]
+    [InlineData(49, +1)]
+    public void TheArrowWalkIsTheEngines(int from, int delta)
+    {
+        var list = NewList(50);
+        list.MoveTo(from);
+
+        // The same cursor state, over the same painted window, stepped by the engine alone.
+        var reference = new ListCursor();
+        reference.Open(ScrollableList<Row>.CursorListId, list.CursorIndex, 50);
+        var painted = new List<ListCursor.PaintedRow>();
+        for (var i = list.ScrollOffset; i < Math.Min(50, list.ScrollOffset + list.VisibleRows); i++)
+        {
+            painted.Add(new ListCursor.PaintedRow(i));
+        }
+
+        var listMoved = list.MoveCursor(delta);
+        var referenceMoved = reference.Step(delta, painted);
+
+        listMoved.ShouldBe(referenceMoved);
+        list.CursorIndex.ShouldBe(reference.Index);
+    }
+
+    /// <summary>
+    /// A step onto a row below the fold scrolls it into view by itself. The list hangs that off
+    /// <see cref="ListCursor.Moved"/> once, rather than remembering to call EnsureVisible after each of
+    /// the four things that move the cursor -- and the one that forgot would park the highlight off
+    /// screen, which is invisible until someone presses Down at the bottom of a list.
+    /// </summary>
+    [Fact]
+    public void AStepPastTheFoldBringsItsRowIntoViewWithNoSecondCall()
+    {
+        var list = NewList(50);
+        list.MoveTo(list.VisibleRows - 1);
+        list.ScrollOffset.ShouldBe(0, "the last visible row needs no scrolling to reach");
+
+        list.MoveCursor(+1).ShouldBeTrue();
+
+        list.CursorIndex.ShouldBe(list.VisibleRows);
+        list.ScrollOffset.ShouldBe(1, "minimally -- one row, not a jump to a computed centre");
+    }
 }

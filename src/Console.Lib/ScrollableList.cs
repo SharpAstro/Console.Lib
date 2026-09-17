@@ -1,4 +1,5 @@
-﻿using System.Collections.Immutable;
+﻿using System.Collections.Generic;
+using System.Collections.Immutable;
 using DIR.Lib;
 
 namespace Console.Lib;
@@ -14,8 +15,24 @@ namespace Console.Lib;
 /// track/thumb and moves the cursor; <see cref="DispatchRowHit"/> resolves a click against the
 /// arranged row trees for inline buttons.
 /// </summary>
-public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport) where TItem : IRowLayout
+public class ScrollableList<TItem> : Widget where TItem : IRowLayout
 {
+    /// <summary>
+    /// The list the cursor is opened in. One id per instance rather than per consumer: a
+    /// <see cref="ListCursor"/> is in exactly one list, this widget IS that list, and nothing outside
+    /// resolves a hit against the name.
+    /// </summary>
+    public const string CursorListId = "ScrollableList";
+
+    public ScrollableList(ITerminalViewport viewport) : base(viewport)
+    {
+        // Stated once instead of at every mover. A step that lands on a row the window does not show has
+        // to bring it into view, and the cursor is the only thing that knows the step happened -- which
+        // is what ListCursor.Moved exists for. Four call sites used to remember to call EnsureVisible
+        // afterwards, and the one that forgot would have parked the highlight off screen.
+        _cursor.Moved += index => _scroll.EnsureVisible(index);
+    }
+
     // Every visible row's arranged tree, concatenated, in VIEWPORT-RELATIVE cell coordinates -- which is
     // what makes DispatchRowHit correct by construction rather than by parallel arithmetic. Each row was
     // arranged at the row it was actually painted on, so the header offset and the scroll offset are
@@ -29,8 +46,36 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     protected virtual CellMeasureContext MeasureContext => CellMeasureContext.CellAuthored;
 
     private IReadOnlyList<TItem> _items = [];
-    private int _scrollOffset;
-    private int _cursor;                // -1 when the list is empty; index into _items otherwise.
+
+    /// <summary>
+    /// Where the keyboard is, and the arrow walk that moves it -- DIR.Lib's, so a list steps the same way
+    /// here as on a GPU surface. This class used to carry its own index and its own clamping walk beside
+    /// the engine's, which is two answers to "where does Down go" with nothing comparing them.
+    /// </summary>
+    private readonly ListCursor _cursor = new();
+
+    /// <summary>
+    /// The scroll position, also DIR.Lib's. A cell is the atom, so <c>atomExtentPx</c> is 1 and
+    /// <see cref="ListScrollController.AtomOffset"/> IS the index of the first visible item -- the same
+    /// number the hand-written offset held, with the clamp and the minimal ensure-visible coming from the
+    /// engine rather than from a second copy of each.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ScrollBarMode.None"/> because the bar is drawn HERE, in box-drawing characters against
+    /// a cell grid, which the controller's pixel-rect painter cannot express. What is shared is the model
+    /// the bar reports, not the drawing.
+    /// </remarks>
+    private readonly ListScrollController _scroll = new()
+    {
+        SnapToAtom = true,
+        Mode = ScrollBarMode.None,
+    };
+
+    // Scratch for the cursor walk: the window of rows this list shows, rebuilt per move. Held by Step for
+    // the duration of the walk, so nothing reached from ListCursor.Moved may rebuild it -- today that is
+    // EnsureVisible alone, which moves the offset and touches no rows.
+    private readonly List<ListCursor.PaintedRow> _paintedRows = [];
+
     private int _columns = 1;           // Sub-cells per row. 1 = legacy single-column behavior.
     private int _columnIndex;           // Cursor column in [0, _columns).
     private string _header = "";
@@ -48,7 +93,7 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     public int VisibleRows => Math.Max(0, Viewport.Size.Height - HeaderRows);
 
     /// <summary>Current scroll offset (index of the first visible item).</summary>
-    public int ScrollOffset => _scrollOffset;
+    public int ScrollOffset => _scroll.AtomOffset;
 
     /// <summary>Total item count (read-only snapshot).</summary>
     public int ItemCount => _items.Count;
@@ -58,13 +103,13 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     /// is always within <c>[0, ItemCount)</c> when there is at least one item;
     /// changing <see cref="Items"/> clamps it. Mirrors <see cref="TreeView{T}.CursorIndex"/>.
     /// </summary>
-    public int CursorIndex => _items.Count == 0 ? -1 : _cursor;
+    public int CursorIndex => _items.Count == 0 ? -1 : _cursor.Index;
 
     /// <summary>
     /// Currently-selected item, or <c>default</c> when the list is empty.
     /// </summary>
-    public TItem? Selected => _items.Count > 0 && _cursor >= 0 && _cursor < _items.Count
-        ? _items[_cursor]
+    public TItem? Selected => _items.Count > 0 && _cursor.Index >= 0 && _cursor.Index < _items.Count
+        ? _items[_cursor.Index]
         : default;
 
     /// <summary>
@@ -85,18 +130,27 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     public ScrollableList<TItem> Items(IReadOnlyList<TItem> items)
     {
         _items = items;
-        if (_cursor >= _items.Count) _cursor = Math.Max(0, _items.Count - 1);
-        if (_cursor < 0) _cursor = 0;
-        ClampOffset();
+        // Re-opened rather than nudged: Open states the row COUNT with the index, and the count is what
+        // lets the walk step past the window this list shows -- a cursor that cannot reach row 20 of a
+        // list showing 5 stops dead at the bottom and the list is mouse-only from there.
+        _cursor.Open(CursorListId, ClampCursor(_cursor.Index, items.Count), items.Count);
+        SyncExtent();
         return this;
     }
 
     public ScrollableList<TItem> ScrollTo(int offset)
     {
-        _scrollOffset = offset;
-        ClampOffset();
+        SyncExtent();               // AtomOffset clamps against the CURRENT geometry, so state it first
+        _scroll.AtomOffset = offset;
         return this;
     }
+
+    /// <summary>
+    /// Where the cursor sits in a list of <paramref name="count"/>: -1 for an empty one, and otherwise
+    /// inside its bounds, with a cursor that was nowhere landing on the first row.
+    /// </summary>
+    private static int ClampCursor(int index, int count)
+        => count == 0 ? -1 : Math.Clamp(index < 0 ? 0 : index, 0, count - 1);
 
     /// <summary>
     /// Set the number of selectable sub-cells per row. Default is <c>1</c>.
@@ -131,13 +185,17 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     public bool MoveCursor(int rowDelta, int colDelta)
     {
         if (_items.Count == 0) return false;
-        var nextRow = Math.Clamp(_cursor + rowDelta, 0, _items.Count - 1);
+
+        // The row axis is the engine's walk; the column is this widget's, there being no column in the
+        // shared model. Both are attempted, and either moving counts -- a diagonal step that can only go
+        // one way should still go that way.
+        var movedRow = _cursor.Step(rowDelta, PaintedRows());
+
         var nextCol = Math.Clamp(_columnIndex + colDelta, 0, _columns - 1);
-        if (nextRow == _cursor && nextCol == _columnIndex) return false;
-        _cursor = nextRow;
+        var movedCol = nextCol != _columnIndex;
         _columnIndex = nextCol;
-        EnsureCursorVisible();
-        return true;
+
+        return movedRow || movedCol;
     }
 
     /// <summary>
@@ -163,9 +221,8 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     {
         if (_items.Count == 0) return false;
         idx = Math.Clamp(idx, 0, _items.Count - 1);
-        if (idx == _cursor) return false;
-        _cursor = idx;
-        EnsureCursorVisible();
+        if (idx == _cursor.Index) return false;
+        _cursor.MoveTo(idx);        // raises Moved, which is what brings the row into view
         return true;
     }
 
@@ -190,12 +247,28 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
         _                     => false,
     };
 
-    private void EnsureCursorVisible()
+    /// <summary>
+    /// The window of rows this list shows, which is the evidence the cursor walk resolves against -- the
+    /// cell-surface answer to what a pixel widget reads off its registered regions.
+    /// </summary>
+    /// <remarks>
+    /// Derived from the CURRENT offset rather than from what the last <see cref="Render"/> drew, so a list
+    /// that has never been painted is still navigable: a consumer wiring up its keys before its first
+    /// frame would otherwise find the arrows dead, which is not a rule anybody asked for. At least one row
+    /// of evidence even in a viewport with no room, for the same reason -- a list with nowhere to draw
+    /// still has a selection, and the caller sees it through <see cref="CursorIndex"/>.
+    /// </remarks>
+    private IReadOnlyList<ListCursor.PaintedRow> PaintedRows()
     {
-        if (_cursor < 0 || VisibleRows <= 0) return;
-        if (_cursor < _scrollOffset) _scrollOffset = _cursor;
-        else if (_cursor >= _scrollOffset + VisibleRows) _scrollOffset = _cursor - VisibleRows + 1;
-        ClampOffset();
+        _paintedRows.Clear();
+        var first = _scroll.AtomOffset;
+        var last = Math.Min(_items.Count, first + Math.Max(1, VisibleRows));
+        for (var i = first; i < last; i++)
+        {
+            _paintedRows.Add(new ListCursor.PaintedRow(i));
+        }
+
+        return _paintedRows;
     }
 
     /// <summary>
@@ -206,10 +279,9 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     /// </summary>
     public ScrollableList<TItem> EnsureVisible(int itemIndex)
     {
-        if (itemIndex < 0 || itemIndex >= _items.Count || VisibleRows <= 0) return this;
-        if (itemIndex < _scrollOffset) _scrollOffset = itemIndex;
-        else if (itemIndex >= _scrollOffset + VisibleRows) _scrollOffset = itemIndex - VisibleRows + 1;
-        ClampOffset();
+        if (VisibleRows <= 0) return this;
+        SyncExtent();
+        _scroll.EnsureVisible(itemIndex);
         return this;
     }
 
@@ -243,10 +315,10 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
     public bool HandleWheel(int delta)
     {
         if (!HasScrollBar) return false;
-        var before = _scrollOffset;
-        _scrollOffset -= delta;
-        ClampOffset();
-        return _scrollOffset != before;
+        SyncExtent();
+        var before = _scroll.AtomOffset;
+        _scroll.AtomOffset = before - delta;
+        return _scroll.AtomOffset != before;
     }
 
     /// <summary>
@@ -302,8 +374,8 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
             var thumbTopAtStart = (int)((long)_dragStartOffset * trackUsable / maxOffset);
             var grip = _dragStartRow - thumbTopAtStart;
             var newThumbTop = Math.Clamp(dataRow - grip, 0, trackUsable);
-            _scrollOffset = (int)Math.Round((double)newThumbTop * maxOffset / trackUsable);
-            ClampOffset();
+            SyncExtent();
+            _scroll.AtomOffset = (int)Math.Round((double)newThumbTop * maxOffset / trackUsable);
             return true;
         }
 
@@ -321,16 +393,15 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
             // sub-column via even-split of the content area.
             if (mouse.IsMotion) return false;
             if (row < HeaderRows) return false;
-            var clickedIdx = _scrollOffset + (row - HeaderRows);
+            var clickedIdx = _scroll.AtomOffset + (row - HeaderRows);
             if (clickedIdx < 0 || clickedIdx >= _items.Count) return false;
             var contentWidth = HasScrollBar ? Viewport.Size.Width - 1 : Viewport.Size.Width;
             var newCol = _columns > 1 && contentWidth > 0
                 ? Math.Clamp(col * _columns / contentWidth, 0, _columns - 1)
                 : 0;
-            if (clickedIdx == _cursor && newCol == _columnIndex) return false;
-            _cursor = clickedIdx;
+            if (clickedIdx == _cursor.Index && newCol == _columnIndex) return false;
+            _cursor.MoveTo(clickedIdx);
             _columnIndex = newCol;
-            EnsureCursorVisible();
             return true;
         }
 
@@ -347,19 +418,19 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
             // On the thumb → start drag.
             _isDragging = true;
             _dragStartRow = clickDataRow;
-            _dragStartOffset = _scrollOffset;
+            _dragStartOffset = _scroll.AtomOffset;
         }
         else if (clickDataRow < thumbTop)
         {
             // Track above the thumb → page up.
-            _scrollOffset -= VisibleRows;
-            ClampOffset();
+            SyncExtent();
+            _scroll.AtomOffset -= VisibleRows;
         }
         else
         {
             // Track below the thumb → page down.
-            _scrollOffset += VisibleRows;
-            ClampOffset();
+            SyncExtent();
+            _scroll.AtomOffset += VisibleRows;
         }
         return true;
     }
@@ -373,6 +444,7 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
             return;
         }
 
+        SyncExtent();
         var colorMode = Viewport.ColorMode;
         var contentWidth = HasScrollBar ? width - 1 : width;
         var (thumbTop, thumbHeight) = HasScrollBar ? ComputeThumb() : (0, 0);
@@ -390,13 +462,13 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
         for (; row < height; row++)
         {
             var dataRow = row - HeaderRows;
-            var itemIdx = _scrollOffset + dataRow;
+            var itemIdx = _scroll.AtomOffset + dataRow;
             if (itemIdx >= 0 && itemIdx < _items.Count)
             {
                 // Arranged at the row it is painted on, at the width it is painted at, and then KEPT --
                 // so the region a click resolves against is the very rect that was drawn. CellLayout
                 // positions its own writes, hence no TrySetCursorPosition on this branch.
-                var sel = itemIdx == _cursor;
+                var sel = itemIdx == _cursor.Index;
                 var context = new RowContext(sel, sel ? _columnIndex : -1, _columns);
                 var arranged = Layout.Engine.Arrange(
                     _items[itemIdx].BuildRow(context),
@@ -487,7 +559,7 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
             return null;
         }
 
-        var itemIndex = _scrollOffset + (row - HeaderRows);
+        var itemIndex = _scroll.AtomOffset + (row - HeaderRows);
         return itemIndex >= 0 && itemIndex < _items.Count
             ? (itemIndex, _items[itemIndex], column, contentColumns)
             : null;
@@ -503,14 +575,26 @@ public class ScrollableList<TItem>(ITerminalViewport viewport) : Widget(viewport
         var thumbH = Math.Max(1, VisibleRows * VisibleRows / total);
         var maxOffset = total - VisibleRows;
         var trackUsable = VisibleRows - thumbH;
-        var thumbTop = maxOffset > 0 ? trackUsable * _scrollOffset / maxOffset : 0;
+        var thumbTop = maxOffset > 0 ? trackUsable * _scroll.AtomOffset / maxOffset : 0;
         return (thumbTop, thumbH);
     }
 
-    private void ClampOffset()
+    /// <summary>
+    /// States this frame's geometry on the scroll model: a cell is the atom, so the atom extent is 1 and
+    /// the viewport is the data area in cells. Re-clamps the offset and raises nothing, which is what
+    /// lets it be called from every mutator rather than only from the paint.
+    /// </summary>
+    /// <remarks>
+    /// This is what the hand-written <c>ClampOffset</c> was, with the difference that the geometry is now
+    /// STATED rather than recomputed at each reader -- <see cref="ListScrollController.MaxOffset"/>,
+    /// <see cref="ListScrollController.EnsureVisible"/> and the clamp all read the one extent, so they
+    /// cannot disagree about how many rows fit.
+    /// </remarks>
+    private void SyncExtent()
     {
-        var max = Math.Max(0, _items.Count - VisibleRows);
-        if (_scrollOffset < 0) _scrollOffset = 0;
-        else if (_scrollOffset > max) _scrollOffset = max;
+        var rows = VisibleRows;
+        var width = Math.Max(1, HasScrollBar ? Viewport.Size.Width - 1 : Viewport.Size.Width);
+        _scroll.SetExtent(new RectF32(0f, HeaderRows, width, Math.Max(1, rows)), 1f, _items.Count,
+            DesignScale.One);
     }
 }

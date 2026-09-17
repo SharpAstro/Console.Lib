@@ -1,5 +1,30 @@
 # Migration notes
 
+## 5.0 — nothing to migrate here; the migration is DIR.Lib 10.0's
+
+**There is no Console.Lib break.** Nothing was removed or renamed, `ScrollableList<T>` keeps every
+member it had, and every one of its existing tests passed through the release untouched. The major is a
+signal rather than a barrier: `ScrollableList<T>`'s navigation and scrolling are a different
+implementation underneath (DIR.Lib's `ListCursor` + `ListScrollController` rather than this library's
+own index and clamp), and that is worth a number even though it is not worth a code change. Note that
+a DIR.Lib major does NOT by itself major this library — 9.0 was one, and Console.Lib went 4.32 to 4.33
+across it.
+
+**What you do have to migrate is DIR.Lib's**, in [its MIGRATION.md](../DIR.Lib/MIGRATION.md) under
+"10.0 the cuts". The two entries that reach a Console.Lib consumer:
+
+- `TextInputState.Activate` / `Deactivate` and the `IsActive` setter are internal. A host focuses a
+  field through `TextInputFocus`, which is at `WindowUiSettings.Focus`.
+- `HitResult.TextInputHit` takes both arguments. A cell surface registering one itself passes
+  `default` for the geometry, which is what `CellLayout` does and what it means: presses here resolve
+  to a cell, not to a character.
+
+One addition worth knowing about rather than migrating to: `ScrollableList<T>` now navigates and
+scrolls through `ListCursor` + `ListScrollController` rather than its own index and clamp, so the
+arrows behave identically on a terminal and on a GPU surface. Behaviour is unchanged — every existing
+cursor test passed through the rebase untouched — and `ScrollableList<T>.CursorListId` is the list id
+the cursor is opened in, for a consumer that wants to read it.
+
 ## 4.13 — `ICellSink` gains `SetLink`
 
 Only implementors of `ICellSink` are affected. Everything else — rows, nodes, widgets, hosts — is

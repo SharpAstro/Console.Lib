@@ -10,6 +10,37 @@ Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); th
 changed and why.
 
 
+## 5.0
+
+**Rebuilt against DIR.Lib 10.0, and one list model instead of two.**
+
+**The major is not the dependency's**, and it is worth saying so because the reflex is wrong here:
+DIR.Lib 9.0 was a major too and this library went 4.32 to 4.33 across it, as SdlVulkan.Renderer went
+7.x to 7.x. A rebuild is a minor. It is a decision taken for the 10.0 chain: `ScrollableList<T>` is
+the most-used widget in this library and its navigation and scrolling are a different implementation
+underneath, so the number says "the model moved" even though the API did not. Nothing here was removed
+or renamed, and every existing test passed through untouched.
+
+- **`ScrollableList<T>` is a `ListCursor` and a `ListScrollController`**, where it used to hold its own
+  index, its own clamp and its own ensure-visible beside the engine's. It shared the tree and the hit
+  test with a pixel list already; navigation and scrolling were the halves written twice, and "the same
+  list steps differently under the arrows depending which surface it is on" is a difference nothing
+  would have reported. Every one of the 36 existing cursor tests passed through the rebase unchanged,
+  which is the evidence that the behaviour was already the engine's.
+  - The walk is `ListCursor.Step`, handed the window of rows the list shows -- the cell-surface answer
+    to what a pixel widget reads off its registered regions. So a step onto a row below the fold, a gap
+    in the indices, and the stop at either end all behave the same on both surfaces by construction.
+  - Scrolling into view hangs off `ListCursor.Moved` once, rather than being remembered at each of the
+    four places that move the cursor.
+  - The scrollbar is still drawn HERE, in box-drawing characters: the controller's painter works in
+    pixel rects, which a cell grid cannot express. What is shared is the model the bar reports.
+  - New: `ScrollableList<T>.CursorListId`, the list id the cursor is opened in.
+- **`CellLayout` states its (absent) painted geometry** on the `TextInputHit` it registers.
+  `HitResult.TextInputHit.Painted` is required in 10.0, and `default` now SAYS that this surface does
+  not resolve a press to a character -- a terminal reports a cell, and the caret moves with the arrows.
+- **A field is focused through `TextInputFocus`**, `TextInputState.Activate` and the `IsActive` setter
+  having become internal. No production code here did either; the paint tests say it the way a host does.
+
 ## 4.37
 
 **Rebuilt against DIR.Lib 9.4.** Three additions to `Layout.Node.Wrap`, all of which a cell surface
