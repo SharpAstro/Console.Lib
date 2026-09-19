@@ -10,6 +10,18 @@ Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); th
 changed and why.
 
 
+## 5.1
+
+**Rebuilt against DIR.Lib 10.2**, which is additive: popover triggers and groups (`Node.Opens`,
+`PopoverGroup`), presses declared on a tab item (`TabItem.OnPress`, `OnClose`, `TabBar.OnNewTab`), and
+layout scroll containers (a `.WithScroll` stack now tells its controller the extent and slides its rows).
+Nothing in this library changed and all 527 tests pass as they were; the minor keeps the chain in step,
+so a consumer taking 5.1 gets the DIR.Lib this was built and tested against. Two router behaviours move
+with it for every host, and neither needs anything here: a press whose own handler focuses a field no
+longer has that focus blurred by the same press, and a declared dropdown longer than its `maxHeight`
+scrolls instead of overflowing with its hidden rows still taking presses.
+
+
 ## 5.0
 
 **Rebuilt against DIR.Lib 10.0, and one list model instead of two.**
