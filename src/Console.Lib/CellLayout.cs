@@ -65,6 +65,23 @@ public static class CellLayout
     /// <summary>Paints the arranged tree to <paramref name="viewport"/> in cell coordinates (0-based within the viewport).</summary>
     public static void Paint(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
         Action<Layout.Content.Fill, Rect<int>>? drawFill = null)
+        => Paint(viewport, arranged, drawFill, reverse: false);
+
+    /// <summary>
+    /// Paints the arranged tree, in reverse video when <paramref name="reverse"/> is set: every text run and
+    /// every fill carries the attribute after its pen, since each run ends in a reset that would clear an
+    /// attribute stated once for the tree.
+    /// </summary>
+    /// <remarks>
+    /// Reverse video is the terminal's own emphasis and needs no colour, which is what makes it the selection
+    /// under <see cref="ColorMode.None"/>: a list's cursor row states itself through its pens, and with the pens
+    /// suppressed a selected row is indistinguishable from the rest (the TianWen planner, 2026-09-19). The
+    /// attribute survives <see cref="ColorMode.None"/> because it is not a colour: the cell buffer models it
+    /// apart from the pen and the flush states it in every mode. A separate overload, not an optional
+    /// parameter, so a caller compiled against the three-parameter form still binds.
+    /// </remarks>
+    public static void Paint(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
+        Action<Layout.Content.Fill, Rect<int>>? drawFill, bool reverse)
     {
         var mode = viewport.ColorMode;
 
@@ -120,7 +137,7 @@ public static class CellLayout
 
             if (node.Background is { } bg)
             {
-                FillCells(viewport, rect, bg, mode, under, rounded);
+                FillCells(viewport, rect, bg, mode, under, rounded, reverse);
                 backgrounds.Push((arrangedNode.Depth, bg));
                 under = bg;
             }
@@ -133,13 +150,13 @@ public static class CellLayout
             switch (leaf.Content)
             {
                 case Layout.Content.Text text:
-                    DrawText(viewport, rect, text, mode, under, links.Count > 0 ? links.Peek().Url : null);
+                    DrawText(viewport, rect, text, mode, under, links.Count > 0 ? links.Peek().Url : null, reverse);
                     break;
                 case Layout.Content.Box box when box.Color.Alpha > 0:
-                    FillCells(viewport, rect, box.Color, mode, under, rounded);
+                    FillCells(viewport, rect, box.Color, mode, under, rounded, reverse);
                     break;
                 case Layout.Content.Icon icon:
-                    DrawText(viewport, rect, IconGlyph(icon), mode, under, null);
+                    DrawText(viewport, rect, IconGlyph(icon), mode, under, null, reverse);
                     break;
                 case Layout.Content.TextInput field:
                     DrawTextInput(viewport, rect, field, mode, under, rounded);
@@ -472,7 +489,7 @@ public static class CellLayout
     /// quadrant it omits has to show the enclosing colour, and a terminal cell cannot composite, so that
     /// colour must be stated rather than left to whatever the terminal currently has.</param>
     private static void FillCells(ITerminalViewport viewport, Rect<int> rect, RGBAColor32 color, ColorMode mode,
-        RGBAColor32 under, bool rounded = false)
+        RGBAColor32 under, bool rounded = false, bool reverse = false)
     {
         var (vw, vh) = viewport.Size;
         var x = Math.Max(0, rect.X);
@@ -482,7 +499,7 @@ public static class CellLayout
             return;
         }
 
-        var esc = new VtStyle(color, color).Apply(mode);
+        var esc = new VtStyle(color, color).Apply(mode) + (reverse ? VtStyle.ReverseOn : "");
         var spaces = new string(' ', width);
         var yEnd = Math.Min(rect.Bottom, vh);
         for (var row = Math.Max(0, rect.Y); row < yEnd; row++)
@@ -619,7 +636,7 @@ public static class CellLayout
     /// as part of the link draws a hyperlink stretching across gaps the reader cannot see any text in.
     /// </param>
     private static void DrawText(ITerminalViewport viewport, Rect<int> rect, Layout.Content.Text text, ColorMode mode,
-        RGBAColor32 under, string? link = null)
+        RGBAColor32 under, string? link = null, bool reverse = false)
     {
         var (vw, vh) = viewport.Size;
         if (rect.Width <= 0 || rect.Height <= 0)
@@ -668,6 +685,7 @@ public static class CellLayout
         var close = open.Length > 0 ? Osc8.Close : "";
 
         viewport.SetCursorPosition(startCol, row);
-        viewport.Write($"{open}{new VtStyle(text.Color, under).Apply(mode)}{s}{VtStyle.Reset}{close}");
+        var attribute = reverse ? VtStyle.ReverseOn : "";
+        viewport.Write($"{open}{new VtStyle(text.Color, under).Apply(mode)}{attribute}{s}{VtStyle.Reset}{close}");
     }
 }

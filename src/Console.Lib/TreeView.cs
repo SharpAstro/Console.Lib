@@ -459,7 +459,11 @@ public sealed class TreeView<TItem> : Widget where TItem : class, ITreeNode<TIte
         // Twirl glyph: ▶ collapsed, ▼ expanded, · leaf. Always followed by a space.
         var twirl = !item.HasChildren ? '·' : (_expanded.Contains(item) ? '▼' /*▼*/ : '▶' /*▶*/);
         var twirlStyle = isSelected ? _twirlSelStyle : _twirlStyle;
-        sb.Append(twirlStyle.Apply(mode)).Append(twirl).Append(' ').Append(VtStyle.Reset);
+
+        // Without colour the selected row is reverse video, from the twirl on, as ScrollableList's cursor row is.
+        var reverse = isSelected && mode == ColorMode.None;
+        sb.Append(twirlStyle.Apply(mode)).Append(reverse ? VtStyle.ReverseOn : "").Append(twirl).Append(' ')
+            .Append(VtStyle.Reset);
         Viewport.Write(sb.ToString());
 
         remaining -= 2;
@@ -470,7 +474,7 @@ public sealed class TreeView<TItem> : Widget where TItem : class, ITreeNode<TIte
             new Rect<int>(indent + 2, viewportRow, remaining, 1),
             MeasureContext);
 
-        CellLayout.Paint(Viewport, arranged);
+        CellLayout.Paint(Viewport, arranged, drawFill: null, reverse);
         rowTrees.AddRange(arranged);
     }
 
