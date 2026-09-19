@@ -10,6 +10,21 @@ Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); th
 changed and why.
 
 
+## 5.2
+
+**Without colour the selection is reverse video.** A list's cursor row states itself through its pens, and
+`ColorMode.None` (`NO_COLOR`, or output that is not a terminal) suppresses every pen, so a selected row
+looked exactly like the rest: in the TianWen planner a click appeared to select nothing (2026-09-19).
+`ScrollableList` now paints its cursor row, and `TreeView` its selected row from the twirl on, in reverse
+video when there is no colour. Reverse video is an attribute rather than a colour, so `NO_COLOR` leaves it
+alone; the cell buffer already modelled it apart from the pen and the flush already stated it in every
+mode. With colour nothing changes, and a coloured frame is byte-identical to 5.1's.
+
+Additive: `CellLayout.Paint(viewport, arranged, drawFill, reverse)` paints a tree in reverse video, every
+run and fill carrying the attribute after its pen. It is an overload rather than a new optional parameter,
+so a consumer compiled against 5.1's three-parameter form still binds.
+
+
 ## 5.1
 
 **Rebuilt against DIR.Lib 10.2**, which is additive: popover triggers and groups (`Node.Opens`,

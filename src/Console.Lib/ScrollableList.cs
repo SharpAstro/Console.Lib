@@ -475,7 +475,10 @@ public class ScrollableList<TItem> : Widget where TItem : IRowLayout
                     new Rect<int>(0, row, contentWidth, 1),
                     measureCtx);
 
-                CellLayout.Paint(Viewport, arranged);
+                // Without colour the row's pens say nothing, so the cursor row is reverse video instead: the
+                // terminal's own emphasis, and one NO_COLOR leaves alone. With colour the row states its own
+                // selection and is painted exactly as before.
+                CellLayout.Paint(Viewport, arranged, drawFill: null, reverse: sel && colorMode == ColorMode.None);
                 rowTrees.AddRange(arranged);
             }
             else
