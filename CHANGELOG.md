@@ -10,6 +10,13 @@ Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); th
 changed and why.
 
 
+## 5.4
+
+**On DIR.Lib 11.1, and its new tick has a glyph.** `IconKind.Check` spells U+2713 on a terminal: the
+plain check mark, not the heavy one and never the emoji, so it takes the cell's pen like every other
+mark. Without it the kind fell back to the `?` placeholder. DIR.Lib 11.1 is additive (declared button
+groups, checkboxes and double-clicks), so Console.Lib's own API is unchanged.
+
 ## 5.3
 
 **On DIR.Lib 11.0, and a terminal pointer move carries its modifiers.** The SGR mouse report states
