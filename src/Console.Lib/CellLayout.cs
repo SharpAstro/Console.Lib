@@ -241,6 +241,11 @@ public static class CellLayout
             // definition -- and the serifs are the load-bearing part: a bare stem at cell size is a
             // box-drawing separator, which is the one thing it must not be mistaken for.
             Layout.IconKind.IBeam => "⌶",
+            // Check (DIR.Lib 11.1) is the plain CHECK MARK, U+2713, not the heavy U+2714 and never the
+            // emoji U+2705: a terminal draws an emoji in its own colour, and the tick has to take the
+            // cell's pen like every other mark here. Dingbats is covered by the monospace faces a
+            // terminal ships with, which is this file's test for a glyph.
+            Layout.IconKind.Check => "✓",
             // A kind with no glyph yet shows as a visible placeholder rather than an empty cell, the cell
             // counterpart of the pixel painter drawing nothing for an unhandled kind.
             _ => "?",
