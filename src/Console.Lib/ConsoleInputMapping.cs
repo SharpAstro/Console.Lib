@@ -105,7 +105,9 @@ public static class ConsoleInputMapping
                     return mouse switch
                     {
                         { IsRelease: true } => new InputEvent.MouseUp(mouse.X, mouse.Y, button),
-                        { IsMotion: true } => new InputEvent.MouseMove(mouse.X, mouse.Y),
+                        // The terminal reports the held modifiers on motion as on a press (DIR.Lib 11.0's
+                        // MouseMove.Modifiers), so a hover can answer to a held key here too.
+                        { IsMotion: true } => new InputEvent.MouseMove(mouse.X, mouse.Y, MouseButton.None, modifiers),
                         _ => new InputEvent.MouseDown(mouse.X, mouse.Y, button, modifiers),
                     };
                 }
