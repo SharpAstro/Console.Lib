@@ -10,6 +10,16 @@ Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); th
 changed and why.
 
 
+## 5.3
+
+**On DIR.Lib 11.0, and a terminal pointer move carries its modifiers.** The SGR mouse report states
+the held modifiers on motion as on a press; they were dropped on the way into a `MouseMove`, which
+until DIR.Lib 11.0 had nowhere to put them. They now reach `MouseMove.Modifiers`, so a hover that
+answers to a held key works in a terminal as it does on the desktop. Console.Lib's own API is
+unchanged; the DIR.Lib pin moves from 10.2 to 11.0 (whose one break, the frame-counted caret, never
+reached a terminal: a terminal's caret is the terminal's).
+
+
 ## 5.2
 
 **Without colour the selection is reverse video.** A list's cursor row states itself through its pens, and
