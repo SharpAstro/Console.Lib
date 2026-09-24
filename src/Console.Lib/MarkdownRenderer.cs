@@ -343,12 +343,12 @@ public static partial class MarkdownRenderer
     public static int VisibleLength(string text)
     {
         var len = 0;
-        var inEscape = false;
-        foreach (var c in text)
+        var i = 0;
+        while (i < text.Length)
         {
-            if (c == '\e') { inEscape = true; continue; }
-            if (inEscape) { if (c == 'm') inEscape = false; continue; }
+            if (text[i] == '\e') { i += VtEscape.Length(text, i); continue; }
             len++;
+            i++;
         }
         return len;
     }

@@ -90,7 +90,7 @@ public static partial class MarkdownRenderer
                 RenderMdList(l, width, colorMode, theme, result, mathMode, mathFontPath, images, linkResolver, nestLevel: 0);
                 break;
             case MdTable t:
-                RenderMdTable(t, colorMode, theme, result, linkResolver);
+                RenderMdTable(t, width, colorMode, theme, result, linkResolver);
                 break;
         }
     }
@@ -209,8 +209,13 @@ public static partial class MarkdownRenderer
     /// Header cells are bolded <i>before</i> measuring, which is safe because the width function ignores
     /// SGR -- so a bold header still sizes its column by the text a reader sees.
     /// </para>
+    /// <para>
+    /// The table is held to <paramref name="width"/> like every other block. It once was not, and a
+    /// table with one long prose cell came out wider than the terminal, which then wrapped every line of
+    /// it, borders included.
+    /// </para>
     /// </summary>
-    private static void RenderMdTable(MdTable t, ColorMode colorMode,
+    private static void RenderMdTable(MdTable t, int width, ColorMode colorMode,
         MarkdownTheme theme, List<string> result, Func<string, string>? linkResolver = null)
     {
         var rst = Rst(colorMode);
@@ -244,7 +249,7 @@ public static partial class MarkdownRenderer
             };
         }
 
-        TextTable.Render(headers, rows, alignments, result,
+        TextTable.Render(headers, rows, alignments, result, width,
             BorderStyle.Light, Resolve(theme.Dim, colorMode), rst, VisibleLength);
     }
 

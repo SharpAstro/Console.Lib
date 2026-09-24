@@ -35,6 +35,15 @@ public sealed class MarkdownRendererTests
     }
 
     [Fact]
+    public void VisibleLength_IgnoresAHyperlinkWhoseUrlContainsAnM()
+    {
+        // 'm' is the SGR final byte, and an OSC 8 open was skipped only up to the first one of those,
+        // wherever it fell in the URL.
+        MarkdownRenderer.VisibleLength("\e]8;;https://example.com/more\alabel\e]8;;\a").ShouldBe(5);
+        MarkdownRenderer.VisibleLength("\e]8;;https://example.com\e\\label\e]8;;\e\\").ShouldBe(5);
+    }
+
+    [Fact]
     public void VisibleLength_Empty_ReturnsZero()
     {
         MarkdownRenderer.VisibleLength("").ShouldBe(0);
@@ -281,6 +290,47 @@ public sealed class MarkdownRendererTests
         var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.Sgr16);
         lines.Count.ShouldBe(5); // top + header + sep + 1 row + bottom
     }
+
+    [Fact]
+    public void RenderLines_TableWiderThanTheWidth_WrapsItsCellsInsideTheWidth()
+    {
+        // The table that prompted this (mdcat, 2026-09-25): one long "Why" cell made every line of the
+        // table wider than the terminal, so the terminal wrapped the borders too and the grid fell apart.
+        var md = """
+            | Package | Why |
+            |---|---|
+            | `gir1.2-atspi-2.0` | The AT-SPI typelib, so Python (`gi.repository.Atspi`) can drive the desktop's print dialog under Wayland: select a printer, press Print. |
+            | `cups` | A print system. |
+            """;
+
+        var lines = MarkdownRenderer.RenderLines(md, 60, ColorMode.Sgr16);
+
+        lines.ShouldAllBe(l => MarkdownRenderer.VisibleLength(l) == 60, "every line of a wrapped table is the full width");
+        var plain = lines.Select(StripEscapes).ToList();
+        plain[0].ShouldStartWith("┌");
+        plain[^1].ShouldStartWith("└");
+        // The narrow column keeps its natural width; the wide one absorbs the shrink.
+        plain[3].ShouldStartWith("│ gir1.2-atspi-2.0 │ The AT-SPI typelib");
+        plain[4].ShouldStartWith("│                  │ ");
+        // A wrapped row needs a rule under it, or the next row reads as its continuation.
+        plain.Count(l => l.StartsWith("├")).ShouldBe(2, "the header separator, and one rule between the two rows");
+    }
+
+    [Fact]
+    public void RenderLines_TableCellWithALink_SizesItsColumnByTheLabel()
+    {
+        // An OSC 8 open used to end at the first 'm' inside the URL, so the rest of the URL counted as
+        // visible text and the link's column came out too wide.
+        var md = "| A |\n| --- |\n| [x](https://example.com/more) |";
+
+        var lines = MarkdownRenderer.RenderLines(md, 80, ColorMode.Sgr16);
+
+        StripEscapes(lines[0]).ShouldBe("┌" + new string('─', "x (https://example.com/more)".Length + 2) + "┐");
+        lines.ShouldAllBe(l => MarkdownRenderer.VisibleLength(l) == MarkdownRenderer.VisibleLength(lines[0]));
+    }
+
+    private static string StripEscapes(string line)
+        => System.Text.RegularExpressions.Regex.Replace(line, "\e\\[[0-9;]*[@-~]|\e\\][^\a]*\a", "");
 
     // ── Word wrapping ─────────────────────────────────────────────────
 

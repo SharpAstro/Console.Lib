@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 namespace Console.Lib;
@@ -31,7 +32,8 @@ public static class TextTable
 {
     /// <summary>
     /// Appends the table's lines to <paramref name="output"/>: top border, header, separator, one line
-    /// per row, bottom border.
+    /// per row, bottom border. Every column is as wide as its widest cell, however wide that makes the
+    /// table; pass a <c>maxWidth</c> to the other overload to keep it on screen.
     /// </summary>
     /// <param name="headers">Header cells, pre-formatted. Column count comes from this list.</param>
     /// <param name="rows">Body rows. A row shorter than the header is padded with empty cells.</param>
@@ -49,6 +51,37 @@ public static class TextTable
         IReadOnlyList<IReadOnlyList<string>> rows,
         IReadOnlyList<CellAlignment> alignments,
         List<string> output,
+        BorderStyle style = BorderStyle.Light,
+        string borderColor = "",
+        string reset = "",
+        Func<string, int>? visibleLength = null)
+        => Render(headers, rows, alignments, output, int.MaxValue, style, borderColor, reset, visibleLength);
+
+    /// <summary>
+    /// Appends the table's lines to <paramref name="output"/>, no line wider than
+    /// <paramref name="maxWidth"/>. A table that fits renders exactly as the unbounded overload does.
+    /// <para>
+    /// One that does not narrows its widest columns first, so a narrow column (a name, a flag) keeps its
+    /// natural width while a prose column wraps. Cells wrap between words; a word is broken only when
+    /// even the longest word of every column cannot stand side by side, and a table whose borders alone
+    /// exceed the width is drawn at one cell per column and overflows. A row that wraps is taller than
+    /// one line, so when any body row does, every body row is ruled off from the next — otherwise a
+    /// continuation line reads as the start of the next row.
+    /// </para>
+    /// <para>
+    /// A wrapped cell's styling carries across its lines: each line closes the SGR run and hyperlink in
+    /// force where it breaks, so the padding and border after it stay plain, and the next line re-opens
+    /// them.
+    /// </para>
+    /// </summary>
+    /// <param name="maxWidth">The widest a line may be, borders included, in cells.</param>
+    /// <inheritdoc cref="Render(IReadOnlyList{string}, IReadOnlyList{IReadOnlyList{string}}, IReadOnlyList{CellAlignment}, List{string}, BorderStyle, string, string, Func{string, int}?)"/>
+    public static void Render(
+        IReadOnlyList<string> headers,
+        IReadOnlyList<IReadOnlyList<string>> rows,
+        IReadOnlyList<CellAlignment> alignments,
+        List<string> output,
+        int maxWidth,
         BorderStyle style = BorderStyle.Light,
         string borderColor = "",
         string reset = "",
@@ -81,14 +114,392 @@ public static class TextTable
             }
         }
 
-        output.Add(BuildEdge(widths, chars, chars.TopLeft, chars.TeeDown, chars.TopRight, borderColor, reset));
-        output.Add(BuildRow(headers, widths, alignments, chars, borderColor, reset, measure));
-        output.Add(BuildEdge(widths, chars, chars.TeeRight, chars.Cross, chars.TeeLeft, borderColor, reset));
+        // Each column costs its content, a space either side and the divider after it; the left edge is
+        // the one border that belongs to no column.
+        var budget = maxWidth - (3 * columns + 1);
+        if (widths.Sum() > budget)
+        {
+            widths = Fit(widths, headers, rows, measure, budget);
+        }
+
+        var header = WrapRow(headers, widths, measure);
+        var body = new List<List<string>[]>(rows.Count);
         foreach (var row in rows)
         {
-            output.Add(BuildRow(row, widths, alignments, chars, borderColor, reset, measure));
+            body.Add(WrapRow(row, widths, measure));
+        }
+        var ruled = body.Exists(cells => Height(cells) > 1);
+
+        var separator = BuildEdge(widths, chars, chars.TeeRight, chars.Cross, chars.TeeLeft, borderColor, reset);
+        output.Add(BuildEdge(widths, chars, chars.TopLeft, chars.TeeDown, chars.TopRight, borderColor, reset));
+        AddRow(header, widths, alignments, chars, borderColor, reset, measure, output);
+        output.Add(separator);
+        for (var r = 0; r < body.Count; r++)
+        {
+            if (ruled && r > 0)
+            {
+                output.Add(separator);
+            }
+            AddRow(body[r], widths, alignments, chars, borderColor, reset, measure, output);
         }
         output.Add(BuildEdge(widths, chars, chars.BottomLeft, chars.TeeUp, chars.BottomRight, borderColor, reset));
+    }
+
+    /// <summary>
+    /// Narrows <paramref name="natural"/> to sum to <paramref name="budget"/> by capping the widest columns
+    /// at one common width, so a column narrower than the cap is left alone. The cap never goes below a
+    /// column's longest word unless those words cannot all fit side by side. Then the floor is the longest
+    /// run between a word's hyphens and slashes, where <see cref="WrapCell"/> breaks a word first, and only
+    /// when even those cannot fit does it drop to one cell.
+    /// </summary>
+    private static int[] Fit(int[] natural, IReadOnlyList<string> headers,
+        IReadOnlyList<IReadOnlyList<string>> rows, Func<string, int> measure, int budget)
+    {
+        var floor = LongestWords(headers, rows, natural.Length, measure, bySegment: false);
+        if (floor.Sum() > budget)
+        {
+            floor = LongestWords(headers, rows, natural.Length, measure, bySegment: true);
+        }
+        if (floor.Sum() > budget)
+        {
+            floor = Array.ConvertAll(natural, n => Math.Min(1, n));
+        }
+        if (floor.Sum() >= budget)
+        {
+            return floor;
+        }
+
+        // The largest cap that fits. It terminates: at a cap of zero every column sits at its floor, and
+        // the floors were just shown to fit.
+        var cap = natural.Max();
+        while (Capped(natural, floor, cap).Sum() > budget)
+        {
+            cap--;
+        }
+
+        // A whole cap step can overshoot, so hand what it left over, a cell at a time, to the columns the
+        // cap is still holding back.
+        var widths = Capped(natural, floor, cap);
+        var spare = budget - widths.Sum();
+        for (var c = 0; c < widths.Length && spare > 0; c++)
+        {
+            if (widths[c] < natural[c])
+            {
+                widths[c]++;
+                spare--;
+            }
+        }
+        return widths;
+    }
+
+    private static int[] Capped(int[] natural, int[] floor, int cap)
+    {
+        var widths = new int[natural.Length];
+        for (var c = 0; c < widths.Length; c++)
+        {
+            widths[c] = Math.Max(floor[c], Math.Min(cap, natural[c]));
+        }
+        return widths;
+    }
+
+    private static int[] LongestWords(IReadOnlyList<string> headers, IReadOnlyList<IReadOnlyList<string>> rows,
+        int columns, Func<string, int> measure, bool bySegment)
+    {
+        var longest = new int[columns];
+        for (var c = 0; c < columns; c++)
+        {
+            longest[c] = LongestWord(headers[c], measure, bySegment);
+        }
+        foreach (var row in rows)
+        {
+            for (var c = 0; c < columns && c < row.Count; c++)
+            {
+                longest[c] = Math.Max(longest[c], LongestWord(row[c], measure, bySegment));
+            }
+        }
+        return longest;
+    }
+
+    private static int LongestWord(string cell, Func<string, int> measure, bool bySegment)
+    {
+        var longest = 0;
+        foreach (var word in Words(cell))
+        {
+            if (bySegment)
+            {
+                foreach (var segment in Segments(word))
+                {
+                    longest = Math.Max(longest, measure(segment));
+                }
+            }
+            else
+            {
+                longest = Math.Max(longest, measure(word));
+            }
+        }
+        return longest;
+    }
+
+    /// <summary>
+    /// Splits a word after each hyphen and slash — <c>printer-</c>, <c>driver-</c>, <c>cups-pdf</c>'s
+    /// <c>pdf</c> — which is where a word too long for its column reads best broken. A split waits for the
+    /// next visible character, so escapes straight after the hyphen stay with the part it ends.
+    /// </summary>
+    private static List<string> Segments(string word)
+    {
+        var segments = new List<string>();
+        var current = new StringBuilder();
+        var split = false;
+        var i = 0;
+        while (i < word.Length)
+        {
+            if (word[i] == '\e')
+            {
+                var length = VtEscape.Length(word, i);
+                current.Append(word, i, length);
+                i += length;
+                continue;
+            }
+
+            if (split)
+            {
+                segments.Add(current.ToString());
+                current.Clear();
+                split = false;
+            }
+            current.Append(word[i]);
+            split = word[i] is '-' or '/';
+            i++;
+        }
+        if (current.Length > 0)
+        {
+            segments.Add(current.ToString());
+        }
+        return segments;
+    }
+
+    /// <summary>
+    /// Splits a cell at its spaces. An escape sequence is kept whole and stays with the word it touches,
+    /// so a word carries the styling that opens or closes around it.
+    /// </summary>
+    private static List<string> Words(string cell)
+    {
+        var words = new List<string>();
+        var current = new StringBuilder();
+        var i = 0;
+        while (i < cell.Length)
+        {
+            if (cell[i] == '\e')
+            {
+                var length = VtEscape.Length(cell, i);
+                current.Append(cell, i, length);
+                i += length;
+            }
+            else if (cell[i] == ' ')
+            {
+                if (current.Length > 0)
+                {
+                    words.Add(current.ToString());
+                    current.Clear();
+                }
+                i++;
+            }
+            else
+            {
+                current.Append(cell[i]);
+                i++;
+            }
+        }
+        if (current.Length > 0)
+        {
+            words.Add(current.ToString());
+        }
+        return words;
+    }
+
+    private static List<string>[] WrapRow(IReadOnlyList<string> cells, int[] widths, Func<string, int> measure)
+    {
+        var wrapped = new List<string>[widths.Length];
+        for (var c = 0; c < widths.Length; c++)
+        {
+            wrapped[c] = c < cells.Count ? WrapCell(cells[c], widths[c], measure) : [string.Empty];
+        }
+        return wrapped;
+    }
+
+    private static int Height(List<string>[] cells)
+    {
+        var height = 1;
+        foreach (var lines in cells)
+        {
+            height = Math.Max(height, lines.Count);
+        }
+        return height;
+    }
+
+    /// <summary>
+    /// Splits one cell into lines no wider than <paramref name="width"/>. A cell that already fits comes
+    /// back untouched, which is what keeps a table that needs no wrapping byte-identical to one rendered
+    /// without a width.
+    /// </summary>
+    private static List<string> WrapCell(string cell, int width, Func<string, int> measure)
+    {
+        if (measure(cell) <= width)
+        {
+            return [cell];
+        }
+
+        var lines = new List<string>();
+        var line = new StringBuilder();
+        var lineWidth = 0;
+        // What is in force at the current point, so a break can close it and the next line re-open it.
+        var sgr = new StringBuilder();
+        string? link = null;
+
+        foreach (var word in Words(cell))
+        {
+            var wordWidth = measure(word);
+            if (wordWidth == 0)
+            {
+                // Styling alone, e.g. a reset standing between two spaces. It takes no room, so it
+                // neither breaks the line nor earns a space.
+                Append(word, breakInside: false);
+                continue;
+            }
+
+            if (lineWidth > 0 && lineWidth + 1 + wordWidth <= width)
+            {
+                line.Append(' ');
+                Append(word, breakInside: false);
+                lineWidth += 1 + wordWidth;
+                continue;
+            }
+
+            if (lineWidth > 0)
+            {
+                Break();
+            }
+
+            if (wordWidth <= width)
+            {
+                Append(word, breakInside: false);
+                lineWidth += wordWidth;
+                continue;
+            }
+
+            // Too long for the column even alone: break it after a hyphen or slash where one falls, and
+            // inside a segment only where a segment is itself too long.
+            foreach (var segment in Segments(word))
+            {
+                var segmentWidth = measure(segment);
+                if (lineWidth > 0 && lineWidth + segmentWidth > width)
+                {
+                    Break();
+                }
+
+                if (segmentWidth <= width - lineWidth)
+                {
+                    Append(segment, breakInside: false);
+                    lineWidth += segmentWidth;
+                }
+                else
+                {
+                    Append(segment, breakInside: true);
+                }
+            }
+        }
+
+        lines.Add(line.ToString());
+        return lines;
+
+        void Append(string word, bool breakInside)
+        {
+            var i = 0;
+            while (i < word.Length)
+            {
+                if (word[i] == '\e')
+                {
+                    var length = VtEscape.Length(word, i);
+                    var sequence = word.Substring(i, length);
+                    line.Append(sequence);
+                    Track(sequence);
+                    i += length;
+                    continue;
+                }
+
+                var units = char.IsHighSurrogate(word[i]) && i + 1 < word.Length && char.IsLowSurrogate(word[i + 1]) ? 2 : 1;
+                if (breakInside)
+                {
+                    var glyph = measure(word.Substring(i, units));
+                    if (lineWidth > 0 && lineWidth + glyph > width)
+                    {
+                        Break();
+                    }
+                    lineWidth += glyph;
+                }
+                line.Append(word, i, units);
+                i += units;
+            }
+        }
+
+        void Break()
+        {
+            if (sgr.Length > 0)
+            {
+                line.Append(VtStyle.Reset);
+            }
+            if (link is not null)
+            {
+                line.Append(Osc8.Close);
+            }
+            lines.Add(line.ToString());
+            line.Clear();
+            if (link is not null)
+            {
+                line.Append(link);
+            }
+            line.Append(sgr);
+            lineWidth = 0;
+        }
+
+        void Track(string sequence)
+        {
+            if (sequence.StartsWith("\e[", StringComparison.Ordinal) && sequence.EndsWith('m'))
+            {
+                // A reset clears everything before it; anything else layers on, and replaying the layers
+                // in order (bold, then no-bold) lands on the same state.
+                if (sequence is "\e[m" or "\e[0m")
+                {
+                    sgr.Clear();
+                }
+                else
+                {
+                    sgr.Append(sequence);
+                }
+            }
+            else if (sequence.StartsWith("\e]8;", StringComparison.Ordinal))
+            {
+                // 8;params;URI then the terminator. An empty URI is how OSC 8 closes a link.
+                var body = sequence.AsSpan(4).TrimEnd('\a').TrimEnd('\\').TrimEnd('\e');
+                var uri = body.IndexOf(';') is var semicolon and >= 0 ? body[(semicolon + 1)..] : [];
+                link = uri.IsEmpty ? null : sequence;
+            }
+        }
+    }
+
+    private static void AddRow(List<string>[] cells, int[] widths, IReadOnlyList<CellAlignment> alignments,
+        BorderChars chars, string borderColor, string reset, Func<string, int> measure, List<string> output)
+    {
+        var height = Height(cells);
+        var line = new string[cells.Length];
+        for (var k = 0; k < height; k++)
+        {
+            for (var c = 0; c < cells.Length; c++)
+            {
+                line[c] = k < cells[c].Count ? cells[c][k] : string.Empty;
+            }
+            output.Add(BuildRow(line, widths, alignments, chars, borderColor, reset, measure));
+        }
     }
 
     /// <summary>

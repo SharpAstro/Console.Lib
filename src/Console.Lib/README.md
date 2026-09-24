@@ -641,6 +641,16 @@ with a `visibleLength` function (defaulting to the ANSI-aware `MarkdownRenderer.
 whose cells are formatted inline runs, and a plain string table alike — a bold header sizes its column by
 the text a reader sees, not by the escape bytes around it.
 
+Pass a `maxWidth` (the overload after `output`) to keep the table on screen; `MarkdownRenderer` always
+does, with its render width. A table that fits is byte-identical to the unbounded form. One that does not
+narrows its **widest** columns first, so a short column (a package name, a flag) keeps its natural width
+while a prose column wraps. Cells wrap between words; a word too long for its column breaks after a hyphen
+or slash, and mid-character only when even those pieces cannot fit. When any body row wraps, a rule goes
+between every body row, since otherwise a continuation line reads as the next row. A break closes the SGR
+run and OSC 8 link in force and re-opens them on the next line, so padding and borders are never styled or
+clickable. Without a width, a single long cell made every line wider than the terminal, and the terminal
+then wrapped the borders along with the text.
+
 The junction logic is the part worth having exactly once. The top edge, the header separator and the
 bottom edge each need a *different* tee where a column divider meets them; getting one of the four wrong
 is invisible until a table happens to be rendered in that style. This code lived as four private methods
