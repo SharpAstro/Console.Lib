@@ -372,6 +372,22 @@ public sealed class MarkdownRendererTests
         result[1].ShouldContain("world");
     }
 
+    [Fact]
+    public void WordWrap_InsideALink_ReopensTheWholeLinkOnTheNextLine()
+    {
+        // The carried styling was cut at the first 'm', so a link whose URL has one (.com, .md) started
+        // the continuation line with a truncated, unterminated OSC 8 and the rest of the URL as text.
+        const string open = "\e]8;;https://example.com/more\a";
+        const string close = "\e]8;;\a";
+        var text = $"{open}{Underline}alpha beta{Reset}{close} x";
+
+        var result = MarkdownRenderer.WordWrap(text, 7);
+
+        result.Count.ShouldBe(2);
+        result[0].ShouldBe($"{open}{Underline}alpha{close}", "the link closes where the line ends");
+        result[1].ShouldBe($"{open}{Underline}beta{Reset}{close} x");
+    }
+
     // ── Mixed content ─────────────────────────────────────────────────
 
     [Fact]

@@ -477,12 +477,9 @@ public static class TextTable
                     sgr.Append(sequence);
                 }
             }
-            else if (sequence.StartsWith("\e]8;", StringComparison.Ordinal))
+            else if (Osc8.IsHyperlink(sequence, out var opens))
             {
-                // 8;params;URI then the terminator. An empty URI is how OSC 8 closes a link.
-                var body = sequence.AsSpan(4).TrimEnd('\a').TrimEnd('\\').TrimEnd('\e');
-                var uri = body.IndexOf(';') is var semicolon and >= 0 ? body[(semicolon + 1)..] : [];
-                link = uri.IsEmpty ? null : sequence;
+                link = opens ? sequence : null;
             }
         }
     }

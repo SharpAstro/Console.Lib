@@ -222,6 +222,11 @@ public static partial class MarkdownRenderer
 
     /// <summary>
     /// Wraps text containing VT escape sequences at word boundaries.
+    /// <para>
+    /// The SGR run in force at a break is re-stated at the start of the next line. An OSC 8 hyperlink
+    /// open at a break is closed at the end of the line and re-opened on the next, so the line break and
+    /// the continuation indent are not part of the link.
+    /// </para>
     /// </summary>
     internal static List<string> WordWrap(string text, int maxWidth, string continuationIndent = "")
     {
@@ -235,6 +240,7 @@ public static partial class MarkdownRenderer
         var line = new StringBuilder();
         var lineVisWidth = 0;
         var styles = new StringBuilder();
+        string? link = null;
         var needSpace = false;
 
         foreach (var word in words)
@@ -244,9 +250,11 @@ public static partial class MarkdownRenderer
 
             if (lineVisWidth + spaceNeeded + wordVisWidth > maxWidth && lineVisWidth > 0)
             {
+                if (link is not null) line.Append(Osc8.Close);
                 result.Add(line.ToString());
                 line.Clear();
                 line.Append(continuationIndent);
+                if (link is not null) line.Append(link);
                 line.Append(styles);
                 lineVisWidth = VisibleLength(continuationIndent);
                 needSpace = false;
@@ -263,7 +271,7 @@ public static partial class MarkdownRenderer
             lineVisWidth += wordVisWidth;
             needSpace = true;
 
-            UpdateStyles(word, styles);
+            UpdateStyles(word, styles, ref link);
         }
 
         if (line.Length > 0)
@@ -282,13 +290,10 @@ public static partial class MarkdownRenderer
         {
             if (text[i] == '\e')
             {
-                var end = text.IndexOf('m', i);
-                if (end >= 0)
-                {
-                    current.Append(text, i, end - i + 1);
-                    i = end + 1;
-                    continue;
-                }
+                var length = VtEscape.Length(text, i);
+                current.Append(text, i, length);
+                i += length;
+                continue;
             }
 
             if (text[i] == ' ')
@@ -312,24 +317,33 @@ public static partial class MarkdownRenderer
         return words;
     }
 
-    private static void UpdateStyles(string text, StringBuilder styles)
+    /// <summary>
+    /// Follows the SGR run and the OSC 8 link through <paramref name="text"/>, so a break can re-state
+    /// them. Only SGR goes into <paramref name="styles"/>: an OSC 8 open is not a style that a reset
+    /// clears, and replaying a close would be a no-op at best.
+    /// </summary>
+    private static void UpdateStyles(string text, StringBuilder styles, ref string? link)
     {
         var i = 0;
         while (i < text.Length)
         {
             if (text[i] == '\e')
             {
-                var end = text.IndexOf('m', i);
-                if (end >= 0)
+                var length = VtEscape.Length(text, i);
+                var seq = text.Substring(i, length);
+                if (Osc8.IsHyperlink(seq, out var opens))
                 {
-                    var seq = text.Substring(i, end - i + 1);
+                    link = opens ? seq : null;
+                }
+                else if (seq.StartsWith("\e[", StringComparison.Ordinal) && seq.EndsWith('m'))
+                {
                     if (seq == Reset)
                         styles.Clear();
                     else
                         styles.Append(seq);
-                    i = end + 1;
-                    continue;
                 }
+                i += length;
+                continue;
             }
             i++;
         }

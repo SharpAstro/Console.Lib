@@ -30,6 +30,28 @@ internal static class Osc8
     internal static string Open(string url, string id) => $"\e]8;id={id};{url}\a";
 
     /// <summary>
+    /// Whether <paramref name="sequence"/>, one whole escape sequence, is an OSC 8, and if so whether it
+    /// opens a link (<paramref name="opens"/>) or closes one. For code that carries a link across a line
+    /// break, which has to know what is open without interpreting anything else. Either terminator is
+    /// accepted, like <see cref="CellBuffer"/> accepts it.
+    /// </summary>
+    internal static bool IsHyperlink(string sequence, out bool opens)
+    {
+        opens = false;
+        if (!sequence.StartsWith("\e]8;", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        // 8;params;URI then the terminator. An empty URI is how OSC 8 closes a link.
+        var body = sequence.AsSpan(4);
+        body = body.EndsWith("\a") ? body[..^1] : body.EndsWith("\e\\") ? body[..^2] : body;
+        var semicolon = body.IndexOf(';');
+        opens = semicolon >= 0 && semicolon < body.Length - 1;
+        return true;
+    }
+
+    /// <summary>
     /// A stable id for <paramref name="url"/> — FNV-1a, hex. Deterministic on purpose: <see cref="string.GetHashCode()"/>
     /// is randomised per process, which is sufficient at runtime and makes the emitted bytes unassertable in
     /// a test.
