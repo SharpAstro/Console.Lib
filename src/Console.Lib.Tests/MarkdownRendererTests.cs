@@ -372,6 +372,49 @@ public sealed class MarkdownRendererTests
         result[1].ShouldContain("world");
     }
 
+    [Fact]
+    public void WordWrap_KeepsTheLeadingSpacesOnTheFirstLine()
+    {
+        // Splitting into words dropped them, so a list item's "  • " came out as "• " whenever the
+        // item wrapped, and only then: an item that fits is returned as it came.
+        var result = MarkdownRenderer.WordWrap("  • alpha beta gamma", 12, "    ");
+
+        result.ShouldBe(["  • alpha", "    beta", "    gamma"]);
+    }
+
+    [Fact]
+    public void WordWrap_NeverEmitsALineOfOnlyTheLeadingSpaces()
+    {
+        // A first word that does not fit after the leading spaces stays with them: a break there would
+        // leave a line holding nothing but the indent.
+        MarkdownRenderer.WordWrap("  abcdefghij x", 6).ShouldBe(["  abcdefghij", "x"]);
+        MarkdownRenderer.WordWrap("  abcdefghij", 6, breakLongWords: true).ShouldBe(["  abcd", "efghij"]);
+    }
+
+    [Fact]
+    public void RenderLines_AWrappedListItemKeepsItsIndent()
+    {
+        var md = "- short item\n- a much longer item that has to wrap onto a second line here";
+
+        var lines = MarkdownRenderer.RenderLines(md, 30, ColorMode.None);
+
+        lines[0].ShouldBe("  • short item");
+        lines[1].ShouldStartWith("  • a much longer");
+        lines[2].ShouldStartWith("     ");
+    }
+
+    [Fact]
+    public void RenderLines_AWrappedUnicodeMathLineKeepsItsIndent()
+    {
+        // Display math on the Unicode path is indented two cells; the first line lost them on a wrap.
+        var md = "$$\na + b + c + d + e + f + g + h + i + j + k + l + m + n\n$$";
+
+        var lines = MarkdownRenderer.RenderLines(md, 30, ColorMode.None);
+
+        lines.Count.ShouldBeGreaterThan(1);
+        lines.ShouldAllBe(l => l.StartsWith("  ") && !l.StartsWith("   "));
+    }
+
     private const string LongUrl = "https://example.com/docs/markdown-tables.md";
 
     [Fact]

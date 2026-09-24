@@ -254,6 +254,11 @@ public static partial class MarkdownRenderer
     /// itself too long — which is right for a fixed-width surface such as <see cref="MarkdownWidget"/>
     /// that clips whatever overflows.
     /// </para>
+    /// <para>
+    /// Leading spaces start the first line, as they would have without the wrap: a list item arrives as
+    /// <c>"  • item"</c>, and a wrapped item must keep that indent as an unwrapped one does. Every later line
+    /// starts with <paramref name="continuationIndent"/> instead.
+    /// </para>
     /// </summary>
     internal static List<string> WordWrap(string text, int maxWidth, string continuationIndent = "",
         bool breakLongWords = false)
@@ -271,15 +276,22 @@ public static partial class MarkdownRenderer
         var styles = new StringBuilder();
         string? link = null;
         var needSpace = false;
-        // Whether the current line holds any of an over-long word yet, so its first piece never breaks.
-        var placed = false;
+        // Whether the current line holds a visible word yet. Only then may it break: a line holding
+        // nothing but its indent would be emitted blank.
+        var hasContent = false;
+
+        // The splitter drops leading spaces along with every other run of them, so restore them here.
+        var lead = 0;
+        while (lead < text.Length && text[lead] == ' ') lead++;
+        line.Append(' ', lead);
+        lineVisWidth = lead;
 
         foreach (var word in words)
         {
             var wordVisWidth = VisibleLength(word);
             var spaceNeeded = needSpace ? 1 : 0;
 
-            if (lineVisWidth + spaceNeeded + wordVisWidth > maxWidth && lineVisWidth > 0)
+            if (lineVisWidth + spaceNeeded + wordVisWidth > maxWidth && hasContent)
             {
                 NewLine();
             }
@@ -295,11 +307,10 @@ public static partial class MarkdownRenderer
                 // Only reached at the start of a line: a word that would not fit after others already
                 // moved to a fresh one above. A segment that fits a fresh line goes whole; one that
                 // does not fills the line it is on, a character at a time.
-                placed = false;
                 foreach (var segment in VtWords.Segments(word))
                 {
                     var segmentWidth = VisibleLength(segment);
-                    if (placed && lineVisWidth + segmentWidth > maxWidth && indentWidth + segmentWidth <= maxWidth)
+                    if (hasContent && lineVisWidth + segmentWidth > maxWidth && indentWidth + segmentWidth <= maxWidth)
                     {
                         NewLine();
                     }
@@ -313,7 +324,7 @@ public static partial class MarkdownRenderer
                     foreach (var glyph in VtWords.Glyphs(segment))
                     {
                         var glyphWidth = VisibleLength(glyph);
-                        if (placed && lineVisWidth + glyphWidth > maxWidth)
+                        if (hasContent && lineVisWidth + glyphWidth > maxWidth)
                         {
                             NewLine();
                         }
@@ -343,14 +354,14 @@ public static partial class MarkdownRenderer
             line.Append(styles);
             lineVisWidth = indentWidth;
             needSpace = false;
-            placed = false;
+            hasContent = false;
         }
 
         void Place(string piece, int pieceWidth)
         {
             line.Append(piece);
             lineVisWidth += pieceWidth;
-            placed |= pieceWidth > 0;
+            hasContent |= pieceWidth > 0;
             UpdateStyles(piece, styles, ref link);
         }
     }
