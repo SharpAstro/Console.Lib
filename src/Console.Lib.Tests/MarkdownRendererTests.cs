@@ -372,6 +372,63 @@ public sealed class MarkdownRendererTests
         result[1].ShouldContain("world");
     }
 
+    private const string LongUrl = "https://example.com/docs/markdown-tables.md";
+
+    [Fact]
+    public void WordWrap_ByDefault_LeavesAWordTooLongForTheLineWhole()
+    {
+        // Scrollback output: the terminal soft-wraps the overflow and rejoins it on copy, so the URL
+        // stays copyable. Breaking it here would put a newline in the middle of it.
+        var result = MarkdownRenderer.WordWrap($"see {LongUrl} now", 20);
+
+        result.ShouldBe(["see", LongUrl, "now"]);
+    }
+
+    [Fact]
+    public void WordWrap_BreakLongWords_BreaksAfterSlashesAndHyphens()
+    {
+        var result = MarkdownRenderer.WordWrap($"see {LongUrl} now", 20, breakLongWords: true);
+
+        result.ShouldBe(["see", "https://example.com/", "docs/markdown-", "tables.md now"]);
+    }
+
+    [Fact]
+    public void WordWrap_BreakLongWords_FillsTheLineWhenASegmentIsItselfTooLong()
+    {
+        var result = MarkdownRenderer.WordWrap("abcdefghijklmnop", 6, breakLongWords: true);
+
+        result.ShouldBe(["abcdef", "ghijkl", "mnop"]);
+    }
+
+    [Fact]
+    public void WordWrap_BreakLongWords_KeepsTheContinuationIndent()
+    {
+        // A list item: the continuation indent counts against the width a broken word has.
+        var result = MarkdownRenderer.WordWrap("• abcdefghijkl", 8, "   ", breakLongWords: true);
+
+        result.ShouldBe(["•", "   abcde", "   fghij", "   kl"]);
+    }
+
+    [Fact]
+    public void WordWrap_BreakLongWords_CarriesStylingIntoTheBrokenPart()
+    {
+        var result = MarkdownRenderer.WordWrap($"{Bold}abcdefgh{Reset}", 4, breakLongWords: true);
+
+        result.ShouldBe([$"{Bold}abcd", $"{Bold}efgh{Reset}"]);
+    }
+
+    [Fact]
+    public void RenderLines_BreakLongWords_KeepsAParagraphWithALinkInsideTheWidth()
+    {
+        var md = $"Read [the table docs]({LongUrl}) first.";
+
+        var broken = MarkdownRenderer.RenderLines(md, 20, breakLongWords: true, ColorMode.Sgr16);
+        var whole = MarkdownRenderer.RenderLines(md, 20, ColorMode.Sgr16);
+
+        broken.ShouldAllBe(l => MarkdownRenderer.VisibleLength(l) <= 20);
+        whole.ShouldContain(l => MarkdownRenderer.VisibleLength(l) > 20, "the default overload leaves the URL whole");
+    }
+
     [Fact]
     public void WordWrap_InsideALink_ReopensTheWholeLinkOnTheNextLine()
     {
@@ -416,6 +473,18 @@ public sealed class MarkdownRendererTests
         widget.Render();
 
         widget.TotalLines.ShouldBeGreaterThan(0);
+    }
+
+    [Fact]
+    public void MarkdownWidget_BreaksAWordTooLongForTheViewport()
+    {
+        // A viewport clips what overflows, so the widget breaks the word rather than lose its tail.
+        var terminal = new FakeTerminal(new Queue<ConsoleInputEvent>(), 20, 10);
+        var widget = new MarkdownWidget(terminal);
+        widget.Markdown("https://example.com/docs/markdown-tables.md");
+        widget.Render();
+
+        widget.TotalLines.ShouldBe(3);
     }
 
     [Fact]

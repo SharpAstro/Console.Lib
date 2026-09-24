@@ -700,6 +700,21 @@ This has a [warning]{red} and a [custom tint]{#FF8800}.
 
 Colors are resolved at render time based on the active `ColorMode` — in `None` mode, no escape sequences are emitted. Structural element colors (headings, links, bullets, dim, code, math) are configurable via `MarkdownTheme`. Two palettes ship built-in: `MarkdownTheme.Default` (exact 16-color `SgrColor` values, safe everywhere) and `MarkdownTheme.Modern` (a 24-bit GitHub-Dark palette for truecolor terminals — on a 16-color terminal its exact hex tones snap to approximations, so prefer `Default` there). `mdcat` selects between them based on detected color support.
 
+### Words too long for a line
+
+Paragraphs, headings, list items and Unicode math wrap at word boundaries. What happens to a single word
+wider than the whole line (in practice nearly always a URL) is the caller's choice, because the right
+answer depends on where the lines go:
+
+- **`RenderLines(markdown, width, ...)` and `Render` leave it whole**, and it overflows. That suits output
+  bound for a terminal's scrollback (mdcat, a CLI printing a report). The terminal soft-wraps the line and
+  rejoins it on copy, so the URL stays copyable. Breaking it would put a newline and an indent inside it.
+- **`RenderLines(markdown, width, breakLongWords: true, ...)` breaks it** after a hyphen or slash where one
+  falls, and mid-character only where a piece is itself too long. That suits a fixed-width surface that
+  clips whatever overflows. `MarkdownWidget` always renders this way, since a viewport clips the tail.
+
+Tables are not affected by the choice: a table always fits the width (see [TextTable](#texttable)).
+
 ### Math rendering
 
 Inline math (`\(...\)`, `$...$`) always renders as single-row Unicode. Display math (`$$...$$`, `\[...\]`) has three optional modes selectable via the `BoxRenderMode?` parameter on `RenderLines` / `Render`:

@@ -29,6 +29,11 @@ public static partial class MarkdownRenderer
         ColorMode colorMode = ColorMode.TrueColor, MarkdownTheme? theme = null,
         BoxRenderMode? mathMode = null, string? mathFontPath = null,
         MarkdownImageOptions? images = null, Func<string, string>? linkResolver = null)
+        => RenderLinesCore(markdown, width, breakLongWords: false, colorMode, theme, mathMode, mathFontPath, images, linkResolver);
+
+    private static List<string> RenderLinesCore(string markdown, int width, bool breakLongWords,
+        ColorMode colorMode, MarkdownTheme? theme, BoxRenderMode? mathMode, string? mathFontPath,
+        MarkdownImageOptions? images, Func<string, string>? linkResolver)
     {
         if (string.IsNullOrWhiteSpace(markdown)) return new List<string>();
 
@@ -40,7 +45,7 @@ public static partial class MarkdownRenderer
         foreach (var block in blocks)
         {
             if (!first) result.Add(string.Empty);
-            RenderMdBlock(block, width, colorMode, theme, result, mathMode, mathFontPath, images, linkResolver);
+            RenderMdBlock(block, width, breakLongWords, colorMode, theme, result, mathMode, mathFontPath, images, linkResolver);
             first = false;
         }
 
@@ -51,7 +56,7 @@ public static partial class MarkdownRenderer
 
     // ── Block dispatch ────────────────────────────────────────────────
 
-    private static void RenderMdBlock(MdBlock block, int width, ColorMode colorMode,
+    private static void RenderMdBlock(MdBlock block, int width, bool breakLongWords, ColorMode colorMode,
         MarkdownTheme theme, List<string> result,
         BoxRenderMode? mathMode, string? mathFontPath, MarkdownImageOptions? images,
         Func<string, string>? linkResolver)
@@ -59,7 +64,7 @@ public static partial class MarkdownRenderer
         switch (block)
         {
             case MdHeading h:
-                RenderMdHeading(h, width, colorMode, theme, result, linkResolver);
+                RenderMdHeading(h, width, breakLongWords, colorMode, theme, result, linkResolver);
                 break;
             case MdThematicBreak:
                 result.Add($"{Resolve(theme.Dim, colorMode)}{new string('─', width)}{Rst(colorMode)}");
@@ -77,17 +82,17 @@ public static partial class MarkdownRenderer
                     }
                     var sb = new StringBuilder();
                     RenderMdInlines(p.Content, sb, bold: false, italic: false, colorMode, theme, linkResolver);
-                    result.AddRange(WordWrap(sb.ToString(), width));
+                    result.AddRange(WordWrap(sb.ToString(), width, breakLongWords: breakLongWords));
                     break;
                 }
             case MdCodeFence f:
                 RenderMdCodeFence(f, width, colorMode, theme, result);
                 break;
             case MdMathBlock m:
-                RenderMdMathBlock(m, width, colorMode, theme, result, mathMode, mathFontPath);
+                RenderMdMathBlock(m, width, breakLongWords, colorMode, theme, result, mathMode, mathFontPath);
                 break;
             case MdList l:
-                RenderMdList(l, width, colorMode, theme, result, mathMode, mathFontPath, images, linkResolver, nestLevel: 0);
+                RenderMdList(l, width, breakLongWords, colorMode, theme, result, mathMode, mathFontPath, images, linkResolver, nestLevel: 0);
                 break;
             case MdTable t:
                 RenderMdTable(t, width, colorMode, theme, result, linkResolver);
@@ -95,7 +100,7 @@ public static partial class MarkdownRenderer
         }
     }
 
-    private static void RenderMdHeading(MdHeading h, int width, ColorMode colorMode,
+    private static void RenderMdHeading(MdHeading h, int width, bool breakLongWords, ColorMode colorMode,
         MarkdownTheme theme, List<string> result, Func<string, string>? linkResolver)
     {
         var color = h.Level switch
@@ -107,7 +112,7 @@ public static partial class MarkdownRenderer
         var sb = new StringBuilder();
         RenderMdInlines(h.Content, sb, bold: false, italic: false, colorMode, theme, linkResolver);
         var text = $"{BoldAttr(colorMode)}{color}{sb}{Rst(colorMode)}";
-        result.AddRange(WordWrap(text, width));
+        result.AddRange(WordWrap(text, width, breakLongWords: breakLongWords));
     }
 
     private static void RenderMdCodeFence(MdCodeFence f, int width, ColorMode colorMode,
@@ -133,7 +138,7 @@ public static partial class MarkdownRenderer
         result.Add($"{dimColor}{new string('─', width)}{rst}");
     }
 
-    private static void RenderMdMathBlock(MdMathBlock m, int width, ColorMode colorMode,
+    private static void RenderMdMathBlock(MdMathBlock m, int width, bool breakLongWords, ColorMode colorMode,
         MarkdownTheme theme, List<string> result,
         BoxRenderMode? mathMode, string? mathFontPath)
     {
@@ -146,10 +151,10 @@ public static partial class MarkdownRenderer
         var mathColor = Resolve(theme.Math, colorMode);
         var rst = Rst(colorMode);
         foreach (var line in (m.Unicode ?? string.Empty).Split('\n'))
-            result.AddRange(WordWrap($"  {mathColor}{line}{rst}", width, "  "));
+            result.AddRange(WordWrap($"  {mathColor}{line}{rst}", width, "  ", breakLongWords));
     }
 
-    private static void RenderMdList(MdList list, int width, ColorMode colorMode,
+    private static void RenderMdList(MdList list, int width, bool breakLongWords, ColorMode colorMode,
         MarkdownTheme theme, List<string> result,
         BoxRenderMode? mathMode, string? mathFontPath, MarkdownImageOptions? images,
         Func<string, string>? linkResolver, int nestLevel)
@@ -180,12 +185,12 @@ public static partial class MarkdownRenderer
                     var sb = new StringBuilder();
                     RenderMdInlines(para.Content, sb, bold: false, italic: false, colorMode, theme, linkResolver);
                     var prefix = firstBlock ? $"{indent}{marker} " : contIndent;
-                    var wrapped = WordWrap($"{prefix}{sb}", width, contIndent);
+                    var wrapped = WordWrap($"{prefix}{sb}", width, contIndent, breakLongWords);
                     result.AddRange(wrapped);
                 }
                 else if (body is MdList nestedList)
                 {
-                    RenderMdList(nestedList, width, colorMode, theme, result, mathMode, mathFontPath, images, linkResolver, nestLevel + 1);
+                    RenderMdList(nestedList, width, breakLongWords, colorMode, theme, result, mathMode, mathFontPath, images, linkResolver, nestLevel + 1);
                 }
                 else
                 {
@@ -193,7 +198,7 @@ public static partial class MarkdownRenderer
                     // block dispatcher; the indentation isn't preserved
                     // perfectly here (the existing Markdig path has the
                     // same approximation) but the content surfaces.
-                    RenderMdBlock(body, width, colorMode, theme, result, mathMode, mathFontPath, images, linkResolver);
+                    RenderMdBlock(body, width, breakLongWords, colorMode, theme, result, mathMode, mathFontPath, images, linkResolver);
                 }
                 firstBlock = false;
             }

@@ -10,6 +10,32 @@ Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); th
 changed and why.
 
 
+## 5.5
+
+**A table fits the width, and a long word breaks where the host wants it to.** A Markdown table was
+never given the render width, so each column was as wide as its widest cell. One long prose cell (mdcat
+on a package list, 2026-09-25) put every line of the table past the terminal's edge, and the terminal
+wrapped the borders along with the text. A table now fits: its widest columns shrink first, so a short
+column keeps its natural width while a prose column wraps. Cells wrap between words, and a word too long
+for its column breaks after a hyphen or slash, mid-character only as a last resort. When any row wraps,
+every row is ruled off from the next. A table that already fitted renders byte for byte as in 5.4.
+
+A word too long for a line of its own is now the caller's call. By default it stays whole and overflows,
+which is right for scrollback: the terminal soft-wraps it and rejoins it on copy, so a URL stays
+copyable. `MarkdownWidget` breaks it instead, because a viewport clips what overflows and the URL lost
+its tail.
+
+Two fixes to how escapes are measured. An OSC 8 hyperlink was skipped only up to the first `m`, and
+URLs routinely contain one (`.com`, `.md`). So a link's column came out too wide, and a paragraph that
+wrapped inside a link started its next line with a truncated, unterminated link sequence. A wrapped line
+now closes the link it is inside and the next line re-opens it with the full URL, so neither the line
+break nor the indent is clickable.
+
+Additive, as overloads rather than new optional parameters, so a consumer compiled against 5.4 still
+binds: `TextTable.Render(..., output, maxWidth, ...)` and
+`MarkdownRenderer.RenderLines(markdown, width, breakLongWords, ...)`. The existing forms keep their 5.4
+behaviour for long words; only tables change, and only when they did not fit.
+
 ## 5.4
 
 **On DIR.Lib 11.1, and its new tick has a glyph.** `IconKind.Check` spells U+2713 on a terminal: the

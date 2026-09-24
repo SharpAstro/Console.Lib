@@ -150,8 +150,10 @@ public class MarkdownWidget(ITerminalViewport viewport) : Widget(viewport)
         if (_renderedLines is not null && _renderedWidth == currentWidth)
             return _renderedLines;
 
+        // Long words break: a viewport clips what overflows, so a URL left whole would lose its tail
+        // rather than soft-wrap the way it does in a terminal's scrollback.
         _renderedLines = MarkdownRenderer.RenderLines(
-            _markdown, currentWidth, Viewport.ColorMode, Theme,
+            _markdown, currentWidth, breakLongWords: true, Viewport.ColorMode, Theme,
             mathMode: _mathMode, mathFontPath: _mathFontPath, images: _images, linkResolver: _linkResolver);
         _renderedWidth = currentWidth;
         return _renderedLines;

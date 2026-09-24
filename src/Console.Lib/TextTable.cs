@@ -223,11 +223,11 @@ public static class TextTable
     private static int LongestWord(string cell, Func<string, int> measure, bool bySegment)
     {
         var longest = 0;
-        foreach (var word in Words(cell))
+        foreach (var word in VtWords.Split(cell))
         {
             if (bySegment)
             {
-                foreach (var segment in Segments(word))
+                foreach (var segment in VtWords.Segments(word))
                 {
                     longest = Math.Max(longest, measure(segment));
                 }
@@ -238,83 +238,6 @@ public static class TextTable
             }
         }
         return longest;
-    }
-
-    /// <summary>
-    /// Splits a word after each hyphen and slash — <c>printer-</c>, <c>driver-</c>, <c>cups-pdf</c>'s
-    /// <c>pdf</c> — which is where a word too long for its column reads best broken. A split waits for the
-    /// next visible character, so escapes straight after the hyphen stay with the part it ends.
-    /// </summary>
-    private static List<string> Segments(string word)
-    {
-        var segments = new List<string>();
-        var current = new StringBuilder();
-        var split = false;
-        var i = 0;
-        while (i < word.Length)
-        {
-            if (word[i] == '\e')
-            {
-                var length = VtEscape.Length(word, i);
-                current.Append(word, i, length);
-                i += length;
-                continue;
-            }
-
-            if (split)
-            {
-                segments.Add(current.ToString());
-                current.Clear();
-                split = false;
-            }
-            current.Append(word[i]);
-            split = word[i] is '-' or '/';
-            i++;
-        }
-        if (current.Length > 0)
-        {
-            segments.Add(current.ToString());
-        }
-        return segments;
-    }
-
-    /// <summary>
-    /// Splits a cell at its spaces. An escape sequence is kept whole and stays with the word it touches,
-    /// so a word carries the styling that opens or closes around it.
-    /// </summary>
-    private static List<string> Words(string cell)
-    {
-        var words = new List<string>();
-        var current = new StringBuilder();
-        var i = 0;
-        while (i < cell.Length)
-        {
-            if (cell[i] == '\e')
-            {
-                var length = VtEscape.Length(cell, i);
-                current.Append(cell, i, length);
-                i += length;
-            }
-            else if (cell[i] == ' ')
-            {
-                if (current.Length > 0)
-                {
-                    words.Add(current.ToString());
-                    current.Clear();
-                }
-                i++;
-            }
-            else
-            {
-                current.Append(cell[i]);
-                i++;
-            }
-        }
-        if (current.Length > 0)
-        {
-            words.Add(current.ToString());
-        }
-        return words;
     }
 
     private static List<string>[] WrapRow(IReadOnlyList<string> cells, int[] widths, Func<string, int> measure)
@@ -356,7 +279,7 @@ public static class TextTable
         var sgr = new StringBuilder();
         string? link = null;
 
-        foreach (var word in Words(cell))
+        foreach (var word in VtWords.Split(cell))
         {
             var wordWidth = measure(word);
             if (wordWidth == 0)
@@ -389,7 +312,7 @@ public static class TextTable
 
             // Too long for the column even alone: break it after a hyphen or slash where one falls, and
             // inside a segment only where a segment is itself too long.
-            foreach (var segment in Segments(word))
+            foreach (var segment in VtWords.Segments(word))
             {
                 var segmentWidth = measure(segment);
                 if (lineWidth > 0 && lineWidth + segmentWidth > width)

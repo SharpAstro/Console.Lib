@@ -79,7 +79,26 @@ public static partial class MarkdownRenderer
         ColorMode colorMode = ColorMode.TrueColor, MarkdownTheme? theme = null,
         BoxRenderMode? mathMode = null, string? mathFontPath = null,
         MarkdownImageOptions? images = null, Func<string, string>? linkResolver = null)
-        => RenderLinesLalr(markdown, width, colorMode, theme, mathMode, mathFontPath, images, linkResolver);
+        => RenderLinesCore(markdown, width, breakLongWords: false, colorMode, theme, mathMode, mathFontPath, images, linkResolver);
+
+    /// <summary>
+    /// Renders Markdown to VT lines, choosing what happens to a word too long for a line of its own.
+    /// <para>
+    /// Left whole (<c>false</c>, what the other overload does) it overflows the width, which suits output
+    /// headed for a terminal's scrollback: the terminal soft-wraps the line and rejoins it on copy, so a
+    /// long URL stays copyable. Broken (<c>true</c>) it stays inside the width, split after a hyphen or
+    /// slash where one falls and mid-character otherwise, which suits a fixed-width surface that clips what
+    /// overflows. <see cref="MarkdownWidget"/> breaks. Tables always fit the width either way; a table
+    /// cannot overflow without the terminal wrapping its borders too.
+    /// </para>
+    /// </summary>
+    /// <param name="breakLongWords">Break a word too long for a line instead of letting it overflow.</param>
+    /// <inheritdoc cref="RenderLines(string, int, ColorMode, MarkdownTheme?, BoxRenderMode?, string?, MarkdownImageOptions?, Func{string, string}?)"/>
+    public static List<string> RenderLines(string markdown, int width, bool breakLongWords,
+        ColorMode colorMode = ColorMode.TrueColor, MarkdownTheme? theme = null,
+        BoxRenderMode? mathMode = null, string? mathFontPath = null,
+        MarkdownImageOptions? images = null, Func<string, string>? linkResolver = null)
+        => RenderLinesCore(markdown, width, breakLongWords, colorMode, theme, mathMode, mathFontPath, images, linkResolver);
 
     private static bool TryRenderMathBox(string source, BoxRenderMode mode,
         string? callerFontPath, List<string> result)
@@ -227,21 +246,33 @@ public static partial class MarkdownRenderer
     /// open at a break is closed at the end of the line and re-opened on the next, so the line break and
     /// the continuation indent are not part of the link.
     /// </para>
+    /// <para>
+    /// A word too long for a line of its own is left whole by default, and overflows. Printed to a
+    /// terminal's scrollback that is the right answer: the terminal soft-wraps the line and rejoins it on
+    /// copy, which is what keeps a long URL copyable. With <paramref name="breakLongWords"/> the word is
+    /// broken instead — after a hyphen or slash where one falls, mid-character only where a piece is
+    /// itself too long — which is right for a fixed-width surface such as <see cref="MarkdownWidget"/>
+    /// that clips whatever overflows.
+    /// </para>
     /// </summary>
-    internal static List<string> WordWrap(string text, int maxWidth, string continuationIndent = "")
+    internal static List<string> WordWrap(string text, int maxWidth, string continuationIndent = "",
+        bool breakLongWords = false)
     {
         if (maxWidth <= 0 || VisibleLength(text) <= maxWidth)
             return [text];
 
-        var words = SplitWords(text);
+        var words = VtWords.Split(text);
         if (words.Count == 0) return [""];
 
         var result = new List<string>();
         var line = new StringBuilder();
         var lineVisWidth = 0;
+        var indentWidth = VisibleLength(continuationIndent);
         var styles = new StringBuilder();
         string? link = null;
         var needSpace = false;
+        // Whether the current line holds any of an over-long word yet, so its first piece never breaks.
+        var placed = false;
 
         foreach (var word in words)
         {
@@ -250,15 +281,7 @@ public static partial class MarkdownRenderer
 
             if (lineVisWidth + spaceNeeded + wordVisWidth > maxWidth && lineVisWidth > 0)
             {
-                if (link is not null) line.Append(Osc8.Close);
-                result.Add(line.ToString());
-                line.Clear();
-                line.Append(continuationIndent);
-                if (link is not null) line.Append(link);
-                line.Append(styles);
-                lineVisWidth = VisibleLength(continuationIndent);
-                needSpace = false;
-                spaceNeeded = 0;
+                NewLine();
             }
 
             if (needSpace)
@@ -267,54 +290,69 @@ public static partial class MarkdownRenderer
                 lineVisWidth++;
             }
 
-            line.Append(word);
-            lineVisWidth += wordVisWidth;
-            needSpace = true;
+            if (breakLongWords && lineVisWidth + wordVisWidth > maxWidth)
+            {
+                // Only reached at the start of a line: a word that would not fit after others already
+                // moved to a fresh one above. A segment that fits a fresh line goes whole; one that
+                // does not fills the line it is on, a character at a time.
+                placed = false;
+                foreach (var segment in VtWords.Segments(word))
+                {
+                    var segmentWidth = VisibleLength(segment);
+                    if (placed && lineVisWidth + segmentWidth > maxWidth && indentWidth + segmentWidth <= maxWidth)
+                    {
+                        NewLine();
+                    }
 
-            UpdateStyles(word, styles, ref link);
+                    if (lineVisWidth + segmentWidth <= maxWidth)
+                    {
+                        Place(segment, segmentWidth);
+                        continue;
+                    }
+
+                    foreach (var glyph in VtWords.Glyphs(segment))
+                    {
+                        var glyphWidth = VisibleLength(glyph);
+                        if (placed && lineVisWidth + glyphWidth > maxWidth)
+                        {
+                            NewLine();
+                        }
+                        Place(glyph, glyphWidth);
+                    }
+                }
+            }
+            else
+            {
+                Place(word, wordVisWidth);
+            }
+            needSpace = true;
         }
 
         if (line.Length > 0)
             result.Add(line.ToString());
 
         return result;
-    }
 
-    private static List<string> SplitWords(string text)
-    {
-        var words = new List<string>();
-        var current = new StringBuilder();
-        var i = 0;
-
-        while (i < text.Length)
+        void NewLine()
         {
-            if (text[i] == '\e')
-            {
-                var length = VtEscape.Length(text, i);
-                current.Append(text, i, length);
-                i += length;
-                continue;
-            }
-
-            if (text[i] == ' ')
-            {
-                if (current.Length > 0)
-                {
-                    words.Add(current.ToString());
-                    current.Clear();
-                }
-                i++;
-                continue;
-            }
-
-            current.Append(text[i]);
-            i++;
+            if (link is not null) line.Append(Osc8.Close);
+            result.Add(line.ToString());
+            line.Clear();
+            line.Append(continuationIndent);
+            if (link is not null) line.Append(link);
+            line.Append(styles);
+            lineVisWidth = indentWidth;
+            needSpace = false;
+            placed = false;
         }
 
-        if (current.Length > 0)
-            words.Add(current.ToString());
-
-        return words;
+        void Place(string piece, int pieceWidth)
+        {
+            line.Append(piece);
+            lineVisWidth += pieceWidth;
+            placed |= pieceWidth > 0;
+            UpdateStyles(piece, styles, ref link);
+        }
     }
 
     /// <summary>
