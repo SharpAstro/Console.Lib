@@ -18,7 +18,7 @@ mdcat [options] [file]
 | Option | Meaning |
 |---|---|
 | `-h`, `--help` | Show help. |
-| `--mode <encoding>` | Display-math rendering: `unicode` \| `sixel` \| `sextant` \| `halfblock`. Default: auto-detect via DA1 (sixel on capable terminals, sextant otherwise). |
+| `--mode <encoding>` | Display-math and image rendering: `unicode` \| `sixel` \| `sextant` \| `halfblock`. `unicode` rasters nothing: math renders as text and images as their alt text. Default: auto-detect via DA1 (sixel on capable terminals, sextant otherwise). Without colour (`--plain`, `NO_COLOR`) nothing rasters, whatever `--mode` says, since every raster encoding is escape sequences. |
 | `--color <mode>` | `truecolor` \| `16` \| `none`. Default: auto-detect. |
 | `--no-color`, `--plain` | Plain text, no escape sequences. Shorthand for `--color none`. |
 | `--width <N>` | Render width in columns. Default: console width, or 80. |
@@ -60,6 +60,11 @@ $$
 
 Single-line `$$...$$` and inline `$...$` always render as single-row Unicode,
 never rastered.
+
+A raster is held to `--width`: a formula wider than the width is re-laid at a
+smaller size, down to two thirds of the default, and one that still does not fit
+renders as Unicode instead, which wraps. Below that size a raster is no longer
+legible.
 
 Rastering needs an OpenType math font. mdcat **bundles** STIX Two Math
 (`Fonts/STIX2Math.otf`, SIL OFL — see `Fonts/STIX2-OFL.txt`) next to the

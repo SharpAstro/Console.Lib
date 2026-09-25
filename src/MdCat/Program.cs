@@ -50,18 +50,19 @@ internal static class Program
         var (colorMode, theme) = ResolveColorAndTheme(options.Color);
 
         // A single terminal probe drives both the math-raster mode and image
-        // rendering (cell pixel size + Sixel/blocks capability). Skip it only
-        // when math mode is already pinned and colour (hence images) is off.
+        // rendering (cell pixel size + Sixel/blocks capability). It is skipped
+        // whenever nothing can raster: under --mode unicode, and without
+        // colour, since the renderer keeps ColorMode.None free of escape
+        // sequences and so takes the Unicode path and alt text there anyway.
         BoxRenderMode? mathMode = options.Mode;
         MarkdownImageOptions? images = null;
         var baseDir = ResolveDocumentBaseDir(options.FilePath);
-        if (mathMode == null || colorMode != ColorMode.None)
+        if (!options.Unicode && colorMode != ColorMode.None)
         {
             var probe = await ProbeTerminalAsync();
             if (mathMode == null && probe.Available)
                 mathMode = probe.Sixel ? BoxRenderMode.Sixel : BoxRenderMode.Sextant;
-            if (colorMode != ColorMode.None)
-                images = BuildImageOptions(probe, options.Mode, baseDir);
+            images = BuildImageOptions(probe, options.Mode, baseDir);
         }
 
         // Render into a buffer first, then flush. The renderer writes
@@ -240,12 +241,19 @@ internal static class Program
         return File.Exists(candidate) ? candidate : null;
     }
 
-    private record Options(string? FilePath, BoxRenderMode? Mode, int? Width, ColorMode? Color, bool Help = false);
+    /// <param name="Mode">The raster encoding --mode pinned, or null to auto-detect one.</param>
+    /// <param name="Unicode">
+    /// --mode unicode: raster nothing. Its own flag because "no encoding" is not "detect one"; when
+    /// unicode parsed to a null <see cref="Mode"/> as well, the probe then picked a raster anyway.
+    /// </param>
+    private record Options(string? FilePath, BoxRenderMode? Mode, bool Unicode, int? Width, ColorMode? Color,
+        bool Help = false);
 
     private static Options? ParseArgs(string[] args)
     {
         string? filePath = null;
         BoxRenderMode? mode = null;
+        var unicode = false;
         int? width = null;
         // null = auto: ResolveColorAndTheme detects truecolor and honours
         // NO_COLOR. An explicit --color / --no-color sets a non-null value
@@ -258,10 +266,9 @@ internal static class Program
             switch (a)
             {
                 case "-h" or "--help":
-                    return new Options(null, null, null, color, Help: true);
+                    return new Options(null, null, false, null, color, Help: true);
                 case "--mode" when i + 1 < args.Length:
-                    mode = ParseMode(args[++i]);
-                    if (mode == (BoxRenderMode)(-1))
+                    if (!TryParseMode(args[++i], out mode, out unicode))
                     {
                         SysConsole.Error.WriteLine($"Unknown --mode '{args[i]}'. Expected: unicode | sixel | sextant | halfblock.");
                         return null;
@@ -300,17 +307,22 @@ internal static class Program
             }
         }
 
-        return new Options(filePath, mode, width, color);
+        return new Options(filePath, mode, unicode, width, color);
     }
 
-    private static BoxRenderMode? ParseMode(string s) => s.ToLowerInvariant() switch
+    private static bool TryParseMode(string s, out BoxRenderMode? mode, out bool unicode)
     {
-        "unicode"   => null,
-        "sixel"     => BoxRenderMode.Sixel,
-        "sextant"   => BoxRenderMode.Sextant,
-        "halfblock" => BoxRenderMode.HalfBlock,
-        _ => (BoxRenderMode?)(-1),
-    };
+        unicode = false;
+        mode = null;
+        switch (s.ToLowerInvariant())
+        {
+            case "unicode":   unicode = true; return true;
+            case "sixel":     mode = BoxRenderMode.Sixel; return true;
+            case "sextant":   mode = BoxRenderMode.Sextant; return true;
+            case "halfblock": mode = BoxRenderMode.HalfBlock; return true;
+            default:          return false;
+        }
+    }
 
     private static ColorMode? ParseColor(string s) => s.ToLowerInvariant() switch
     {
@@ -333,9 +345,11 @@ internal static class Program
 
             Options:
               -h, --help            Show this help message.
-              --mode <encoding>     unicode | sixel | sextant | halfblock.
-                                    Default: auto-detect (sixel on capable
-                                    terminals, sextant otherwise).
+              --mode <encoding>     unicode | sixel | sextant | halfblock, for
+                                    display math and images. unicode rasters
+                                    nothing. Default: auto-detect (sixel on
+                                    capable terminals, sextant otherwise).
+                                    Without colour nothing rasters.
               --color <mode>        truecolor | 16 | none. Default: auto-detect
                                     (truecolor + modern palette on capable
                                     terminals; honours NO_COLOR).
