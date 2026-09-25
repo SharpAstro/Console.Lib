@@ -73,6 +73,18 @@ public sealed class MarkdownImageTests
     }
 
     [Fact]
+    public void Image_UnderColorModeNone_RendersAltText()
+    {
+        // ColorMode.None promises no escape sequences; a raster is nothing but them.
+        var bmp = MakeSolidPng(4, 4, 0x80, 0x40, 0x20);
+        var opts = new MarkdownImageOptions(_ => bmp, BoxRenderMode.HalfBlock, CellPixelWidth: 10, CellPixelHeight: 20);
+
+        var lines = MarkdownRenderer.RenderLines("![cat](cat.bmp)", width: 40, ColorMode.None, images: opts);
+
+        lines.ShouldBe(["cat"]);
+    }
+
+    [Fact]
     public void Image_WiderThanWidth_ScalesDownToFit()
     {
         var bmp = MakeSolidPng(100, 4, 200, 100, 50);

@@ -27,6 +27,13 @@
     <ProjectReference Include="..\Console.Lib\Console.Lib.csproj" />
   </ItemGroup>
 
+  <!-- The math font mdcat bundles, so the raster-math tests do not depend on what fonts the machine has
+       (a CI runner has none): without one, the raster path falls back to Unicode and a test asserting on
+       the raster would pass or fail by machine. -->
+  <ItemGroup>
+    <None Include="..\MdCat\Fonts\STIX2Math.otf" Link="Fonts\STIX2Math.otf" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- Alias the DIR.Lib.Layout namespace so tests write the qualified `Layout.Node` form (see Console.Lib.csproj). -->
   <ItemGroup>
     <Using Include="DIR.Lib.Layout" Alias="Layout" />

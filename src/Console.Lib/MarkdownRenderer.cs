@@ -100,8 +100,22 @@ public static partial class MarkdownRenderer
         MarkdownImageOptions? images = null, Func<string, string>? linkResolver = null)
         => RenderLinesCore(markdown, width, breakLongWords, colorMode, theme, mathMode, mathFontPath, images, linkResolver);
 
+    /// <summary>
+    /// Rasters display math into <paramref name="result"/>, no wider than <paramref name="width"/> cells.
+    /// False, having added nothing, when it cannot, and the caller then takes the Unicode path.
+    /// <para>
+    /// A formula wider than the width is re-laid at a smaller font size until it fits, down to two thirds
+    /// of the encoding's default. Below that a raster stops being legible, while the Unicode path wraps,
+    /// so a formula that still does not fit is left to that path. The raster used to be emitted at its
+    /// natural width whatever the width was: 135 cells for a long sum at a width of 30.
+    /// </para>
+    /// </summary>
+    /// <param name="cellPixelWidth">
+    /// Pixels per cell, which is what turns a Sixel raster's width into cells. Sextant and half-block
+    /// have a fixed number of pixels per cell and ignore it.
+    /// </param>
     private static bool TryRenderMathBox(string source, BoxRenderMode mode,
-        string? callerFontPath, List<string> result)
+        string? callerFontPath, int width, int cellPixelWidth, List<string> result)
     {
         if (string.IsNullOrWhiteSpace(source)) return false;
 
@@ -143,42 +157,75 @@ public static partial class MarkdownRenderer
 
         try
         {
-            var fontSize = mode switch
+            var defaultSize = mode switch
             {
                 BoxRenderMode.Sixel     => 32f,
                 BoxRenderMode.Sextant   => 12f,
                 BoxRenderMode.HalfBlock => 10f,
                 _                       => 12f,
             };
-            var style = new BoxStyle(fontPath, fontSize);
-            var visitor = new BoxBuildingVisitor(style);
+            var minimumSize = defaultSize * 2 / 3;
+            var fontSize = defaultSize;
 
-            // Math expressions use a separate parser instance because each
-            // BuildParser call binds a specific visitor; we can't share the
-            // Unicode parser with a Box-typed visitor.
-            var boxParser = Latex.BuildParser(visitor);
-            using var lexer = BytesLexer.FromString(source, MarkdownMacros.MathLexerTable);
-            using var tokens = new SyncLATokenIterator(lexer);
-            var item = boxParser.ParseInput(tokens, debugger: null);
-            if (item.IsError || item.Content is not Func<BoxStyle, Box> builder) return false;
-            var box = builder(style);
-
-            using var sw = new StringWriter();
-            BoxRenderer.Render(box, style, mode, sw);
-
-            // Split into lines so the caller's surrounding layout (transcript
-            // widget, scrollback, etc.) sees one entry per cell row. Sixel
-            // collapses to a single entry because its DCS sequence doesn't
-            // contain real newlines.
-            foreach (var line in sw.ToString().Split('\n'))
+            while (true)
             {
-                if (line.Length > 0) result.Add(line);
+                var style = new BoxStyle(fontPath, fontSize);
+                if (Build(style) is not { } box) return false;
+                var image = BoxRasterizer.RenderToRgba(box, style);
+                if (image.Width <= 0 || image.Height <= 0) return false;
+
+                var cells = mode switch
+                {
+                    BoxRenderMode.Sixel   => (image.Width + cellPixelWidth - 1) / Math.Max(1, cellPixelWidth),
+                    BoxRenderMode.Sextant => (image.Width + 1) / 2,
+                    _                     => image.Width,
+                };
+                if (cells > width && width > 0)
+                {
+                    // Shrink in proportion, and by at least half a point so the loop always moves. The
+                    // layout is not exactly linear in the size (rules and spacing have minimums), so the
+                    // next pass measures again rather than trusting the ratio.
+                    var next = Math.Min(fontSize * width / cells, fontSize - 0.5f);
+                    if (next < minimumSize) return false;
+                    fontSize = next;
+                    continue;
+                }
+
+                using var sw = new StringWriter();
+                BoxRenderer.EncodeImage(image.Pixels, image.Width, image.Height, mode, sw);
+
+                // Split into lines so the caller's surrounding layout (transcript
+                // widget, scrollback, etc.) sees one entry per cell row. Sixel
+                // collapses to a single entry because its DCS sequence doesn't
+                // contain real newlines. StringWriter.WriteLine emits the platform
+                // newline, so on Windows each line would keep a '\r' that counts
+                // as visible width; trim it as the image path does.
+                var any = false;
+                foreach (var raw in sw.ToString().Split('\n'))
+                {
+                    var line = raw.TrimEnd('\r');
+                    if (line.Length > 0) { result.Add(line); any = true; }
+                }
+                return any;
             }
-            return result.Count > 0;
         }
         catch
         {
             return false;
+        }
+
+        Box? Build(BoxStyle style)
+        {
+            // Math expressions use a separate parser instance because each
+            // BuildParser call binds a specific visitor; we can't share the
+            // Unicode parser with a Box-typed visitor. The visitor is bound to
+            // a style too, so a pass at another size parses afresh.
+            var visitor = new BoxBuildingVisitor(style);
+            var boxParser = Latex.BuildParser(visitor);
+            using var lexer = BytesLexer.FromString(source, MarkdownMacros.MathLexerTable);
+            using var tokens = new SyncLATokenIterator(lexer);
+            var item = boxParser.ParseInput(tokens, debugger: null);
+            return item.IsError || item.Content is not Func<BoxStyle, Box> builder ? null : builder(style);
         }
     }
 

@@ -764,6 +764,56 @@ public sealed class MarkdownRendererTests
         lines.Count.ShouldBeGreaterThan(0);
     }
 
+    private static readonly string MathFont = Path.Combine(AppContext.BaseDirectory, "Fonts", "STIX2Math.otf");
+
+    // Fourteen terms: at the sextant raster's default size this is well over 100 cells wide. The
+    // delimiters go on their own lines: a one-line $$...$$ parses as inline math inside a paragraph, which
+    // never rasters, so a test written that way passes without reaching the raster at all.
+    private const string LongFormula = "$$\na + b + c + d + e + f + g + h + i + j + k + l + m + n\n$$";
+    private const string ShortFormula = "$$\nE = mc^2\n$$";
+
+    /// <summary>Cells a line occupies: escapes stripped, one per rune (a sextant is a surrogate pair).</summary>
+    private static int Cells(string line) => StripEscapes(line).EnumerateRunes().Count();
+
+    [Fact]
+    public void MathBlock_Raster_ShrinksToFitTheWidth()
+    {
+        File.Exists(MathFont).ShouldBeTrue("the test project copies mdcat's STIX Two Math next to the tests");
+
+        var lines = MarkdownRenderer.RenderLines(LongFormula, 100, ColorMode.TrueColor,
+            mathMode: BoxRenderMode.Sextant, mathFontPath: MathFont);
+
+        lines.Count.ShouldBeGreaterThan(1, "a raster spans several rows; the Unicode path would be one");
+        lines.ShouldNotContain(l => l.Contains("a + b"));
+        lines.ShouldAllBe(l => Cells(l) <= 100);
+        lines.ShouldAllBe(l => !l.Contains('\r'), "StringWriter.WriteLine's \\r must not survive the split");
+    }
+
+    [Fact]
+    public void MathBlock_Raster_TooWideEvenShrunk_FallsBackToUnicode()
+    {
+        // Shrunk far enough to fit 30 cells a formula is unreadable, and the Unicode path wraps.
+        var lines = MarkdownRenderer.RenderLines(LongFormula, 30, ColorMode.TrueColor,
+            mathMode: BoxRenderMode.Sextant, mathFontPath: MathFont);
+
+        StripEscapes(string.Join(" ", lines)).ShouldContain("a + b");
+        lines.ShouldAllBe(l => Cells(l) <= 30);
+    }
+
+    [Theory]
+    [InlineData(BoxRenderMode.Sextant)]
+    [InlineData(BoxRenderMode.HalfBlock)]
+    [InlineData(BoxRenderMode.Sixel)]
+    public void MathBlock_UnderColorModeNone_TakesTheUnicodePath(BoxRenderMode mode)
+    {
+        // ColorMode.None promises no escape sequences, and every raster encoding is made of them.
+        var raster = MarkdownRenderer.RenderLines(ShortFormula, 80, ColorMode.None,
+            mathMode: mode, mathFontPath: MathFont);
+
+        raster.ShouldBe(MarkdownRenderer.RenderLines(ShortFormula, 80, ColorMode.None));
+        raster.ShouldAllBe(l => !l.Contains('\e'));
+    }
+
     [Fact]
     public void MathBlock_NoMathModeArg_UsesUnicodePath()
     {

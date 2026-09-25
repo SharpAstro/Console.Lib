@@ -74,8 +74,11 @@ public static partial class MarkdownRenderer
                     // A paragraph that is just one image (its own line) rasters
                     // as a block — mirroring display math. If raster is off or
                     // fails, we fall through to the inline walker, which emits
-                    // the image's alt text via its MdImage case.
-                    if (images is not null && TrySingleImage(p.Content) is { } soleImage
+                    // the image's alt text via its MdImage case. ColorMode.None
+                    // promises no escape sequences and a raster is nothing but
+                    // them, so it always takes the alt text.
+                    if (images is not null && colorMode != ColorMode.None
+                        && TrySingleImage(p.Content) is { } soleImage
                         && TryRenderImage(soleImage, width, images, result))
                     {
                         break;
@@ -89,7 +92,8 @@ public static partial class MarkdownRenderer
                 RenderMdCodeFence(f, width, colorMode, theme, result);
                 break;
             case MdMathBlock m:
-                RenderMdMathBlock(m, width, breakLongWords, colorMode, theme, result, mathMode, mathFontPath);
+                RenderMdMathBlock(m, width, breakLongWords, colorMode, theme, result, mathMode, mathFontPath,
+                    images?.CellPixelWidth ?? FallbackCellPixelWidth);
                 break;
             case MdList l:
                 RenderMdList(l, width, breakLongWords, colorMode, theme, result, mathMode, mathFontPath, images, linkResolver, nestLevel: 0);
@@ -138,14 +142,24 @@ public static partial class MarkdownRenderer
         result.Add($"{dimColor}{new string('─', width)}{rst}");
     }
 
+    /// <summary>
+    /// The cell width a Sixel math raster is sized against when the host gave no
+    /// <see cref="MarkdownImageOptions"/> to take it from. It is that record's own default, so
+    /// math and images agree on it.
+    /// </summary>
+    private const int FallbackCellPixelWidth = 10;
+
     private static void RenderMdMathBlock(MdMathBlock m, int width, bool breakLongWords, ColorMode colorMode,
         MarkdownTheme theme, List<string> result,
-        BoxRenderMode? mathMode, string? mathFontPath)
+        BoxRenderMode? mathMode, string? mathFontPath, int cellPixelWidth)
     {
         // Pixel-mode rendering tries the BoxRenderer path; if it can't
         // build (no math font, no LaTeX parser support, etc.) we fall
-        // through to the Unicode rendering already on m.Unicode.
-        if (mathMode is { } mode && TryRenderMathBox(m.Source, mode, mathFontPath, result))
+        // through to the Unicode rendering already on m.Unicode. Nor does
+        // it try under ColorMode.None: every raster encoding is escape
+        // sequences, which that mode promises not to emit.
+        if (mathMode is { } mode && colorMode != ColorMode.None
+            && TryRenderMathBox(m.Source, mode, mathFontPath, width, cellPixelWidth, result))
             return;
 
         var mathColor = Resolve(theme.Math, colorMode);

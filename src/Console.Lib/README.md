@@ -725,7 +725,7 @@ Inline math (`\(...\)`, `$...$`) always renders as single-row Unicode. Display m
 | `Sextant` | 2×3 sub-cell blocks via Unicode 13 | Modern terminal with sextant glyph coverage |
 | `HalfBlock` | 2-row half-blocks | Universal fallback |
 
-Leaving the mode `null` keeps display math on the same single-row Unicode path as inline. The pixel-rendered modes share `BoxRenderer`, which rasterises the LaTeX `Box` tree from `DIR.Lib.MathLayout` and ships it through one of the three encoders. The encoder switch is exposed as `BoxRenderer.EncodeImage(byte[] rgba, int w, int h, BoxRenderMode, TextWriter)`, so any RGBA buffer — math box or decoded image — reuses the same Sixel / sextant / half-block output path.
+Leaving the mode `null` keeps display math on the same single-row Unicode path as inline. So does `ColorMode.None`, whatever the mode: every raster encoding is escape sequences, which that mode promises not to emit, and a standalone image likewise renders its alt text there. A raster is held to the render `width`: a formula wider than it is re-laid at a smaller font size, down to two thirds of the mode's default, and one that still does not fit takes the Unicode path, which wraps. Sixel sizes in cells need a cell width; it comes from `MarkdownImageOptions.CellPixelWidth` when images are on, and is 10 px otherwise. The pixel-rendered modes share `BoxRenderer`, which rasterises the LaTeX `Box` tree from `DIR.Lib.MathLayout` and ships it through one of the three encoders. The encoder switch is exposed as `BoxRenderer.EncodeImage(byte[] rgba, int w, int h, BoxRenderMode, TextWriter)`, so any RGBA buffer — math box or decoded image — reuses the same Sixel / sextant / half-block output path.
 
 ### Image rendering
 
