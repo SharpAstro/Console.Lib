@@ -10,6 +10,22 @@ Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); th
 changed and why.
 
 
+## 5.6
+
+**A command-line tool colours its own stdout or stderr through `StreamColor`.** `StreamColor.For(StandardStream)`
+answers whether a plain stream, written line by line rather than owned by a `VirtualTerminal`, may take a colour
+escape: not when it is redirected to a file or a pipe, not when `NO_COLOR` asks for none, and on Windows only once the
+console accepts virtual-terminal processing on that stream's own handle, which it switches on the first time it is
+asked. `StreamColor.Paint(text, color, mode)` wraps the text in the colour and a reset, or leaves it alone under
+`ColorMode.None`. TianWen's CLI printed its errors in red through the Pastel package for this one line; it needs only
+Console.Lib now. Stderr was the gap: the existing Windows switch covered stdin and stdout together, and gave up when
+stdin was redirected.
+
+**`NO_COLOR` is read in one place, as https://no-color.org states it** (`StreamColor.NoColorRequested`): set to
+anything but the empty string. `VirtualTerminal` treated an EMPTY `NO_COLOR` as a request for no colour while mdcat did
+not; both now follow the convention, so `NO_COLOR=` with no value leaves colour on in the TUI too.
+
+
 ## 5.5
 
 **A table fits the width, and a long word breaks where the host wants it to.** A Markdown table was

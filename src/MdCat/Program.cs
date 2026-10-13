@@ -108,7 +108,7 @@ internal static class Program
         if (explicitMode is { } m)
             return (m, m == ColorMode.TrueColor ? MarkdownTheme.Modern : null);
 
-        if (HasNoColorEnv())
+        if (StreamColor.NoColorRequested)
             return (ColorMode.None, null);
 
         return (ColorMode.TrueColor, SupportsTrueColor() ? MarkdownTheme.Modern : null);
@@ -331,9 +331,6 @@ internal static class Program
         "none" or "off" or "plain"       => ColorMode.None,
         _ => null,
     };
-
-    private static bool HasNoColorEnv()
-        => !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NO_COLOR"));
 
     private static void PrintUsage()
     {

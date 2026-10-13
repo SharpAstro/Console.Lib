@@ -12,7 +12,7 @@ This repo also ships **[mdcat](src/MdCat/README.md)** — a `cat`-for-Markdown C
 - **Cell-surface layout** — `CellLayout` paints DIR.Lib's arranged `LayoutNode` trees (the same ones the pixel painter uses) to character cells, with click-region hit-testing
 - **Widget system** — `TextBar`, `TextInputBar`, `TextArea`, `ScrollableList<T>`, `TreeView<T>`, `Canvas<TSurface>`, `MarkdownWidget`, `MenuWidget`
 - **Sixel graphics** — high-performance encoder (14× faster than ImageMagick's built-in Sixel writer); plus Unicode sextant and half-block fallbacks for terminals without Sixel
-- **VT styling** — `VtStyle` with 16-color SGR and TrueColor modes, automatic capability detection
+- **VT styling** — `VtStyle` with 16-color SGR and TrueColor modes, automatic capability detection; `StreamColor` colours a CLI's plain stdout or stderr (off when redirected or under `NO_COLOR`, Windows VT switched on per stream)
 - **Markdown + LaTeX rendering** — headings, tables, lists, fenced code, inline `[text]{color}` syntax, OSC 8 hyperlinks for clickable links, inline + display math (`\(...\)`, `$$...$$`, `\[...\]`), `\ce{...}` chemistry markup, and images (`![alt](path)` rasterized to Sixel / blocks, with alt-text fallback). Parsing is driven by LALR.CC grammars in [DIR.Lib.Markdown](https://github.com/SharpAstro/DIR.Lib); Console.Lib is the VT-output layer.
 - **Input handling** — unified keyboard + mouse events with UTF-8 codepoint decoding, SGR mouse tracking in alternate screen
 - **Menu system** — arrow-key navigation, digit shortcuts, mouse support, alternate/normal mode

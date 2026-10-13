@@ -8,6 +8,7 @@ internal static class WindowsConsoleInput
 {
     private const int STD_OUTPUT_HANDLE = -11;
     private const int STD_INPUT_HANDLE = -10;
+    private const int STD_ERROR_HANDLE = -12;
 
     /// <summary>
     /// Provides native Windows console input handling, including mouse events.
@@ -83,6 +84,24 @@ internal static class WindowsConsoleInput
         _enabled = SetConsoleMode(_inputHandle, newInputMode)
             && SetConsoleMode(_outputHandle, _originalOutputMode | ConsoleMode.Processed | ConsoleMode.VirtualTerminalProcessing);
         return _enabled;
+    }
+
+    /// <summary>
+    /// Switches virtual-terminal processing on for one standard output stream, for <see cref="StreamColor"/>: the
+    /// stream's other mode bits and the console's input are left as they are. Left on for the rest of the process,
+    /// whose later writes to the stream need it.
+    /// </summary>
+    /// <returns>False when the handle is not a console (redirected, or no console at all) or refuses the mode.</returns>
+    public static bool EnableVirtualTerminalOutput(StandardStream stream)
+    {
+        var handle = GetStdHandle(stream is StandardStream.Error ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE);
+        if (handle == nint.Zero || handle == new nint(-1) || !GetConsoleMode(handle, out var mode))
+        {
+            return false;
+        }
+
+        return (mode & ConsoleMode.VirtualTerminalProcessing) != 0
+            || SetConsoleMode(handle, mode | ConsoleMode.Processed | ConsoleMode.VirtualTerminalProcessing);
     }
 
     /// <summary>

@@ -34,7 +34,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
     private CaretStyle? _caretShape;
     private static readonly bool s_isInputRedirected = System.Console.IsInputRedirected;
     private static readonly bool s_isOutputRedirected = System.Console.IsOutputRedirected;
-    private static readonly bool s_noColor = Environment.GetEnvironmentVariable("NO_COLOR") is not null;
+    private static readonly bool s_noColor = StreamColor.NoColorRequested;
 
     public bool IsInputRedirected => s_isInputRedirected || _noConsole;
     public bool IsOutputRedirected => s_isOutputRedirected || _noConsole;
