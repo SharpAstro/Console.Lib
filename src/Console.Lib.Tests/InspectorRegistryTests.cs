@@ -53,29 +53,37 @@ public sealed class InspectorRegistryTests : IDisposable
         instance.Proto.ShouldBe(1);
     }
 
-    /// <summary>A crash skips the writer's delete. The file stays (readers never delete) but is not listed.</summary>
+    /// <summary>
+    /// A crash skips the writer's delete. The file stays (readers never delete) but is not listed, and is not
+    /// noted either: it is expected debris until the next app's sweep.
+    /// </summary>
     [Fact]
     public void Read_DeadPid_IsDroppedAndNotDeleted()
     {
         var pid = UnusedPid();
         var path = Register(pid, 50001, kind: "tui", processStartUtc: OurStartUtc);
+        var notes = new List<string>();
 
-        InspectorRegistry.Read(_folder).ShouldBeEmpty();
+        InspectorRegistry.Read(_folder, notes).ShouldBeEmpty();
 
+        notes.ShouldBeEmpty();
         File.Exists(path).ShouldBeTrue("a reader must never delete; the writers sweep");
     }
 
     /// <summary>
     /// The pid is running, but it is not the process that registered: it started an hour away from the recorded
-    /// start. That is what a crashed app's pid looks like once the OS hands it to something else.
+    /// start. That is what a crashed app's pid looks like once the OS hands it to something else, and also what a
+    /// live app looks like on Linux after a wall-clock step, so the skip is said rather than silent.
     /// </summary>
     [Fact]
-    public void Read_ReusedPid_IsDroppedAndNotDeleted()
+    public void Read_ReusedPid_IsDroppedNotDeletedAndSaid()
     {
         var path = Register(Environment.ProcessId, 50002, kind: "tui", processStartUtc: OurStartUtc.AddHours(-1));
+        var notes = new List<string>();
 
-        InspectorRegistry.Read(_folder).ShouldBeEmpty();
+        InspectorRegistry.Read(_folder, notes).ShouldBeEmpty();
 
+        notes.ShouldHaveSingleItem().ShouldBe($"descriptor skipped: start-time mismatch ({path})");
         File.Exists(path).ShouldBeTrue("a reader must never delete; the writers sweep");
     }
 
@@ -88,8 +96,10 @@ public sealed class InspectorRegistryTests : IDisposable
     public void Read_StartTimeWithinTwoSeconds_IsTheSameProcess(double offsetSeconds, bool listed)
     {
         Register(Environment.ProcessId, 50003, kind: "tui", processStartUtc: OurStartUtc.AddSeconds(offsetSeconds));
+        var notes = new List<string>();
 
-        InspectorRegistry.Read(_folder).Count.ShouldBe(listed ? 1 : 0);
+        InspectorRegistry.Read(_folder, notes).Count.ShouldBe(listed ? 1 : 0);
+        notes.Count.ShouldBe(listed ? 0 : 1);
     }
 
     /// <summary>The spec allows a descriptor without <c>processStart</c> (a platform that will not say); the pid decides.</summary>
@@ -156,10 +166,15 @@ public sealed class InspectorRegistryTests : IDisposable
         InspectorRegistry.Read(null).ShouldBeEmpty();
     }
 
+    /// <summary>
+    /// Computed with <see cref="Environment.SpecialFolderOption.DoNotVerify"/>, as the writer does, so the path
+    /// does not depend on whether the per-user data folder exists yet (on Unix the default option answers "").
+    /// </summary>
     [Fact]
     public void DefaultDirectory_IsDirLibInspectorUnderLocalApplicationData()
     {
-        var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var root = Environment.GetFolderPath(
+            Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify);
         if (root.Length == 0)
         {
             InspectorRegistry.DefaultDirectory.ShouldBeNull();
@@ -195,6 +210,32 @@ public sealed class InspectorRegistryTests : IDisposable
         instance.Address.ShouldBe(IPAddress.Loopback);
         instance.TcpPort.ShouldBe(50040);
         instance.Pid.ShouldBe(Environment.ProcessId);
+    }
+
+    /// <summary>
+    /// The start-time skip reaches the agent: <c>list_instances</c> says it, after the listing, and also when the
+    /// listing is otherwise empty, since the skip may be exactly why it is.
+    /// </summary>
+    [Fact]
+    public async Task ListInstances_SaysWhichDescriptorWasSkippedForAStartTimeMismatch()
+    {
+        var live = Register(Environment.ProcessId, 50050, kind: "tui", app: "Live", processStartUtc: OurStartUtc);
+        var skipped = Register(Environment.ProcessId, 50051, kind: "tui", processStartUtc: OurStartUtc.AddMinutes(-5));
+        var client = new InspectorDiscoveryClient(IPAddress.Parse("239.255.77.91"), 0) { RegistryDirectory = _folder };
+        var ct = TestContext.Current.CancellationToken;
+
+        var (instances, notes) = await client.DiscoverWithNotesAsync(ct);
+        instances.ShouldHaveSingleItem().TcpPort.ShouldBe(50050);
+        notes.ShouldBe([$"descriptor skipped: start-time mismatch ({skipped})"]);
+
+        var listing = await InspectorTools.list_instances(client, ct);
+        listing.ShouldContain($"pid={Environment.ProcessId}  app=Live  127.0.0.1:50050  proto=1");
+        listing.ShouldContain($"descriptor skipped: start-time mismatch ({skipped})");
+
+        File.Delete(live);
+        var empty = await InspectorTools.list_instances(client, ct);
+        empty.ShouldStartWith("No debuggable terminal apps found.");
+        empty.ShouldContain($"descriptor skipped: start-time mismatch ({skipped})");
     }
 
     [Fact]

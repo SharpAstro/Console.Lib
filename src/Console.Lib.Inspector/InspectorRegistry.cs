@@ -20,7 +20,9 @@ namespace Console.Lib.Inspector;
 /// as is one that does not parse or lacks <c>pid</c> or <c>tcpPort</c>. Nothing about one file fails the listing.</item>
 /// <item>A file whose pid is not running is dropped (a crash skips the writer's delete), and so is one whose pid
 /// IS running but started more than <see cref="StartTimeTolerance"/> away from the recorded
-/// <c>processStart</c>: that pid was handed to a later process.</item>
+/// <c>processStart</c>: that pid was handed to a later process. That second skip is SAID, never silent
+/// (<see cref="StartTimeMismatchNote"/>), because on Linux a wall-clock step of more than the tolerance moves a
+/// live process's reported start time too, and the instance would otherwise just vanish.</item>
 /// <item>Nothing is ever deleted. The writers sweep; a reader that deleted could race a live app's rewrite.</item>
 /// </list>
 /// </summary>
@@ -38,19 +40,37 @@ internal static class InspectorRegistry
     /// <c>DIR.Lib/inspector</c> under <see cref="Environment.SpecialFolder.LocalApplicationData"/>, computed the way
     /// the writer computes it rather than spelled out per OS. Null where the OS reports no per-user data folder,
     /// in which case nothing can have registered.
+    /// <para>
+    /// <see cref="Environment.SpecialFolderOption.DoNotVerify"/>, as the writer does: on Unix the default option
+    /// answers "" when <c>~/.local/share</c> (or <c>$XDG_DATA_HOME</c>) does not exist yet, which would make the
+    /// path depend on whether some other program happened to create that folder first. A folder that does not
+    /// exist is read as an empty registry.
+    /// </para>
     /// </summary>
     public static string? DefaultDirectory
-        => Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) is { Length: > 0 } root
-            ? Path.Combine(root, "DIR.Lib", "inspector")
-            : null;
+        => Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify)
+            is { Length: > 0 } root
+                ? Path.Combine(root, "DIR.Lib", "inspector")
+                : null;
+
+    /// <summary>
+    /// The note for a descriptor skipped because its pid is running but did not start when the descriptor says,
+    /// worded the same in every sidecar that reads the registry.
+    /// </summary>
+    internal static string StartTimeMismatchNote(string file) => $"descriptor skipped: start-time mismatch ({file})";
 
     /// <summary>
     /// Every live instance registered in <paramref name="directory"/>, of every kind (the caller filters, as it
     /// does a multicast reply), each at <see cref="IPAddress.Loopback"/>. A missing folder is an empty registry.
     /// </summary>
+    /// <param name="notes">Receives a line for each descriptor skipped for a reason a person should hear about:
+    /// today only <see cref="StartTimeMismatchNote"/>. A dead pid, an unreadable or malformed file are expected
+    /// debris and are not noted.</param>
     /// <param name="beforeOpen">Called with each candidate path just before it is opened. The seam a test uses to
     /// make a file vanish between the listing and the read, which is otherwise a race it cannot schedule.</param>
-    public static IReadOnlyList<InspectorInstance> Read(string? directory, Action<string>? beforeOpen = null)
+    public static IReadOnlyList<InspectorInstance> Read(
+        string? directory, ICollection<string>? notes = null, Action<string>? beforeOpen = null)
     {
         if (directory is null)
         {
@@ -77,11 +97,19 @@ internal static class InspectorRegistry
             }
 
             beforeOpen?.Invoke(file);
-            if (TryReadAllBytes(file) is { } bytes
-                && TryParse(bytes, out var instance, out var processStartUtc)
-                && IsLive(instance.Pid, processStartUtc))
+            if (TryReadAllBytes(file) is not { } bytes || !TryParse(bytes, out var instance, out var processStartUtc))
             {
-                found.Add(instance);
+                continue;
+            }
+
+            switch (Judge(instance.Pid, processStartUtc))
+            {
+                case Liveness.Live:
+                    found.Add(instance);
+                    break;
+                case Liveness.StartTimeMismatch:
+                    notes?.Add(StartTimeMismatchNote(file));
+                    break;
             }
         }
         return found;
@@ -172,29 +200,47 @@ internal static class InspectorRegistry
         }
     }
 
+    /// <summary>What <see cref="Judge"/> concluded about a descriptor's process.</summary>
+    internal enum Liveness
+    {
+        /// <summary>The pid is running and, where it was recorded, started when the descriptor says.</summary>
+        Live,
+
+        /// <summary>No process has the pid, or it exited while being asked.</summary>
+        Dead,
+
+        /// <summary>
+        /// The pid is running but started more than <see cref="StartTimeTolerance"/> away from the recorded
+        /// start: a reused pid, or (on Linux) a live process whose start time moved with a clock step.
+        /// </summary>
+        StartTimeMismatch,
+    }
+
     /// <summary>
     /// The liveness rule: the pid is running and, when the descriptor recorded a start time, it is that same
     /// process rather than a later one given the same pid. When the start time cannot be read (another user's
     /// or an elevated process: access denied) the pid alone decides.
     /// </summary>
-    internal static bool IsLive(int pid, DateTime? processStartUtc)
+    internal static Liveness Judge(int pid, DateTime? processStartUtc)
     {
         try
         {
             using var process = Process.GetProcessById(pid);
             if (process.HasExited)
             {
-                return false;
+                return Liveness.Dead;
             }
             if (processStartUtc is not { } recorded)
             {
-                return true;
+                return Liveness.Live;
             }
-            return (process.StartTime.ToUniversalTime() - recorded).Duration() <= StartTimeTolerance;
+            return (process.StartTime.ToUniversalTime() - recorded).Duration() <= StartTimeTolerance
+                ? Liveness.Live
+                : Liveness.StartTimeMismatch;
         }
-        catch (ArgumentException) { return false; }          // no process with that pid
-        catch (InvalidOperationException) { return false; }  // it exited while being asked
-        catch (Exception) { return true; }                    // cannot tell (access denied): keep it
+        catch (ArgumentException) { return Liveness.Dead; }          // no process with that pid
+        catch (InvalidOperationException) { return Liveness.Dead; }  // it exited while being asked
+        catch (Exception) { return Liveness.Live; }                   // cannot tell (access denied): keep it
     }
 
     private static int? Int(JsonElement root, string name)

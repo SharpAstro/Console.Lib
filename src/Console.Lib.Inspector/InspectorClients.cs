@@ -109,6 +109,9 @@ internal static class Json
 /// <param name="Kind">Its surface kind. Only a terminal speaks the verbs in this sidecar.</param>
 public sealed record InspectorInstance(IPAddress Address, int TcpPort, string App, string Kind, int Pid, int Proto);
 
+/// <summary>What one discovery found, and the notes on what it skipped (see <see cref="InspectorRegistry.Read"/>).</summary>
+public sealed record InspectorDiscoveryResult(IReadOnlyList<InspectorInstance> Instances, IReadOnlyList<string> Notes);
+
 /// <summary>
 /// Finds debuggable instances: first in the per-user file registry (<see cref="InspectorRegistry"/>), then with
 /// a UDP multicast query, collecting the unicast replies.
@@ -134,12 +137,27 @@ public sealed class InspectorDiscoveryClient(IPAddress group, int port)
     internal string? RegistryDirectory { get; init; } = InspectorRegistry.DefaultDirectory;
 
     public async Task<IReadOnlyList<InspectorInstance>> DiscoverAsync(CancellationToken ct = default)
+        => (await DiscoverWithNotesAsync(ct)).Instances;
+
+    /// <summary>
+    /// <see cref="DiscoverAsync"/>, plus the registry descriptors it skipped for a reason a person should hear
+    /// about (a live pid whose start time does not match). Each note also goes to stderr, which is the log of
+    /// an MCP stdio server, so a caller that only wants the instances still leaves a trace.
+    /// </summary>
+    public async Task<InspectorDiscoveryResult> DiscoverWithNotesAsync(CancellationToken ct = default)
     {
-        var registered = InspectorRegistry.Read(RegistryDirectory);
+        var notes = new List<string>();
+        var registered = InspectorRegistry.Read(RegistryDirectory, notes);
+        foreach (var note in notes)
+        {
+            System.Console.Error.WriteLine(note);
+        }
+
         var replies = await QueryAsync(ct);
 
         var local = LocalAddresses();
-        return Merge(registered, replies, a => IPAddress.IsLoopback(a) || local.Contains(a));
+        return new InspectorDiscoveryResult(
+            Merge(registered, replies, a => IPAddress.IsLoopback(a) || local.Contains(a)), notes);
     }
 
     /// <summary>

@@ -17,17 +17,23 @@ public sealed class InspectorTools
     [McpServerTool, Description("Discover running Debug-build Console.Lib terminal apps. Returns one line per instance: pid, app, address:port. Call this first; every other tool takes an optional instance pid.")]
     public static async Task<string> list_instances(InspectorDiscoveryClient discovery, CancellationToken ct = default)
     {
-        var all = await discovery.DiscoverAsync(ct);
-        if (all.Count == 0)
-        {
-            return "No debuggable terminal apps found. The app must be a DEBUG build with the inspector attached "
-                 + "(for chess: CHESS_INSPECTOR=1 and `dotnet run -c Debug`). The inspector is compiled out of Release entirely.";
-        }
+        var (all, notes) = await discovery.DiscoverWithNotesAsync(ct);
 
         var sb = new StringBuilder();
+        if (all.Count == 0)
+        {
+            sb.AppendLine("No debuggable terminal apps found. The app must be a DEBUG build with the inspector attached "
+                 + "(for chess: CHESS_INSPECTOR=1 and `dotnet run -c Debug`). The inspector is compiled out of Release entirely.");
+        }
         foreach (var i in all)
         {
             sb.AppendLine($"pid={i.Pid}  app={i.App}  {i.Address}:{i.TcpPort}  proto={i.Proto}");
+        }
+
+        // After the listing, and also when it is empty: a skipped descriptor may be exactly why it is.
+        foreach (var note in notes)
+        {
+            sb.AppendLine(note);
         }
         return sb.ToString();
     }

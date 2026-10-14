@@ -16,13 +16,15 @@ changed and why.
 inspector registers a descriptor file in a per-user folder (`DIR.Lib/inspector` under `LocalApplicationData`) and no
 longer answers the UDP multicast query unless asked to, because that bind is what made Windows Firewall prompt once
 per executable path, so once per git worktree. The `Console.Lib.Inspector` sidecar now reads that folder first, which
-needs no network at all, and then multicasts as before, for an app on another machine and for builds older than 11.21,
-which answer the query and do not register. The folder is read by the contract in DIR.Lib's
+needs no network at all, and then multicasts as before, for an app on another machine and for builds older than
+11.21, which answer the query and do not register. The folder is read by the contract in DIR.Lib's
 `src/DIR.Lib/Diagnostics/inspector-registry.md`, without referencing DIR.Lib: a descriptor whose process has exited,
 or whose pid now belongs to a later process (its start time is more than 2 s from the recorded one), is not listed,
-and nothing in the folder is ever deleted, since the apps sweep it themselves. An app found both ways is listed once,
-at 127.0.0.1; an app on another machine is kept even when it has the same pid as a local one. A query that cannot be
-sent now yields an empty multicast result instead of failing the whole listing.
+and nothing in the folder is ever deleted, since the apps sweep it themselves. The second kind of skip is said, on
+stderr and at the end of `list_instances` (`descriptor skipped: start-time mismatch (<file>)`), because on Linux a
+wall-clock step moves a live process's start time too, and that instance would otherwise just vanish. An app found
+both ways is listed once, at 127.0.0.1; an app on another machine is kept even when it has the same pid as a local
+one. A query that cannot be sent now yields an empty multicast result instead of failing the whole listing.
 
 The library itself is unchanged. Its `ConsoleDebugInspector` starts its core with the defaults, so it registers, and
 stops answering multicast, as soon as it is built against DIR.Lib 11.21.
