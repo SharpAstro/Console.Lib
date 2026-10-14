@@ -25,6 +25,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Console.Lib\Console.Lib.csproj" />
+    <!-- The MCP sidecar, for its registry reader and discovery merge (internal, via InternalsVisibleTo). -->
+    <ProjectReference Include="..\Console.Lib.Inspector\Console.Lib.Inspector.csproj" />
   </ItemGroup>
 
   <!-- The math font mdcat bundles, so the raster-math tests do not depend on what fonts the machine has
