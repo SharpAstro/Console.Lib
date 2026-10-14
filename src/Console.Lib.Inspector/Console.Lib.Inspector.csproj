@@ -2,7 +2,8 @@
 
   <!--
     Published NuGet MCP-server package: a standalone stdio bridge that discovers running Debug-build
-    Console.Lib TUI apps over UDP multicast and drives them over TCP.
+    Console.Lib TUI apps (in DIR.Lib's per-user file registry, then over UDP multicast) and drives them
+    over TCP.
 
     It references NOTHING from Console.Lib — it speaks the JSON protocol. That is deliberate: the
     in-process inspector half is #if DEBUG and never ships, so a sidecar that linked the library would
@@ -67,5 +68,13 @@
     </PropertyGroup>
     <WriteLinesToFile File="$(IntermediateOutputPath)server.json" Lines="$(_McpManifestContent)" Overwrite="true" WriteOnlyWhenDifferent="true" />
   </Target>
+
+  <ItemGroup>
+    <!-- The registry reader and the merge rule are otherwise only checkable against live apps, so the test
+         project checks them directly, against fixture files in a temporary folder. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>Console.Lib.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
 
 </Project>
