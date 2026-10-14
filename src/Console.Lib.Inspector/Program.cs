@@ -10,7 +10,8 @@ using Microsoft.Extensions.Logging;
 // All logging goes to STDERR: stdout is the JSON-RPC channel and must stay clean. (The apps being driven
 // have the same rule for the opposite reason -- their stdout is the terminal screen.)
 //
-// Discovery overrides: --group <multicast-ip> / --port <n>, or CONSOLE_INSPECTOR_GROUP / _PORT.
+// Discovery reads DIR.Lib's per-user registry folder first (no network needed), then multicasts.
+// Multicast overrides: --group <multicast-ip> / --port <n>, or CONSOLE_INSPECTOR_GROUP / _PORT.
 //
 // NOTE: `System.Console` must be written out in full in this file. `using Console.Lib.Inspector` makes the
 // bare name `Console` resolve to the NAMESPACE, which is the same collision Chess.Lib.File has with
@@ -26,7 +27,8 @@ if (Array.Exists(args, a => a == "selftest"))
     var discovery = new InspectorDiscoveryClient(group, port);
     var socket = new InspectorSocketClient();
 
-    System.Console.Error.WriteLine($"discovering on {group}:{port} ...");
+    System.Console.Error.WriteLine(
+        $"discovering in {InspectorRegistry.DefaultDirectory ?? "(no registry folder)"} and on {group}:{port} ...");
     var found = await discovery.DiscoverAsync();
     if (found.Count == 0)
     {
