@@ -84,13 +84,47 @@ public sealed class SixelEncoderTests
             return (c, (byte)(255 - c), (byte)(c / 2), (byte)0xFF);
         }), 96, 24),
 
+        // 216 colours in noise with a transparent speckle: the output runs to several times the
+        // encoder's 64 KiB write buffer, so the stream is written in more than one flush.
+        "large" => (Make(320, 240, (x, y) =>
+        {
+            var n = Noise(x, y);
+            return n % 11 == 0
+                ? ((byte)0, (byte)0, (byte)0, (byte)0)
+                : ((byte)(n % 6 * 51), (byte)(n / 6 % 6 * 51), (byte)(n / 36 % 6 * 51), (byte)0xFF);
+        }), 320, 240),
+
+        // Thousands of colours, so the palette is oversubscribed and most snap to a nearest survivor,
+        // at a size that also spans several flushes.
+        "large-oversubscribed" => (Make(300, 200, (x, y) =>
+            ((byte)(x * 7 % 256), (byte)(y * 5 % 256), (byte)(Noise(x, y) % 8 * 32), (byte)0xFF)), 300, 200),
+
+        // Runs far longer than a row usually holds (four-digit '!' counts), transparent gaps between
+        // them, and a height that ends mid-band.
+        "long-runs" => (Make(2000, 13, (x, y) => x switch
+        {
+            < 1200 => ((byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF),
+            < 1500 => ((byte)0, (byte)0, (byte)0, (byte)0),
+            < 1800 => y % 2 == 0 ? ((byte)0x20, (byte)0x40, (byte)0x60, (byte)0xFF) : ((byte)0, (byte)0, (byte)0, (byte)0),
+            _ => ((byte)0x80, (byte)0x10, (byte)0x10, (byte)0xFF),
+        }), 2000, 13),
+
         _ => throw new ArgumentOutOfRangeException(nameof(name), name, "unknown case"),
     };
 
-    public static TheoryData<string> DataSource() =>
-        ["checker", "gradient", "alpha", "ragged", "thin-row", "thin-col", "churn", "striped"];
+    /// <summary>A deterministic 0..255 hash of a pixel position, standing in for picture content.</summary>
+    private static int Noise(int x, int y) => (int)((uint)(x * 73856093 ^ y * 19349663) * 2654435761u >> 24);
 
-    /// <summary>Stream length and hash captured from the pre-optimization encoder.</summary>
+    public static TheoryData<string> DataSource() =>
+        ["checker", "gradient", "alpha", "ragged", "thin-row", "thin-col", "churn", "striped",
+         "large", "large-oversubscribed", "long-runs"];
+
+    /// <summary>
+    /// Stream length and hash captured from the pre-optimization encoder. The last three cases, and the
+    /// two tests below, came later: captured from the encoder at cac44a8, before the RLE and write-path
+    /// rework, to pin what the first eight do not reach (more than one flush of the write buffer,
+    /// four-digit runs, three-channel input and reservations).
+    /// </summary>
     private static (int Length, string Hash) Golden(string name) => name switch
     {
         "checker" => (637, "33DE75D4D682A696"),
@@ -101,6 +135,9 @@ public sealed class SixelEncoderTests
         "thin-col" => (711, "19BCAE57AA904CDE"),
         "churn" => (7645, "4C136B6679539ED3"),
         "striped" => (567, "567BC60B35AC4E34"),
+        "large" => (383143, "E7A1ABAECEAB08FD"),
+        "large-oversubscribed" => (147572, "003D9A5AB9A76D15"),
+        "long-runs" => (200, "A4A395DB8ED38487"),
         _ => throw new ArgumentOutOfRangeException(nameof(name), name, "unknown case"),
     };
 
@@ -128,5 +165,43 @@ public sealed class SixelEncoderTests
         // Working buffers are rented from ArrayPool and reused across calls, so a missed reset
         // between encodes would surface as the second stream differing from the first.
         second.ShouldBe(first);
+    }
+
+    [Fact]
+    public void Encode_ThreeChannels_ProducesStableBytes()
+    {
+        // The alpha case with its alpha dropped: without a fourth channel nothing is transparent, so
+        // the pixels the RGBA encode skips become black ones here.
+        var (rgba, width, height) = Case("alpha");
+        var rgb = new byte[width * height * 3];
+        for (var i = 0; i < width * height; i++)
+        {
+            rgb[i * 3] = rgba[i * 4];
+            rgb[i * 3 + 1] = rgba[i * 4 + 1];
+            rgb[i * 3 + 2] = rgba[i * 4 + 2];
+        }
+
+        using var ms = new MemoryStream();
+        SixelEncoder.Encode(rgb, width, height, 3, ms);
+        var encoded = ms.ToArray();
+
+        encoded.Length.ShouldBe(3220);
+        Convert.ToHexString(SHA256.HashData(encoded))[..16].ShouldBe("EEA89AC1AF44DECA");
+    }
+
+    [Fact]
+    public void Encode_WithReservations_ProducesStableBytes()
+    {
+        // Oversubscribed, so the reservations displace frequency-ranked colours; red appears twice to
+        // pin that a duplicate takes no slot.
+        var (pixels, width, height) = Case("large-oversubscribed");
+
+        using var ms = new MemoryStream();
+        SixelEncoder.Encode(pixels, width, height, 4, ms,
+            [new DIR.Lib.RGBAColor32(0xFF, 0, 0, 0xFF), new DIR.Lib.RGBAColor32(0, 0x80, 0xFF, 0xFF), new DIR.Lib.RGBAColor32(0xFF, 0, 0, 0xFF)]);
+        var encoded = ms.ToArray();
+
+        encoded.Length.ShouldBe(147291);
+        Convert.ToHexString(SHA256.HashData(encoded))[..16].ShouldBe("AB755609A61C9E19");
     }
 }
