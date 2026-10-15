@@ -91,12 +91,10 @@ public static class BoxRenderer
                 // pure ASCII (ESC, digits, '#', '$', '-', '?'–'~'), so any
                 // ASCII-compatible Console.OutputEncoding (UTF-8 / UTF-16 /
                 // Latin-1 / the legacy code pages) round-trips it cleanly.
+                // It is encoded straight to a string: through a MemoryStream it
+                // was copied out with ToArray and only then decoded.
                 output.WriteLine();
-                using (var ms = new System.IO.MemoryStream())
-                {
-                    SixelEncoder.Encode(rgba, width, height, channels: 4, ms);
-                    output.Write(System.Text.Encoding.ASCII.GetString(ms.ToArray()));
-                }
+                output.Write(SixelEncoder.EncodeToString(rgba, width, height, channels: 4));
                 output.WriteLine();
                 break;
 

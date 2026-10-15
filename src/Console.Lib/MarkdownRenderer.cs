@@ -204,15 +204,23 @@ public static partial class MarkdownRenderer
                 t_mathRasterizations++;
                 if (image.Width <= 0 || image.Height <= 0) return false;
 
+                if (mode == BoxRenderMode.Sixel)
+                {
+                    // One entry: what the split below used to make of EncodeImage's Sixel output,
+                    // without the trip through a StringWriter. The DCS sequence holds no newline, so
+                    // the blank lines EncodeImage writes around it were dropped and it was the one line.
+                    result.Add(SixelEncoder.EncodeToString(image.Pixels, image.Width, image.Height, channels: 4));
+                    return true;
+                }
+
                 using var sw = new StringWriter();
                 BoxRenderer.EncodeImage(image.Pixels, image.Width, image.Height, mode, sw);
 
                 // Split into lines so the caller's surrounding layout (transcript
-                // widget, scrollback, etc.) sees one entry per cell row. Sixel
-                // collapses to a single entry because its DCS sequence doesn't
-                // contain real newlines. StringWriter.WriteLine emits the platform
-                // newline, so on Windows each line would keep a '\r' that counts
-                // as visible width; trim it as the image path does.
+                // widget, scrollback, etc.) sees one entry per cell row.
+                // StringWriter.WriteLine emits the platform newline, so on Windows
+                // each line would keep a '\r' that counts as visible width; trim it
+                // as the image path does.
                 var any = false;
                 foreach (var raw in sw.ToString().Split('\n'))
                 {
