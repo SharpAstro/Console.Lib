@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Timing harness for display math: times MarkdownRenderer.RenderLines over the MathRenderParityTests
+    corpus, and the Sixel encoder on its own, for this working tree AND a baseline commit in one run.
+    The baseline's Console.Lib is built from `git archive` into obj/baseline/ and loaded into its own
+    AssemblyLoadContext, so both run in the same process against the same DIR.Lib. The command line is
+    in Program.cs (an XML comment cannot hold its double hyphens).
+
+    Release is not optional: in a checkout without the DIR.Lib sibling a Debug Console.Lib does not
+    even compile, and a Debug timing means nothing anyway. Not part of Console.Lib.sln, so CI never
+    builds it.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>MathPerf</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Console.Lib\Console.Lib.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The corpus MathRenderParityTests pins, so the harness times exactly what the golden covers. -->
+    <Compile Include="..\..\src\Console.Lib.Tests\MathCorpus.cs" Link="MathCorpus.cs" />
+    <None Include="..\..\src\MdCat\Fonts\STIX2Math.otf" Link="Fonts\STIX2Math.otf" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
