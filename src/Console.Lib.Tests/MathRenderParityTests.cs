@@ -1,5 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
+using DIR.Lib.Markdown;
+using DIR.Lib.MathLayout;
+using LALR.CC.LexicalGrammar;
 using Shouldly;
 using Xunit;
 
@@ -7,7 +10,7 @@ namespace Console.Lib.Tests;
 
 /// <summary>
 /// Pins display math's raster output byte for byte: <see cref="MarkdownRenderer.RenderLines(string, int, ColorMode, MarkdownTheme?, BoxRenderMode?, string?, MarkdownImageOptions?, Func{string, string}?)"/>
-/// over a fixed corpus, in every raster encoding, at a wide, a middling and a narrow width. The golden
+/// over <see cref="MathCorpus"/>, in every raster encoding, at a wide, a middling and a narrow width. The golden
 /// was captured from main before the width-fit loop and the Sixel encoder were reworked for speed, so
 /// a rework that changes a single byte of what reaches the terminal fails here.
 /// <para>
@@ -23,57 +26,18 @@ public sealed class MathRenderParityTests
     private static readonly string MathFont = Path.Combine(AppContext.BaseDirectory, "Fonts", "STIX2Math.otf");
     private static readonly string GoldenPath = Path.Combine(AppContext.BaseDirectory, "Golden", "MathRenderParity.golden.txt");
 
-    /// <summary>
-    /// Display formulas, each rendered as a fenced block (delimiters on their own lines): a one-line
-    /// <c>$$x$$</c> parses as inline math inside a paragraph, which never rasters.
-    /// <para>
-    /// The wide ones are there for the width-fit loop. At width 30 <c>quadratic</c>,
-    /// <c>definite-integral</c> and <c>fine-structure</c> shrink to fit as Sixel; at 60 the half-block
-    /// rasters of <c>gauss-sum</c>, <c>gaussian-integral</c>, <c>limit</c> and <c>vectors</c> take three
-    /// passes, because the first shrink leaves them still too wide; <c>fourteen-terms</c> shrinks as Sixel at 60 and as
-    /// sextant at 120, and is too wide for any raster at 30. <c>hypotenuse</c> as half-block at 30 lands
-    /// exactly on the two-thirds floor. The last formula cannot be lexed by the math grammar at all, so
-    /// it pins the Unicode fallback.
-    /// </para>
-    /// </summary>
-    internal static readonly (string Name, string Source)[] Corpus =
-    [
-        ("quadratic", @"x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}"),
-        ("hypotenuse", @"\sqrt{x^2 + y^2}"),
-        ("fraction-sum", @"\frac{a}{b} + \frac{c}{d}"),
-        ("gauss-sum", @"\sum_{i=1}^{n} i = \frac{n(n+1)}{2}"),
-        ("gaussian-integral", @"\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}"),
-        ("left-right", @"\left( \frac{a}{b} \right)^2"),
-        ("euler", @"e^{i\pi} + 1 = 0"),
-        ("mass-energy", @"E = mc^2"),
-        ("pythagoras", @"a^2 + b^2 = c^2"),
-        ("continued-fraction", @"\frac{1}{1 + \frac{1}{1 + \frac{1}{x}}}"),
-        ("definite-integral", @"\int_a^b f(x) dx = F(b) - F(a)"),
-        ("fine-structure", @"\alpha = \frac{e^2}{4\pi\varepsilon_0 \hbar c}"),
-        ("fourteen-terms", @"a + b + c + d + e + f + g + h + i + j + k + l + m + n"),
-        ("limit", @"\lim_{x \to 0} \frac{\sin x}{x} = 1"),
-        ("binomial", @"\binom{n}{k}"),
-        ("vectors", @"\vec{F} = m \vec{a}"),
-        ("factorial-unlexable", @"\prod_{k=1}^{n} k = n!"),
-    ];
-
-    internal static readonly BoxRenderMode[] Modes = [BoxRenderMode.Sixel, BoxRenderMode.Sextant, BoxRenderMode.HalfBlock];
-    internal static readonly int[] Widths = [120, 60, 30];
-
     public static TheoryData<string, BoxRenderMode, int> Cases()
     {
         var data = new TheoryData<string, BoxRenderMode, int>();
-        foreach (var (name, _) in Corpus)
-        foreach (var mode in Modes)
-        foreach (var width in Widths)
+        foreach (var (name, _) in MathCorpus.Formulas)
+        foreach (var mode in MathCorpus.Modes)
+        foreach (var width in MathCorpus.Widths)
             data.Add(name, mode, width);
         return data;
     }
 
-    internal static string Markdown(string source) => $"$$\n{source}\n$$";
-
     internal static List<string> Render(string source, BoxRenderMode mode, int width)
-        => MarkdownRenderer.RenderLines(Markdown(source), width, ColorMode.TrueColor,
+        => MarkdownRenderer.RenderLines(MathCorpus.Markdown(source), width, ColorMode.TrueColor,
             mathMode: mode, mathFontPath: MathFont);
 
     [Theory]
@@ -81,7 +45,7 @@ public sealed class MathRenderParityTests
     public void RenderLines_IsByteIdenticalToTheGolden(string name, BoxRenderMode mode, int width)
     {
         File.Exists(MathFont).ShouldBeTrue("the test project copies mdcat's STIX Two Math next to the tests");
-        var source = Corpus.Single(c => c.Name == name).Source;
+        var source = MathCorpus.Formulas.Single(c => c.Name == name).Source;
 
         var golden = ReadGolden();
         golden.TryGetValue(Key(name, mode, width), out var expected)
@@ -95,9 +59,9 @@ public sealed class MathRenderParityTests
     {
         var actual = new StringBuilder();
         actual.Append("# name mode width lines chars sha256\n");
-        foreach (var (name, source) in Corpus)
-        foreach (var mode in Modes)
-        foreach (var width in Widths)
+        foreach (var (name, source) in MathCorpus.Formulas)
+        foreach (var mode in MathCorpus.Modes)
+        foreach (var width in MathCorpus.Widths)
             actual.Append(Entry(name, mode, width, Render(source, mode, width))).Append('\n');
 
         var expected = string.Join('\n', File.ReadAllLines(GoldenPath).Where(l => !l.StartsWith("# ", StringComparison.Ordinal)));
@@ -110,6 +74,75 @@ public sealed class MathRenderParityTests
             rendered.ShouldBe(expected, $"the corpus no longer renders as the golden says; today's rendering is in {actualPath}");
         }
     }
+
+    /// <summary>
+    /// The width-fit loop sizes each candidate from the box and rasterizes only the size it settles on:
+    /// once when the formula rasters, at whatever size, and not at all when even the two-thirds floor is
+    /// too wide or the grammar rejects it. It used to rasterize every size it tried.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Cases))]
+    public void WidthFit_RasterizesOnlyTheSizeItSettlesOn(string name, BoxRenderMode mode, int width)
+    {
+        var source = MathCorpus.Formulas.Single(c => c.Name == name).Source;
+
+        var before = MarkdownRenderer.t_mathRasterizations;
+        var lines = Render(source, mode, width);
+        var rasterizations = MarkdownRenderer.t_mathRasterizations - before;
+
+        rasterizations.ShouldBe(IsRaster(lines) ? 1 : 0);
+    }
+
+    /// <summary>
+    /// <see cref="MarkdownRenderer.MathRasterSize"/> restates how DIR.Lib sizes a raster, and the width-fit
+    /// loop trusts it instead of rasterizing to find out. This holds it to the size
+    /// <see cref="BoxRasterizer.RenderToRgba"/> really gives, for every formula the grammar takes, at
+    /// thirteen sizes from the encoding's default down to its two-thirds floor, so a DIR.Lib that sizes
+    /// rasters differently fails here instead of quietly mis-sizing fits.
+    /// </summary>
+    [Theory]
+    [InlineData(32f)]
+    [InlineData(12f)]
+    [InlineData(10f)]
+    public void MathRasterSize_IsTheSizeRenderToRgbaGives(float defaultSize)
+    {
+        var formulas = 0;
+        foreach (var (name, source) in MathCorpus.Formulas)
+        {
+            Func<BoxStyle, Box>? builder;
+            try
+            {
+                // TryRenderMathBox's preprocessing, as far as this corpus needs it (no \boxed, no \ce).
+                var preprocessed = MarkdownMacros.ResolveBackslashEscapes(MarkdownMacros.NormalizeLatexAliases(source));
+                builder = MarkdownRenderer.ParseMathBox(preprocessed, new BoxStyle(MathFont, defaultSize));
+            }
+            catch (LexerException)
+            {
+                continue;
+            }
+            if (builder is null) continue;
+            formulas++;
+
+            for (var step = 0; step <= 12; step++)
+            {
+                var size = defaultSize - defaultSize / 3 * step / 12;
+                var style = new BoxStyle(MathFont, size);
+                var box = builder(style);
+                var image = BoxRasterizer.RenderToRgba(box, style);
+                MarkdownRenderer.MathRasterSize(box, style).ShouldBe((image.Width, image.Height), $"{name} at {size} px");
+            }
+        }
+
+        formulas.ShouldBe(MathCorpus.Formulas.Length - 1, "every formula but factorial-unlexable parses");
+    }
+
+    /// <summary>
+    /// Whether display math came out as a raster rather than as Unicode: a Sixel DCS sequence, or the
+    /// block and sextant characters the cell encoders draw with, none of which the Unicode path emits.
+    /// </summary>
+    private static bool IsRaster(List<string> lines) => lines.Any(line =>
+        line.Contains("\eP", StringComparison.Ordinal)
+        || line.EnumerateRunes().Any(r => r.Value is 0x2580 or 0x2584 or 0x2588 or 0x258C or 0x2590 or (>= 0x1FB00 and <= 0x1FB3B)));
 
     private static string Key(string name, BoxRenderMode mode, int width) => $"{name} {mode} {width}";
 
