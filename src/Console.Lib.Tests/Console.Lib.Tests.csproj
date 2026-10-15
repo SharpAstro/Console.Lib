@@ -34,6 +34,8 @@
        the raster would pass or fail by machine. -->
   <ItemGroup>
     <None Include="..\MdCat\Fonts\STIX2Math.otf" Link="Fonts\STIX2Math.otf" CopyToOutputDirectory="PreserveNewest" />
+    <!-- MathRenderParityTests' golden: a hash per corpus case of what display math renders to. -->
+    <None Update="Golden\MathRenderParity.golden.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Alias the DIR.Lib.Layout namespace so tests write the qualified `Layout.Node` form (see Console.Lib.csproj). -->
