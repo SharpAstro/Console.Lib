@@ -289,7 +289,7 @@ public static class SixelEncoder
         try
         {
             // Reservations claim their slots first, in the order given, and keep them whether or not this
-            // frame contains a single pixel of them — that is what makes the index stable across a partial
+            // frame contains a single pixel of them, which is what makes the index stable across a partial
             // strip or an animation frame. Duplicates are dropped rather than wasting a slot.
             foreach (var colour in reserved)
             {
@@ -307,7 +307,7 @@ public static class SixelEncoder
 
             if (paletteSize + uniqueColors <= MaxColors)
             {
-                // Everything fits alongside the reservations — no ranking needed
+                // Everything fits alongside the reservations: no ranking needed
                 for (var e = 0; e < uniqueColors; e++)
                 {
                     var packed = colours.Keys[e];
@@ -341,7 +341,7 @@ public static class SixelEncoder
 
                     // Walk the ranking once. The cut is wherever the palette fills up, which depends on how
                     // many slots the reservations took AND on how many of the frame's own colours were
-                    // already among them — so it is not a fixed index the way it was before.
+                    // already among them, so it is not a fixed index the way it was before.
                     var rank = 0;
                     for (; rank < uniqueColors && paletteSize < MaxColors; rank++)
                     {
@@ -358,7 +358,7 @@ public static class SixelEncoder
                         }
                     }
 
-                    // Everything below the cut snaps to its nearest surviving entry — reservations included,
+                    // Everything below the cut snaps to its nearest surviving entry, reservations included,
                     // which is the other half of the point: a shade can now land on a colour that means
                     // something rather than only on whichever near-duplicate of the background outranked it.
                     for (; rank < uniqueColors; rank++)

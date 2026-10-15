@@ -10,6 +10,10 @@
 // rasterize with the same code and only Console.Lib differs. It also times the Sixel encoder on its own,
 // checks that both sides render every case to the same lines, and counts how many times each side's
 // width-fit loop rasterized the wide formulas.
+//
+// The baseline is always built against the DIR.Lib package, while "now" builds against a sibling DIR.Lib
+// checkout when there is one. Both still run on the one DIR.Lib the harness loads, but a sibling far ahead
+// of the package can break the baseline's binding to it; a worktree, or -p:UseLocalDirLib=false, avoids that.
 
 using System.Diagnostics;
 using System.Formats.Tar;
