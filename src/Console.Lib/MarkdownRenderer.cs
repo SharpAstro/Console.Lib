@@ -109,6 +109,13 @@ public static partial class MarkdownRenderer
     /// so a formula that still does not fit is left to that path. The raster used to be emitted at its
     /// natural width whatever the width was: 135 cells for a long sum at a width of 30.
     /// </para>
+    /// <para>
+    /// The fit is decided from the box, not from a raster: a pass lays the box tree out at the candidate
+    /// size and reads the raster's width off it (<see cref="MathRasterSize"/>), and only the size that fits
+    /// is rasterized, once. A formula too wide even at the floor is never rasterized at all. The source is
+    /// parsed once too, because the parse yields a builder that lays the box out at whatever style it is
+    /// handed. Each pass used to re-parse, rebuild and rasterize the whole image just to read its width.
+    /// </para>
     /// </summary>
     /// <param name="cellPixelWidth">
     /// Pixels per cell, which is what turns a Sixel raster's width into cells. Sextant and half-block
@@ -167,18 +174,20 @@ public static partial class MarkdownRenderer
             var minimumSize = defaultSize * 2 / 3;
             var fontSize = defaultSize;
 
+            if (ParseMathBox(source, new BoxStyle(fontPath, defaultSize)) is not { } builder) return false;
+
             while (true)
             {
                 var style = new BoxStyle(fontPath, fontSize);
-                if (Build(style) is not { } box) return false;
-                var image = BoxRasterizer.RenderToRgba(box, style);
-                if (image.Width <= 0 || image.Height <= 0) return false;
+                var box = builder(style);
+                var (rasterWidth, rasterHeight) = MathRasterSize(box, style);
+                if (rasterWidth <= 0 || rasterHeight <= 0) return false;
 
                 var cells = mode switch
                 {
-                    BoxRenderMode.Sixel   => (image.Width + cellPixelWidth - 1) / Math.Max(1, cellPixelWidth),
-                    BoxRenderMode.Sextant => (image.Width + 1) / 2,
-                    _                     => image.Width,
+                    BoxRenderMode.Sixel   => (rasterWidth + cellPixelWidth - 1) / Math.Max(1, cellPixelWidth),
+                    BoxRenderMode.Sextant => (rasterWidth + 1) / 2,
+                    _                     => rasterWidth,
                 };
                 if (cells > width && width > 0)
                 {
@@ -190,6 +199,10 @@ public static partial class MarkdownRenderer
                     fontSize = next;
                     continue;
                 }
+
+                var image = BoxRasterizer.RenderToRgba(box, style);
+                t_mathRasterizations++;
+                if (image.Width <= 0 || image.Height <= 0) return false;
 
                 using var sw = new StringWriter();
                 BoxRenderer.EncodeImage(image.Pixels, image.Width, image.Height, mode, sw);
@@ -213,20 +226,51 @@ public static partial class MarkdownRenderer
         {
             return false;
         }
+    }
 
-        Box? Build(BoxStyle style)
-        {
-            // Math expressions use a separate parser instance because each
-            // BuildParser call binds a specific visitor; we can't share the
-            // Unicode parser with a Box-typed visitor. The visitor is bound to
-            // a style too, so a pass at another size parses afresh.
-            var visitor = new BoxBuildingVisitor(style);
-            var boxParser = Latex.BuildParser(visitor);
-            using var lexer = BytesLexer.FromString(source, MarkdownMacros.MathLexerTable);
-            using var tokens = new SyncLATokenIterator(lexer);
-            var item = boxParser.ParseInput(tokens, debugger: null);
-            return item.IsError || item.Content is not Func<BoxStyle, Box> builder ? null : builder(style);
-        }
+    /// <summary>
+    /// Rasterizations <see cref="TryRenderMathBox"/> has done on this thread, so a test can see that the
+    /// width-fit loop rasterizes only the size it settles on. Thread-static, so tests running in parallel
+    /// do not count each other's rasters.
+    /// </summary>
+    [ThreadStatic] internal static int t_mathRasterizations;
+
+    /// <summary>
+    /// Parses preprocessed math source into the builder that lays its box tree out at a given style, or
+    /// null when the grammar rejects it. A lexer error throws, as it always has; the caller's catch turns
+    /// that into the Unicode path.
+    /// </summary>
+    /// <param name="style">
+    /// The style the visitor is constructed with. The builder it returns takes its style as an argument,
+    /// so one parse serves every size.
+    /// </param>
+    internal static Func<BoxStyle, Box>? ParseMathBox(string source, BoxStyle style)
+    {
+        // Math expressions use a separate parser instance because each
+        // BuildParser call binds a specific visitor; we can't share the
+        // Unicode parser with a Box-typed visitor.
+        var boxParser = Latex.BuildParser(new BoxBuildingVisitor(style));
+        using var lexer = BytesLexer.FromString(source, MarkdownMacros.MathLexerTable);
+        using var tokens = new SyncLATokenIterator(lexer);
+        var item = boxParser.ParseInput(tokens, debugger: null);
+        return item.IsError || item.Content is not Func<BoxStyle, Box> builder ? null : builder;
+    }
+
+    /// <summary>
+    /// The size <see cref="BoxRasterizer.RenderToRgba"/> gives the raster of <paramref name="box"/>, worked
+    /// out without rasterizing it: the box rounded up to whole pixels, plus a margin of 15% of the font
+    /// size, rounded up, on every side.
+    /// <para>
+    /// DIR.Lib has no API for this, so it is restated from <c>BoxRasterizer.RenderToRgba</c>, and
+    /// MathRenderParityTests compares it with that method's real output for the whole corpus, at sizes
+    /// spanning each encoding's default down to its floor, so a change on DIR.Lib's side fails a test
+    /// rather than mis-sizing a fit.
+    /// </para>
+    /// </summary>
+    internal static (int Width, int Height) MathRasterSize(Box box, BoxStyle style)
+    {
+        var margin = (int)MathF.Ceiling(style.FontSize * 0.15f);
+        return ((int)MathF.Ceiling(box.Width) + margin * 2, (int)MathF.Ceiling(box.TotalHeight) + margin * 2);
     }
 
     internal static string FormatInline(string text, ColorMode colorMode, MarkdownTheme? theme = null)
