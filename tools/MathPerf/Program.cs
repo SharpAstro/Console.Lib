@@ -186,8 +186,15 @@ static (double Main, double Now) TimePair(Action main, Action now, int iteration
     Array.Sort(b);
     return (a[iterations / 2], b[iterations / 2]);
 
+    // A RenderLines call allocates several megabytes (DIR.Lib's markdown parse alone is about 4.8 MB) and
+    // its rasters are big enough for the large object heap, so gen2 collections land on whichever sample
+    // happens to be running and swing a single case's median by 2x either way. Collecting before each
+    // sample, outside the timing, bills every call for its own garbage only.
     static double Time(Action action)
     {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
         var t0 = Stopwatch.GetTimestamp();
         action();
         return Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
