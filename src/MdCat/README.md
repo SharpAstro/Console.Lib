@@ -49,8 +49,8 @@ mdcat --plain README.md > out.txt # strip styling for plain capture
 
 ## Math
 
-Display math rasterizes (sixel / sextant / half-block per `--mode`) only when
-the delimiters sit on their **own lines** — i.e. a block:
+Display math rasterizes (sixel / sextant / half-block per `--mode`), whether it
+is a block of its own:
 
 ```
 $$
@@ -58,8 +58,10 @@ $$
 $$
 ```
 
-Single-line `$$...$$` and inline `$...$` always render as single-row Unicode,
-never rastered.
+or written inside a paragraph as `$$...$$` or `\[...\]`. The paragraph then
+splits around it, as Pandoc sets it: the text before, the raster, the text after.
+Inline `$...$` and `\(...\)` render as single-row Unicode, never rastered, and so
+does display math in a heading or a table cell, where a raster cannot fit in one row.
 
 A raster is held to `--width`: a formula wider than the width is re-laid at a
 smaller size, down to two thirds of the default, and one that still does not fit

@@ -767,8 +767,9 @@ public sealed class MarkdownRendererTests
     private static readonly string MathFont = Path.Combine(AppContext.BaseDirectory, "Fonts", "STIX2Math.otf");
 
     // Fourteen terms: at the sextant raster's default size this is well over 100 cells wide. The
-    // delimiters go on their own lines: a one-line $$...$$ parses as inline math inside a paragraph, which
-    // never rasters, so a test written that way passes without reaching the raster at all.
+    // delimiters go on their own lines, so these are display blocks (MdMathBlock). A one-line $$...$$ is
+    // display math inside a paragraph, which rasters too but through the paragraph split
+    // (DisplayMathInParagraphTests).
     private const string LongFormula = "$$\na + b + c + d + e + f + g + h + i + j + k + l + m + n\n$$";
     private const string ShortFormula = "$$\nE = mc^2\n$$";
 
