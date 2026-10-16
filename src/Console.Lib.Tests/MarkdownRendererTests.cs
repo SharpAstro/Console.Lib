@@ -814,6 +814,55 @@ public sealed class MarkdownRendererTests
         raster.ShouldAllBe(l => !l.Contains('\e'));
     }
 
+    [Theory]
+    [InlineData(@"\{1, 2, 3\}")]
+    [InlineData(@"\{a\}")]
+    [InlineData(@"\left\{ 1, 2 \right\}")]
+    [InlineData(@"\lbrace x \rbrace")]
+    [InlineData(@"\boxed{\{a\}}")]
+    public void MathBlock_EscapedBraces_TakeTheUnicodePath(string source)
+    {
+        // The box path has no curly-brace glyph: \left\{ is aliased to a bare group and \{ resolves to
+        // one, so a raster would draw the set without its braces.
+        var md = $"$$\n{source}\n$$";
+        var unicode = MarkdownRenderer.RenderLines(md, 80, ColorMode.TrueColor);
+
+        foreach (var mode in new[] { BoxRenderMode.Sixel, BoxRenderMode.Sextant, BoxRenderMode.HalfBlock })
+        {
+            MarkdownRenderer.RenderLines(md, 80, ColorMode.TrueColor, mathMode: mode, mathFontPath: MathFont)
+                .ShouldBe(unicode, $"{mode} must not raster {source}");
+        }
+    }
+
+    [Fact]
+    public void MathBlock_LeftBrace_IsSeenBeforeTheAliasesRewriteIt()
+    {
+        // NormalizeLatexAliases turns \left\{ .. \right\} into a bare group, which the box path lays out
+        // happily, braces gone. So the guard has to look at the source before that rewrite: here the
+        // auto-sized pair is the only brace there is, and nothing after the rewrite would show one.
+        // It asserts the route only, not the Unicode text, which is DIR.Lib's to get right.
+        const string md = "$$\n\\left\\{ 1, 2 \\right\\}\n$$";
+        var unicode = MarkdownRenderer.RenderLines(md, 80, ColorMode.TrueColor);
+
+        MarkdownRenderer.RenderLines(md, 80, ColorMode.TrueColor, mathMode: BoxRenderMode.Sixel, mathFontPath: MathFont)
+            .ShouldBe(unicode);
+    }
+
+    [Theory]
+    [InlineData(@"\{1, 2, 3\}", "{1,2,3}")]
+    [InlineData(@"\{a\}", "{a}")]
+    [InlineData(@"\boxed{\{a\}}", "{a}")]
+    public void MathBlock_EscapedBraces_KeepTheirBraces(string source, string expected)
+    {
+        // Spaces aside: the Unicode path sets a comma without the space the source had. Only the escaped
+        // forms are here, because only they keep their braces on DIR.Lib's Unicode path: it normalizes
+        // \left\{ to a bare group as the box path does, and it does not know \lbrace at all.
+        var lines = MarkdownRenderer.RenderLines($"$$\n{source}\n$$", 80, ColorMode.TrueColor,
+            mathMode: BoxRenderMode.Sextant, mathFontPath: MathFont);
+
+        StripEscapes(string.Join("\n", lines)).Replace(" ", "").ShouldContain(expected);
+    }
+
     [Fact]
     public void MathBlock_NoMathModeArg_UsesUnicodePath()
     {

@@ -131,26 +131,27 @@ public static partial class MarkdownRenderer
         //   - LaTeX aliases: \dfrac/\tfrac → \frac, \left[ → [, …
         //   - \boxed{X}     → X  (strip the wrapper; v1 has no boxed frame)
         //   - \ce{X}        → Mhchem.ToLatex(X)  (chem → LaTeX math source,
-        //                     so chem picks up the same box layout as math —
-        //                     Phase-2 mhchem)
+        //                     so chem picks up the same box layout as math;
+        //                     it writes upright parts as \mathrm{..}, which
+        //                     the box path builds upright)
         //   - \, \; \! \\   → literal whitespace (lexer ignores it)
         //
         // Things we still can't do in box mode (visitor-side, would need new
         // Box types):
-        //   - \text{X}      → no upright-text run box yet → fall back to Unicode
+        //   - \text{X}      → no text-mode run box yet → fall back to Unicode
         //   - \begin{}/end{} → no multi-line table layout → fall back to Unicode
-        if (MarkdownMacros.ContainsMacro(source, "text") || source.Contains(@"\begin", StringComparison.Ordinal))
-            return false;
+        //   - \{ \} \lbrace \rbrace, \left\{ \right\} → no curly-brace glyph;
+        //                     the aliases and escapes below reduce each to a
+        //                     bare group and the braces vanish, so a set like
+        //                     \{1, 2, 3\} takes the Unicode path, which keeps them
+        if (!CanBuildBox(source)) return false;
 
         source = MarkdownMacros.NormalizeLatexAliases(source);
         source = MarkdownMacros.ExpandBalancedMacro(source, "boxed", inner => inner);
         source = MarkdownMacros.ExpandBalancedMacro(source, "ce", inner => Mhchem.ToLatex(inner));
-        // Recheck after \boxed / \ce expansion — either body could have
-        // introduced \text (chem doesn't today, but the door's open in
-        // case future Mhchem.ToLatex emits \text{l} / \text{aq} for
-        // state markers once \mathrm/\text gain box-visitor support).
-        if (MarkdownMacros.ContainsMacro(source, "text") || source.Contains(@"\begin", StringComparison.Ordinal))
-            return false;
+        // Recheck after \boxed / \ce expansion: either body could have
+        // brought in what the first check turns away.
+        if (!CanBuildBox(source)) return false;
         source = MarkdownMacros.ResolveBackslashEscapes(source);
 
         // Font resolution. If the caller passed a path (apps typically pick
@@ -242,6 +243,36 @@ public static partial class MarkdownRenderer
     /// do not count each other's rasters.
     /// </summary>
     [ThreadStatic] internal static int t_mathRasterizations;
+
+    /// <summary>
+    /// False when <paramref name="source"/> holds something the box path cannot draw and the Unicode path
+    /// can: <c>\text</c>, an environment, or a curly brace meant as a glyph (<c>\{</c>, <c>\}</c>,
+    /// <c>\lbrace</c>, <c>\rbrace</c>, which <c>\left\{</c> and <c>\right\}</c> contain). It has to run
+    /// before <see cref="MarkdownMacros.NormalizeLatexAliases"/>, which turns <c>\left\{</c> into a bare
+    /// group, and again after the macro expansions, which may bring any of these in.
+    /// </summary>
+    private static bool CanBuildBox(string source)
+        => !MarkdownMacros.ContainsMacro(source, "text")
+            && !source.Contains(@"\begin", StringComparison.Ordinal)
+            && !MarkdownMacros.ContainsMacro(source, "lbrace")
+            && !MarkdownMacros.ContainsMacro(source, "rbrace")
+            && !HasEscapedBrace(source);
+
+    /// <summary>
+    /// True when <paramref name="source"/> escapes a curly brace (<c>\{</c> or <c>\}</c>). A <c>\\</c> is a
+    /// line break, not an escape of what follows, so <c>\\{</c> opens a group and does not count.
+    /// </summary>
+    private static bool HasEscapedBrace(string source)
+    {
+        for (var i = 0; i < source.Length - 1; i++)
+        {
+            if (source[i] != '\\') continue;
+            var next = source[i + 1];
+            if (next is '{' or '}') return true;
+            i++; // the escaped character, which for \\ is the second backslash
+        }
+        return false;
+    }
 
     /// <summary>
     /// Parses preprocessed math source into the builder that lays its box tree out at a given style, or
