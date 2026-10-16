@@ -13,11 +13,17 @@ internal static class MathCorpus
     /// <para>
     /// The wide ones are there for the width-fit loop. At width 30 <c>quadratic</c>,
     /// <c>definite-integral</c> and <c>fine-structure</c> shrink to fit as Sixel; at 60 the half-block
-    /// rasters of <c>gauss-sum</c>, <c>gaussian-integral</c>, <c>limit</c> and <c>vectors</c> take three
-    /// passes, because the first shrink leaves them still too wide; <c>fourteen-terms</c> shrinks as Sixel
-    /// at 60 and as sextant at 120, and is too wide for any raster at 30. <c>hypotenuse</c> as half-block
-    /// at 30 lands exactly on the two-thirds floor. The last formula cannot be lexed by the math grammar
-    /// at all, so it pins the Unicode fallback.
+    /// rasters of <c>gauss-sum</c>, <c>gaussian-integral</c> and <c>vectors</c> take three passes, because
+    /// the first shrink leaves them still too wide; <c>fourteen-terms</c> shrinks as Sixel at 60 and as
+    /// sextant at 120, and is too wide for any raster at 30. The last formula cannot be lexed by the math
+    /// grammar at all, so it pins the Unicode fallback.
+    /// </para>
+    /// <para>
+    /// Up to DIR.Lib 11.22 <c>limit</c> as half-block at 60 took three passes as well, and
+    /// <c>hypotenuse</c> as half-block at 30 landed exactly on the two-thirds floor. The math-italic
+    /// variables of 11.23 widened both: <c>limit</c> now settles in two passes, and <c>hypotenuse</c>, two
+    /// cells wider at its default size, falls just short of the floor and takes the Unicode path. No case
+    /// here sits on the floor any more.
     /// </para>
     /// </summary>
     internal static readonly (string Name, string Source)[] Formulas =
