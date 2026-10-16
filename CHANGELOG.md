@@ -17,9 +17,10 @@ sit, as in Pandoc, so a paragraph that holds one now splits into its text before
 one-line `$$x$$` rasters byte for byte as the fenced block does. Before, display math rasterized only when its
 delimiters sat on lines of their own, and anything else printed as one row of Unicode. A list item's paragraph splits
 the same way (its marker leads the first text, or takes a line of its own when the item opens with the raster).
-`$x$` and `\(x\)` are inline math and stay one row of Unicode, as does display math inside emphasis; display math in
-a heading or a table cell stays inline too, since a raster cannot fit in that one row. A span the raster path turns
-away (`\text`) stays in its text as Unicode, and under `ColorMode.None`, or with no raster mode, nothing changes.
+`$x$` and `\(x\)` are inline math and stay one row of Unicode, as does display math inside emphasis or a link;
+display math in a heading or a table cell stays inline too, since a raster cannot fit in that one row. A span the
+raster path turns away (`\text`) stays in its text as Unicode, and under `ColorMode.None`, or with no raster mode,
+nothing changes.
 
 **Escaped curly braces keep display math on the Unicode path.** The raster path has no curly-brace glyphs, and an
 escaped brace reduces to a bare group on the way to it, so 5.7 already rastered `\{a\}` as `a` and
