@@ -17,17 +17,19 @@ sit, as in Pandoc, so a paragraph that holds one now splits into its text before
 one-line `$$x$$` rasters byte for byte as the fenced block does. Before, display math rasterized only when its
 delimiters sat on lines of their own, and anything else printed as one row of Unicode. A list item's paragraph splits
 the same way (its marker leads the first text, or takes a line of its own when the item opens with the raster).
-`$x$`, `\(x\)`, headings, table cells and math inside emphasis stay inline, since a raster cannot fit in one row; a
-span the raster path turns away (`\text`) stays in its text as Unicode; and under `ColorMode.None`, or with no raster
-mode, nothing changes.
+`$x$` and `\(x\)` are inline math and stay one row of Unicode, as does display math inside emphasis; display math in
+a heading or a table cell stays inline too, since a raster cannot fit in that one row. A span the raster path turns
+away (`\text`) stays in its text as Unicode, and under `ColorMode.None`, or with no raster mode, nothing changes.
 
-**Escaped curly braces keep display math on the Unicode path.** DIR.Lib 11.23 lexes `[`, `]` and `,`, so formulas
-that used to fall back now reach the raster, and a set such as `\{1, 2, 3\}` would have rastered without its braces,
-because the raster path has no curly-brace glyphs. A source with `\{`, `\}`, `\lbrace` or `\rbrace` (which also
-catches `\left\{` and `\right\}`) now takes the Unicode path, which keeps the braces of `\{1, 2, 3\}` and `\{a\}`.
-Known gap: on that path `\left\{ 1, 2 \right\}` loses its braces (`1,2`) and `\lbrace x \rbrace` prints raw
-(`\lbracex\rbrace`), because DIR.Lib's alias table maps `\left\{` to a bare group and knows no `\lbrace`. That
-predates this release and is DIR.Lib's to fix; the tests pin only the routing, so they stay green when it is.
+**Escaped curly braces keep display math on the Unicode path.** The raster path has no curly-brace glyphs, and an
+escaped brace reduces to a bare group on the way to it, so 5.7 already rastered `\{a\}` as `a` and
+`\left\{ x \right\}` as `x`. A set with a comma, such as `\{1, 2, 3\}`, kept its braces only because the comma sent it
+to the Unicode path; DIR.Lib 11.23 lexes `[`, `]` and `,`, so it would have lost them too. A source with `\{`, `\}`,
+`\lbrace` or `\rbrace` (which also catches `\left\{` and `\right\}`) now takes the Unicode path, so `\{1, 2, 3\}`
+keeps its braces and `\{a\}` gets them back. Known gap: on that path `\left\{ x \right\}` and
+`\left\{ 1, 2 \right\}` still lose theirs (`x`, `1,2`), and `\lbrace x \rbrace` prints raw (`\lbracex\rbrace`),
+because DIR.Lib's alias table maps `\left\{` to a bare group and knows no `\lbrace`. That predates this release and
+is DIR.Lib's to fix; the tests pin only the routing, so they stay green when it is.
 
 **DIR.Lib 11.23's math fixes reach mdcat through the pin**, which moves from `11.1.*` to `11.23.*`, a floor, since the
 renderer reads `MdMathInline.IsDisplay` and that property does not exist before 11.23. On the raster path the
@@ -38,12 +40,13 @@ used to blank its whole paragraph. DIR.Lib's own `## 11.23` entry says how and w
 
 **Display math costs less, with the same bytes out.** Fitting a formula to the width used to rasterize it at each
 size it tried; it now parses once, sizes each candidate from the box, and rasterizes only the size that fits, or
-nothing when even the smallest is too wide and the formula goes to the Unicode path (across the test corpus, 170
-rasterizations became 117). The Sixel encoder is about 2.3 times as fast on a math raster and emits the same stream
-byte for byte; on other images 2.3 to 3.1 times, except those with tens of thousands of colours, where the
-nearest-colour search dominates and is unchanged. A golden of the corpus in Sixel, sextant and half-block at three
-widths, captured before the rework, pins the output; it was re-captured once, on purpose, for the 11.23 pin, and
-every entry that moved traced to one of DIR.Lib's PRs.
+nothing when even the smallest is too wide and the formula goes to the Unicode path (across the test corpus,
+measured on DIR.Lib 11.1, 170 rasterizations became 117; on 11.23 the corpus rasterizes 116 times, since with the
+wider italic glyphs one formula no longer fits at half-block width 30 and falls back). The Sixel encoder is about
+2.3 times as fast on a math raster and emits the same stream byte for byte; on other images 2.3 to 3.1 times, except
+those with tens of thousands of colours, where the nearest-colour search dominates and is unchanged. A golden of the
+corpus in Sixel, sextant and half-block at three widths, captured before the rework, pins the output; it was
+re-captured once, on purpose, for the 11.23 pin, and every entry that moved traced to one of DIR.Lib's PRs.
 
 A minor, not a major: no public API was removed or changed in shape. `MarkdownRenderer.Render`, both `RenderLines`
 overloads, `BoxRenderer` and `SixelEncoder.Encode` keep their 5.7 signatures, and everything added is internal. What
@@ -51,6 +54,10 @@ changes is output: a paragraph with display math in it renders differently, as i
 differs from 5.7's wherever DIR.Lib 11.23 draws it differently. The pin brings along 11.23's four new `Visit`
 overloads on the public `Latex.IVisitor<T>`, which break only code that implements that interface itself; nothing in
 the SharpAstro org does.
+
+None of this is new to a consumer of the latest 5.7 build. CI publishes Console.Lib and mdcat on every push to main,
+so #37 went out in 5.7.2131 (on DIR.Lib 11.1) and #38, with the 11.23 pin, in 5.7.2151. 5.8 is the release that names
+them.
 
 
 ## 5.7
