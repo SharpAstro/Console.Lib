@@ -10,6 +10,49 @@ Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); th
 changed and why.
 
 
+## 5.8
+
+**Display math written inside a paragraph rasters as a block.** `$$..$$` and `\[..\]` are display math wherever they
+sit, as in Pandoc, so a paragraph that holds one now splits into its text before, the raster, and its text after; a
+one-line `$$x$$` rasters byte for byte as the fenced block does. Before, display math rasterized only when its
+delimiters sat on lines of their own, and anything else printed as one row of Unicode. A list item's paragraph splits
+the same way (its marker leads the first text, or takes a line of its own when the item opens with the raster).
+`$x$`, `\(x\)`, headings, table cells and math inside emphasis stay inline, since a raster cannot fit in one row; a
+span the raster path turns away (`\text`) stays in its text as Unicode; and under `ColorMode.None`, or with no raster
+mode, nothing changes.
+
+**Escaped curly braces keep display math on the Unicode path.** DIR.Lib 11.23 lexes `[`, `]` and `,`, so formulas
+that used to fall back now reach the raster, and a set such as `\{1, 2, 3\}` would have rastered without its braces,
+because the raster path has no curly-brace glyphs. A source with `\{`, `\}`, `\lbrace` or `\rbrace` (which also
+catches `\left\{` and `\right\}`) now takes the Unicode path, which keeps the braces of `\{1, 2, 3\}` and `\{a\}`.
+Known gap: on that path `\left\{ 1, 2 \right\}` loses its braces (`1,2`) and `\lbrace x \rbrace` prints raw
+(`\lbracex\rbrace`), because DIR.Lib's alias table maps `\left\{` to a bare group and knows no `\lbrace`. That
+predates this release and is DIR.Lib's to fix; the tests pin only the routing, so they stay green when it is.
+
+**DIR.Lib 11.23's math fixes reach mdcat through the pin**, which moves from `11.1.*` to `11.23.*`, a floor, since the
+renderer reads `MdMathInline.IsDisplay` and that property does not exist before 11.23. On the raster path the
+radical's bar joins its flag as one stroke; variables are set in math italic with STIX Two Math, while `\mathrm{..}`
+and chemistry (`\ce{H2O}`) stay upright; `\sqrt[n]{x}` and `[a, b]` raster instead of falling back. In text, a `$`
+is math only by Pandoc's rule, so `It costs $5 today.` prints as written, and an unmatched delimiter is text where it
+used to blank its whole paragraph. DIR.Lib's own `## 11.23` entry says how and why.
+
+**Display math costs less, with the same bytes out.** Fitting a formula to the width used to rasterize it at each
+size it tried; it now parses once, sizes each candidate from the box, and rasterizes only the size that fits, or
+nothing when even the smallest is too wide and the formula goes to the Unicode path (across the test corpus, 170
+rasterizations became 117). The Sixel encoder is about 2.3 times as fast on a math raster and emits the same stream
+byte for byte; on other images 2.3 to 3.1 times, except those with tens of thousands of colours, where the
+nearest-colour search dominates and is unchanged. A golden of the corpus in Sixel, sextant and half-block at three
+widths, captured before the rework, pins the output; it was re-captured once, on purpose, for the 11.23 pin, and
+every entry that moved traced to one of DIR.Lib's PRs.
+
+A minor, not a major: no public API was removed or changed in shape. `MarkdownRenderer.Render`, both `RenderLines`
+overloads, `BoxRenderer` and `SixelEncoder.Encode` keep their 5.7 signatures, and everything added is internal. What
+changes is output: a paragraph with display math in it renders differently, as it should, and a rastered formula
+differs from 5.7's wherever DIR.Lib 11.23 draws it differently. The pin brings along 11.23's four new `Visit`
+overloads on the public `Latex.IVisitor<T>`, which break only code that implements that interface itself; nothing in
+the SharpAstro org does.
+
+
 ## 5.7
 
 **`list_instances` finds a DEBUG terminal app that binds nothing but loopback.** From DIR.Lib 11.21 an app's
