@@ -7,8 +7,9 @@ namespace Console.Lib.Tests;
 internal static class MathCorpus
 {
     /// <summary>
-    /// Display formulas, each rendered as a fenced block (delimiters on their own lines): a one-line
-    /// <c>$$x$$</c> parses as inline math inside a paragraph, which never rasters.
+    /// Display formulas, each rendered as a fenced block (delimiters on their own lines). A one-line
+    /// <c>$$x$$</c> rasters the same (<c>DisplayMathInParagraphTests</c> pins that), but through the
+    /// paragraph split rather than the display block this corpus has always measured.
     /// <para>
     /// The wide ones are there for the width-fit loop. At width 30 <c>quadratic</c>,
     /// <c>definite-integral</c> and <c>fine-structure</c> shrink to fit as Sixel; at 60 the half-block

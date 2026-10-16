@@ -83,6 +83,12 @@ public static partial class MarkdownRenderer
                     {
                         break;
                     }
+                    if (TryRenderSplitAtDisplayMath(p.Content, width, breakLongWords, colorMode, theme, result,
+                            mathMode, mathFontPath, images?.CellPixelWidth ?? FallbackCellPixelWidth, linkResolver,
+                            firstPrefix: string.Empty, continuationIndent: string.Empty))
+                    {
+                        break;
+                    }
                     var sb = new StringBuilder();
                     RenderMdInlines(p.Content, sb, bold: false, italic: false, colorMode, theme, linkResolver);
                     result.AddRange(WordWrap(sb.ToString(), width, breakLongWords: breakLongWords));
@@ -168,6 +174,92 @@ public static partial class MarkdownRenderer
             result.AddRange(WordWrap($"  {mathColor}{line}{rst}", width, "  ", breakLongWords));
     }
 
+    /// <summary>
+    /// Sets display math written inside a paragraph (<c>$$..$$</c> or <c>\[..\]</c>, which DIR.Lib marks
+    /// <see cref="MdMathInline.IsDisplay"/>) as a block of its own: the paragraph splits into text, raster,
+    /// text at each such span, wherever it sits, as Pandoc's <c>tex_math_dollars</c> does. A span alone
+    /// in its paragraph therefore rasters exactly as the fenced form does.
+    /// <para>
+    /// Only a span directly in the paragraph splits it; one inside emphasis or a link stays inline. So
+    /// does one that does not raster (no raster mode, <see cref="ColorMode.None"/>, or a formula the box
+    /// path turns away): it stays in its text segment as the Unicode rendering it always had. False,
+    /// having added nothing, when no span rastered, and the caller renders the paragraph as before.
+    /// Headings and table cells never come here, since a raster cannot sit in one row.
+    /// </para>
+    /// </summary>
+    /// <param name="firstPrefix">What leads the paragraph's first line (a list item's marker), or empty.</param>
+    /// <param name="continuationIndent">What leads every later text line, as it does for a wrapped one.</param>
+    private static bool TryRenderSplitAtDisplayMath(IReadOnlyList<MdInline> content, int width, bool breakLongWords,
+        ColorMode colorMode, MarkdownTheme theme, List<string> result, BoxRenderMode? mathMode, string? mathFontPath,
+        int cellPixelWidth, Func<string, string>? linkResolver, string firstPrefix, string continuationIndent)
+    {
+        if (mathMode is not { } mode || colorMode == ColorMode.None) return false;
+        if (!content.Any(i => i is MdMathInline { IsDisplay: true })) return false;
+
+        var lines = new List<string>();
+        var segment = new List<MdInline>();
+        var rastered = false;
+
+        foreach (var inline in content)
+        {
+            if (inline is MdMathInline { IsDisplay: true } math)
+            {
+                var raster = new List<string>();
+                if (TryRenderMathBox(math.Source, mode, mathFontPath, width, cellPixelWidth, raster))
+                {
+                    AddSegment();
+                    if (lines.Count == 0 && firstPrefix.Trim().Length > 0)
+                        lines.Add(firstPrefix.TrimEnd()); // a list item's marker, which a raster cannot follow on its row
+                    lines.AddRange(raster);
+                    rastered = true;
+                    continue;
+                }
+            }
+            segment.Add(inline);
+        }
+        if (!rastered) return false;
+
+        AddSegment();
+        result.AddRange(lines);
+        return true;
+
+        // The text between two rasters, without the spaces and line breaks that only separated it from them.
+        // A segment with nothing else in it adds no line at all.
+        void AddSegment()
+        {
+            var trimmed = TrimSeparators(segment);
+            segment.Clear();
+            if (trimmed.Count == 0) return;
+
+            var sb = new StringBuilder();
+            RenderMdInlines(trimmed, sb, bold: false, italic: false, colorMode, theme, linkResolver);
+            var prefix = lines.Count == 0 ? firstPrefix : continuationIndent;
+            lines.AddRange(WordWrap($"{prefix}{sb}", width, continuationIndent, breakLongWords));
+        }
+    }
+
+    /// <summary>
+    /// <paramref name="segment"/> without its leading and trailing line breaks and whitespace, the edge
+    /// literals trimmed. Empty when nothing else is in it.
+    /// </summary>
+    private static List<MdInline> TrimSeparators(List<MdInline> segment)
+    {
+        static bool IsSeparator(MdInline inline)
+            => inline is MdLineBreak || (inline is MdLiteral lit && string.IsNullOrWhiteSpace(lit.Text));
+
+        var start = 0;
+        var end = segment.Count;
+        while (start < end && IsSeparator(segment[start])) start++;
+        while (end > start && IsSeparator(segment[end - 1])) end--;
+
+        var trimmed = segment.GetRange(start, end - start);
+        if (trimmed.Count > 0 && trimmed[0] is MdLiteral first)
+            trimmed[0] = first with { Text = first.Text.TrimStart() };
+        if (trimmed.Count > 0 && trimmed[^1] is MdLiteral last)
+            trimmed[^1] = last with { Text = last.Text.TrimEnd() };
+        return trimmed;
+    }
+
     private static void RenderMdList(MdList list, int width, bool breakLongWords, ColorMode colorMode,
         MarkdownTheme theme, List<string> result,
         BoxRenderMode? mathMode, string? mathFontPath, MarkdownImageOptions? images,
@@ -196,11 +288,16 @@ public static partial class MarkdownRenderer
             {
                 if (body is MdParagraph para)
                 {
-                    var sb = new StringBuilder();
-                    RenderMdInlines(para.Content, sb, bold: false, italic: false, colorMode, theme, linkResolver);
                     var prefix = firstBlock ? $"{indent}{marker} " : contIndent;
-                    var wrapped = WordWrap($"{prefix}{sb}", width, contIndent, breakLongWords);
-                    result.AddRange(wrapped);
+                    if (!TryRenderSplitAtDisplayMath(para.Content, width, breakLongWords, colorMode, theme, result,
+                            mathMode, mathFontPath, images?.CellPixelWidth ?? FallbackCellPixelWidth, linkResolver,
+                            prefix, contIndent))
+                    {
+                        var sb = new StringBuilder();
+                        RenderMdInlines(para.Content, sb, bold: false, italic: false, colorMode, theme, linkResolver);
+                        var wrapped = WordWrap($"{prefix}{sb}", width, contIndent, breakLongWords);
+                        result.AddRange(wrapped);
+                    }
                 }
                 else if (body is MdList nestedList)
                 {
