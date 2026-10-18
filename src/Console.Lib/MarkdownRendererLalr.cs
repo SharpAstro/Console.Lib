@@ -36,9 +36,17 @@ public static partial class MarkdownRenderer
         MarkdownImageOptions? images, Func<string, string>? linkResolver)
     {
         if (string.IsNullOrWhiteSpace(markdown)) return new List<string>();
+        return RenderBlocks(s_blockVisitor.Parse(markdown), width, breakLongWords, colorMode, theme, mathMode, mathFontPath,
+            images, linkResolver);
+    }
 
+    /// <summary>Renders already-parsed blocks, a blank line between each two; a test can hand it a block
+    /// shape the parser it is built against does not yet produce.</summary>
+    internal static List<string> RenderBlocks(IReadOnlyList<MdBlock> blocks, int width, bool breakLongWords,
+        ColorMode colorMode, MarkdownTheme? theme = null, BoxRenderMode? mathMode = null, string? mathFontPath = null,
+        MarkdownImageOptions? images = null, Func<string, string>? linkResolver = null)
+    {
         theme ??= MarkdownTheme.Default;
-        var blocks = s_blockVisitor.Parse(markdown);
         var result = new List<string>();
         var first = true;
 
@@ -289,6 +297,11 @@ public static partial class MarkdownRenderer
             // First block of the list item — usually a paragraph.
             // Subsequent blocks (nested lists, math blocks, fences,
             // additional paragraphs) get indented under the same item.
+            // An item with no block, or whose first is not a paragraph (a
+            // heading, a fence, a nested list), keeps its marker on a line of
+            // its own: the marker was printed only ahead of a paragraph.
+            if (item.Body.Count == 0 || item.Body[0] is not MdParagraph)
+                result.Add($"{indent}{marker}");
             bool firstBlock = true;
             foreach (var body in item.Body)
             {

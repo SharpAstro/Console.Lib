@@ -1,5 +1,6 @@
 using Console.Lib;
 using DIR.Lib;
+using DIR.Lib.Markdown;
 using Shouldly;
 using Xunit;
 
@@ -880,6 +881,28 @@ public sealed class MarkdownRendererTests
         var narrow = At(60);
         narrow.ShouldNotBeEmpty();
         At(80).ShouldBe(narrow.Select(l => new string(' ', 10) + l).ToList());
+    }
+
+    /// <summary>
+    /// A list item keeps its marker when its first block is not a paragraph, or when it has none: the marker
+    /// goes on a line of its own. DIR.Lib's block parser now parses an item's lines like a document, so
+    /// <c>1. ## Step</c>, <c>- - foo</c> and an empty <c>-</c> reach here, and the marker was printed only
+    /// ahead of a paragraph (DIR.Lib #129 round 1 B3).
+    /// </summary>
+    [Fact]
+    public void ListItem_WithNoLeadingParagraph_KeepsItsMarker()
+    {
+        static MdParagraph Para(string text) => new([new MdLiteral(text)]);
+        var steps = new MdList(true, 1, [new MdListItem([new MdHeading(2, [new MdLiteral("Step")])]), new MdListItem([new MdHeading(2, [new MdLiteral("Next")])])]);
+        var bullets = new MdList(false, 0, [new MdListItem([]), new MdListItem([Para("b")])]);
+        var nested = new MdList(false, 0, [new MdListItem([new MdList(false, 0, [new MdListItem([Para("foo")])])])]);
+
+        string[] Plain(MdList list) => MarkdownRenderer.RenderBlocks([list], 80, breakLongWords: false, ColorMode.None)
+            .Select(l => l.TrimEnd()).Where(l => l.Length > 0).ToArray();
+
+        Plain(steps).ShouldBe(["  1.", "Step", "  2.", "Next"]);
+        Plain(bullets).ShouldBe(["  •", "  • b"]);
+        Plain(nested).ShouldBe(["  •", "    ◦ foo"]);
     }
 
     [Fact]
