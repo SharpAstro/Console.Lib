@@ -168,10 +168,16 @@ public static partial class MarkdownRenderer
             && TryRenderMathBox(m.Source, mode, mathFontPath, width, cellPixelWidth, result))
             return;
 
+        // The Unicode form centred as the raster is, where a line fits; one that does not is wrapped at
+        // the two-column indent it always had.
         var mathColor = Resolve(theme.Math, colorMode);
         var rst = Rst(colorMode);
         foreach (var line in (m.Unicode ?? string.Empty).Split('\n'))
-            result.AddRange(WordWrap($"  {mathColor}{line}{rst}", width, "  ", breakLongWords));
+        {
+            var lineWidth = VisibleLength(line);
+            var lead = width > 0 && lineWidth + 2 <= width ? new string(' ', Math.Max(2, (width - lineWidth) / 2)) : "  ";
+            result.AddRange(WordWrap($"{lead}{mathColor}{line}{rst}", width, "  ", breakLongWords));
+        }
     }
 
     /// <summary>
@@ -205,7 +211,7 @@ public static partial class MarkdownRenderer
             if (inline is MdMathInline { IsDisplay: true } math)
             {
                 var raster = new List<string>();
-                if (TryRenderMathBox(math.Source, mode, mathFontPath, width, cellPixelWidth, raster))
+                if (TryRenderMathBox(math.Source, mode, mathFontPath, width, cellPixelWidth, raster, indent: VisibleLength(continuationIndent)))
                 {
                     AddSegment();
                     if (lines.Count == 0 && firstPrefix.Trim().Length > 0)

@@ -136,9 +136,9 @@ public sealed class DisplayMathInParagraphTests
     [MemberData(nameof(Modes))]
     public void ASpanTheBoxPathTurnsAway_StaysInItsTextSegment(BoxRenderMode mode)
     {
-        // \text has no box: that span keeps its Unicode rendering inside the text, and only the span that
-        // rasters splits the paragraph.
-        var lines = Raster(@"a $$x$$ b $$\text{hi}$$ c", mode);
+        // An environment has no box: that span keeps its Unicode rendering inside the text, and only the
+        // span that rasters splits the paragraph. (\text was the example until it got a box.)
+        var lines = Raster(@"a $$x$$ b $$\begin{matrix} hi \end{matrix}$$ c", mode);
 
         lines[..^1].ShouldBe(["a", .. Fenced("x", mode)]);
         StripEscapes(lines[^1]).ShouldBe("b hi c");
@@ -149,22 +149,25 @@ public sealed class DisplayMathInParagraphTests
     [InlineData(@"\{a\}")]
     [InlineData(@"\left\{ 1, 2 \right\}")]
     [InlineData(@"\lbrace x \rbrace")]
-    public void EscapedBraces_TakeTheUnicodePath(string body)
+    public void EscapedBraces_Raster(string body)
     {
-        // The box path has no curly-brace glyph, so the paragraph stays as it was, Unicode and inline. This
-        // asserts the route, not the Unicode text, which is DIR.Lib's.
-        var md = $"a $${body}$$ b";
+        // DIR.Lib's preparation helper keeps a set's braces for the grammar, which draws them as a curly
+        // bracket box (its BraceSetTests read the shapes). The box path used to have no brace, and these
+        // took the Unicode path, inline. This asserts the route.
         foreach (var mode in new[] { BoxRenderMode.Sixel, BoxRenderMode.Sextant, BoxRenderMode.HalfBlock })
-            Raster(md, mode).ShouldBe(NoRaster(md), $"{mode} must not raster {body}");
+        {
+            Raster($"$${body}$$", mode).ShouldBe(Fenced(body, mode));
+            Raster($"a $${body}$$ b", mode).ShouldBe(["a", .. Fenced(body, mode), "b"]);
+        }
     }
 
     [Theory]
     [InlineData(@"\{1, 2, 3\}", "{1,2,3}")]
     [InlineData(@"\{a\}", "{a}")]
-    public void EscapedBraces_KeepTheirBraces(string body, string expected)
+    public void EscapedBraces_KeepTheirBraces_OnTheUnicodePath(string body, string expected)
     {
-        // Spaces aside: the Unicode path sets a comma without the space the source had.
-        var lines = Raster($"$${body}$$", BoxRenderMode.Sixel);
+        // Spaces aside, which are DIR.Lib's to set.
+        var lines = NoRaster($"$${body}$$");
 
         StripEscapes(string.Join("\n", lines)).Replace(" ", "").ShouldContain(expected);
     }
@@ -186,10 +189,9 @@ public sealed class DisplayMathInParagraphTests
     public void InAListItem_TheMarkerLeadsAndTheTextAfterIsIndented(BoxRenderMode mode)
     {
         var lines = Raster("- a $$x$$ b", mode);
-        var raster = Fenced("x", mode);
 
         StripEscapes(lines[0]).ShouldBe("  • a");
-        lines[1..^1].ShouldBe(raster);
+        lines[1..^1].ShouldBe(CentredInTheItem("x", mode));
         lines[^1].ShouldBe("     b");
     }
 
@@ -200,6 +202,14 @@ public sealed class DisplayMathInParagraphTests
         var lines = Raster("- $$x$$", mode);
 
         StripEscapes(lines[0]).ShouldBe("  •");
-        lines[1..].ShouldBe(Fenced("x", mode));
+        lines[1..].ShouldBe(CentredInTheItem("x", mode));
     }
+
+    /// <summary>
+    /// The fenced block of <paramref name="body"/> centred in an item's text column, which in an 80-column
+    /// document is the 75 columns after its five of indent: the block as a 75-column document would centre
+    /// it, five columns further right. It used to sit at column 0, left of the item's own text.
+    /// </summary>
+    private static List<string> CentredInTheItem(string body, BoxRenderMode mode)
+        => Raster($"$$\n{body}\n$$", mode, width: 75).Select(l => "     " + l).ToList();
 }

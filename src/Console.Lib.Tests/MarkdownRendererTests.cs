@@ -821,47 +821,65 @@ public sealed class MarkdownRendererTests
     [InlineData(@"\left\{ 1, 2 \right\}")]
     [InlineData(@"\lbrace x \rbrace")]
     [InlineData(@"\boxed{\{a\}}")]
-    public void MathBlock_EscapedBraces_TakeTheUnicodePath(string source)
+    public void MathBlock_EscapedBraces_Raster(string source)
     {
-        // The box path has no curly-brace glyph: \left\{ is aliased to a bare group and \{ resolves to
-        // one, so a raster would draw the set without its braces.
+        // DIR.Lib's preparation helper keeps a set's braces, \left\{ and \lbrace included, for the grammar
+        // to draw as a curly bracket box. Console.Lib used to run its own copy of that preparation, which
+        // had no brace and so sent every set to the Unicode path.
         var md = $"$$\n{source}\n$$";
         var unicode = MarkdownRenderer.RenderLines(md, 80, ColorMode.TrueColor);
 
         foreach (var mode in new[] { BoxRenderMode.Sixel, BoxRenderMode.Sextant, BoxRenderMode.HalfBlock })
         {
             MarkdownRenderer.RenderLines(md, 80, ColorMode.TrueColor, mathMode: mode, mathFontPath: MathFont)
-                .ShouldBe(unicode, $"{mode} must not raster {source}");
+                .ShouldNotBe(unicode, $"{mode} should raster {source}");
         }
-    }
-
-    [Fact]
-    public void MathBlock_LeftBrace_IsSeenBeforeTheAliasesRewriteIt()
-    {
-        // NormalizeLatexAliases turns \left\{ .. \right\} into a bare group, which the box path lays out
-        // happily, braces gone. So the guard has to look at the source before that rewrite: here the
-        // auto-sized pair is the only brace there is, and nothing after the rewrite would show one.
-        // It asserts the route only, not the Unicode text, which is DIR.Lib's to get right.
-        const string md = "$$\n\\left\\{ 1, 2 \\right\\}\n$$";
-        var unicode = MarkdownRenderer.RenderLines(md, 80, ColorMode.TrueColor);
-
-        MarkdownRenderer.RenderLines(md, 80, ColorMode.TrueColor, mathMode: BoxRenderMode.Sixel, mathFontPath: MathFont)
-            .ShouldBe(unicode);
     }
 
     [Theory]
     [InlineData(@"\{1, 2, 3\}", "{1,2,3}")]
     [InlineData(@"\{a\}", "{a}")]
     [InlineData(@"\boxed{\{a\}}", "{a}")]
-    public void MathBlock_EscapedBraces_KeepTheirBraces(string source, string expected)
+    public void MathBlock_EscapedBraces_KeepTheirBraces_OnTheUnicodePath(string source, string expected)
     {
-        // Spaces aside: the Unicode path sets a comma without the space the source had. Only the escaped
-        // forms are here, because only they keep their braces on DIR.Lib's Unicode path: it normalizes
-        // \left\{ to a bare group as the box path does, and it does not know \lbrace at all.
-        var lines = MarkdownRenderer.RenderLines($"$$\n{source}\n$$", 80, ColorMode.TrueColor,
-            mathMode: BoxRenderMode.Sextant, mathFontPath: MathFont);
+        // Spaces aside, which are DIR.Lib's to set.
+        var lines = MarkdownRenderer.RenderLines($"$$\n{source}\n$$", 80, ColorMode.TrueColor);
 
         StripEscapes(string.Join("\n", lines)).Replace(" ", "").ShouldContain(expected);
+    }
+
+    /// <summary>
+    /// A display formula holding <c>\text</c> rasters: most of those a document writes for KaTeX hold one,
+    /// and the box path used to turn every one of them away.
+    /// </summary>
+    [Theory]
+    [InlineData(BoxRenderMode.Sixel)]
+    [InlineData(BoxRenderMode.Sextant)]
+    [InlineData(BoxRenderMode.HalfBlock)]
+    public void MathBlock_WithText_Rasters(BoxRenderMode mode)
+    {
+        const string md = "$$\n\\text{Mask} = \\text{Input} - \\text{Starless}\n$$";
+        MarkdownRenderer.RenderLines(md, 80, ColorMode.TrueColor, mathMode: mode, mathFontPath: MathFont)
+            .ShouldNotBe(MarkdownRenderer.RenderLines(md, 80, ColorMode.TrueColor));
+    }
+
+    /// <summary>
+    /// Display math is centred in the width, as KaTeX centres it, whether it rasters or reads as Unicode:
+    /// 20 columns more width put each of its lines 10 columns further right, and nothing else moves.
+    /// </summary>
+    [Theory]
+    [InlineData(BoxRenderMode.Sixel)]
+    [InlineData(BoxRenderMode.Sextant)]
+    [InlineData(BoxRenderMode.HalfBlock)]
+    [InlineData(null)]
+    public void MathBlock_IsCentred(BoxRenderMode? mode)
+    {
+        List<string> At(int width) => MarkdownRenderer.RenderLines("$$\nx^2 + y^2\n$$", width, ColorMode.TrueColor,
+            mathMode: mode, mathFontPath: MathFont).Where(l => l.Length > 0).ToList();
+
+        var narrow = At(60);
+        narrow.ShouldNotBeEmpty();
+        At(80).ShouldBe(narrow.Select(l => new string(' ', 10) + l).ToList());
     }
 
     [Fact]

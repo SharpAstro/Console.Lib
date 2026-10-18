@@ -9,12 +9,12 @@
 
   <ItemGroup>
     <PackageVersion Include="coverlet.collector" Version="10.0.0" />
-    <!-- 11.23 is a FLOOR, not a follow: the renderer reads MdMathInline.IsDisplay to set display
-         math inside a paragraph as a block, and that property does not exist before it (as 8.3 was
-         the floor for IconKind.Plus and Minus). Anything older fails to compile here rather than
-         merely missing a feature, so this pin can never move ahead of a PUBLISHED DIR.Lib, and
-         bumping it is the second half of a release, never the first. -->
-    <PackageVersion Include="DIR.Lib" Version="11.23.*" />
+    <!-- 11.24 is a FLOOR, not a follow: the renderer prepares display math through
+         MarkdownMacros.TryPrepareMathBoxSource, which does not exist before it (as 11.23 was the floor
+         for MdMathInline.IsDisplay, and 8.3 for IconKind.Plus and Minus). Anything older fails to
+         compile here rather than merely missing a feature, so this pin can never move ahead of a
+         PUBLISHED DIR.Lib, and bumping it is the second half of a release, never the first. -->
+    <PackageVersion Include="DIR.Lib" Version="11.24.*" />
     <!-- Console.Lib.Inspector's own two: the MCP sidecar references nothing from the library, but
          its pins belong here anyway so a sweep of this file sees the whole repo. -->
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.8" />

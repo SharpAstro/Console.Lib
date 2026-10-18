@@ -117,42 +117,28 @@ public static partial class MarkdownRenderer
     /// handed. Each pass used to re-parse, rebuild and rasterize the whole image just to read its width.
     /// </para>
     /// </summary>
+    /// <para>
+    /// The raster is centred in the columns after <paramref name="indent"/>, as KaTeX and LaTeX centre
+    /// display math: each line is led by the spaces that put it there, which move a Sixel image as they
+    /// move text. It used to sit at column 0, flush left of a list item's own text.
+    /// </para>
     /// <param name="cellPixelWidth">
     /// Pixels per cell, which is what turns a Sixel raster's width into cells. Sextant and half-block
     /// have a fixed number of pixels per cell and ignore it.
     /// </param>
+    /// <param name="indent">The columns before the raster's area: a list item's text indent, or 0.</param>
     private static bool TryRenderMathBox(string source, BoxRenderMode mode,
-        string? callerFontPath, int width, int cellPixelWidth, List<string> result)
+        string? callerFontPath, int width, int cellPixelWidth, List<string> result, int indent = 0)
     {
         if (string.IsNullOrWhiteSpace(source)) return false;
 
-        // Pre-process the source so the math grammar can swallow it. Things
-        // we can fix up source-side (rendered the same as Unicode path):
-        //   - LaTeX aliases: \dfrac/\tfrac → \frac, \left[ → [, …
-        //   - \boxed{X}     → X  (strip the wrapper; v1 has no boxed frame)
-        //   - \ce{X}        → Mhchem.ToLatex(X)  (chem → LaTeX math source,
-        //                     so chem picks up the same box layout as math;
-        //                     it writes upright parts as \mathrm{..}, which
-        //                     the box path builds upright)
-        //   - \, \; \! \\   → literal whitespace (lexer ignores it)
-        //
-        // Things we still can't do in box mode (visitor-side, would need new
-        // Box types):
-        //   - \text{X}      → no text-mode run box yet → fall back to Unicode
-        //   - \begin{}/end{} → no multi-line table layout → fall back to Unicode
-        //   - \{ \} \lbrace \rbrace, \left\{ \right\} → no curly-brace glyph;
-        //                     the aliases and escapes below reduce each to a
-        //                     bare group and the braces vanish, so a set like
-        //                     \{1, 2, 3\} takes the Unicode path, which keeps them
-        if (!CanBuildBox(source)) return false;
-
-        source = MarkdownMacros.NormalizeLatexAliases(source);
-        source = MarkdownMacros.ExpandBalancedMacro(source, "boxed", inner => inner);
-        source = MarkdownMacros.ExpandBalancedMacro(source, "ce", inner => Mhchem.ToLatex(inner));
-        // Recheck after \boxed / \ce expansion: either body could have
-        // brought in what the first check turns away.
-        if (!CanBuildBox(source)) return false;
-        source = MarkdownMacros.ResolveBackslashEscapes(source);
+        // DIR.Lib prepares the source for the math grammar (aliases, \boxed, \ce, \text as a text run, a
+        // set's braces kept, an operator missing an operand given an empty one) and turns away what only
+        // the Unicode path can draw, an environment. This used to be a copy of that sequence that also
+        // turned away \text and every escaped brace, so a display formula holding either, which is most
+        // of those a document writes for KaTeX, never rastered.
+        if (!MarkdownMacros.TryPrepareMathBoxSource(source, out var prepared)) return false;
+        source = prepared;
 
         // Font resolution. If the caller passed a path (apps typically pick
         // something co-located with their executable so the library doesn't
@@ -176,6 +162,7 @@ public static partial class MarkdownRenderer
             var fontSize = defaultSize;
 
             if (ParseMathBox(source, new BoxStyle(fontPath, defaultSize)) is not { } builder) return false;
+            var available = width > 0 ? Math.Max(1, width - indent) : 0;
 
             while (true)
             {
@@ -190,12 +177,12 @@ public static partial class MarkdownRenderer
                     BoxRenderMode.Sextant => (rasterWidth + 1) / 2,
                     _                     => rasterWidth,
                 };
-                if (cells > width && width > 0)
+                if (cells > available && available > 0)
                 {
                     // Shrink in proportion, and by at least half a point so the loop always moves. The
                     // layout is not exactly linear in the size (rules and spacing have minimums), so the
                     // next pass measures again rather than trusting the ratio.
-                    var next = Math.Min(fontSize * width / cells, fontSize - 0.5f);
+                    var next = Math.Min(fontSize * available / cells, fontSize - 0.5f);
                     if (next < minimumSize) return false;
                     fontSize = next;
                     continue;
@@ -204,13 +191,14 @@ public static partial class MarkdownRenderer
                 var image = BoxRasterizer.RenderToRgba(box, style);
                 t_mathRasterizations++;
                 if (image.Width <= 0 || image.Height <= 0) return false;
+                var lead = new string(' ', indent + Math.Max(0, (available - cells) / 2));
 
                 if (mode == BoxRenderMode.Sixel)
                 {
                     // One entry: what the split below used to make of EncodeImage's Sixel output,
                     // without the trip through a StringWriter. The DCS sequence holds no newline, so
                     // the blank lines EncodeImage writes around it were dropped and it was the one line.
-                    result.Add(SixelEncoder.EncodeToString(image.Pixels, image.Width, image.Height, channels: 4));
+                    result.Add(lead + SixelEncoder.EncodeToString(image.Pixels, image.Width, image.Height, channels: 4));
                     return true;
                 }
 
@@ -226,7 +214,7 @@ public static partial class MarkdownRenderer
                 foreach (var raw in sw.ToString().Split('\n'))
                 {
                     var line = raw.TrimEnd('\r');
-                    if (line.Length > 0) { result.Add(line); any = true; }
+                    if (line.Length > 0) { result.Add(lead + line); any = true; }
                 }
                 return any;
             }
@@ -243,36 +231,6 @@ public static partial class MarkdownRenderer
     /// do not count each other's rasters.
     /// </summary>
     [ThreadStatic] internal static int t_mathRasterizations;
-
-    /// <summary>
-    /// False when <paramref name="source"/> holds something the box path cannot draw and the Unicode path
-    /// can: <c>\text</c>, an environment, or a curly brace meant as a glyph (<c>\{</c>, <c>\}</c>,
-    /// <c>\lbrace</c>, <c>\rbrace</c>, which <c>\left\{</c> and <c>\right\}</c> contain). It has to run
-    /// before <see cref="MarkdownMacros.NormalizeLatexAliases"/>, which turns <c>\left\{</c> into a bare
-    /// group, and again after the macro expansions, which may bring any of these in.
-    /// </summary>
-    private static bool CanBuildBox(string source)
-        => !MarkdownMacros.ContainsMacro(source, "text")
-            && !source.Contains(@"\begin", StringComparison.Ordinal)
-            && !MarkdownMacros.ContainsMacro(source, "lbrace")
-            && !MarkdownMacros.ContainsMacro(source, "rbrace")
-            && !HasEscapedBrace(source);
-
-    /// <summary>
-    /// True when <paramref name="source"/> escapes a curly brace (<c>\{</c> or <c>\}</c>). A <c>\\</c> is a
-    /// line break, not an escape of what follows, so <c>\\{</c> opens a group and does not count.
-    /// </summary>
-    private static bool HasEscapedBrace(string source)
-    {
-        for (var i = 0; i < source.Length - 1; i++)
-        {
-            if (source[i] != '\\') continue;
-            var next = source[i + 1];
-            if (next is '{' or '}') return true;
-            i++; // the escaped character, which for \\ is the second backslash
-        }
-        return false;
-    }
 
     /// <summary>
     /// Parses preprocessed math source into the builder that lays its box tree out at a given style, or
