@@ -10,6 +10,29 @@ Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); th
 changed and why.
 
 
+## 5.9
+
+**Display math that holds `\text` or an escaped brace rasters.** The renderer prepared the raster path's source with
+its own copy of DIR.Lib's preparation, which turned away `\text` and every escaped brace, so most formulas a document
+writes for KaTeX (eight of the nine display formulas in a real architecture note) printed as one row of Unicode. It
+now calls DIR.Lib's `MarkdownMacros.TryPrepareMathBoxSource`, which turns away only environments; a set's braces
+raster as curly brackets (DIR.Lib 11.24). This reverses 5.8's routing of escaped braces to the Unicode path.
+
+**Display math is centred**, as KaTeX and LaTeX centre it: in the width for a block, and in the item's text column for
+one inside a list item, where it used to sit at column 0, left of the item's own text. The Unicode fallback is centred
+too where its line fits. Every rastered entry of the math parity golden moved by its indent.
+
+**A list item keeps its marker when it opens with no paragraph.** DIR.Lib now parses an item's lines like a document,
+so an item may open with a heading, a fence or a nested list, or hold nothing (`1. ## Step`, `- - foo`, an empty
+`-`). The marker used to print only ahead of a paragraph, so such an item lost it; it now takes a line of its own.
+
+**DIR.Lib 11.25's Markdown and math fixes reach mdcat through the pin**, which moves from `11.24.*` to `11.25.*`. A
+heading, a list, a fence, a table or display math interrupts a paragraph, as CommonMark and GFM set them, so a heading
+written straight under a paragraph line no longer folds into it. On both math paths: `\text`, accents (`\hat`, `\bar`,
+`\vec`, ...) drawn over their base, primes, `\lfloor` `\lceil` `\langle` pairs that stretch, `\mathbf`, TeX's spacing for
+operator names and juxtaposition, and an operator with no operand on a side (`8\times`, `\to`). The radical keeps whole
+clear rows over its radicand. DIR.Lib's own `## 11.24` and `## 11.25` entries say how and why.
+
 ## 5.8
 
 **Display math written inside a paragraph rasters as a block.** `$$..$$` and `\[..\]` are display math wherever they
