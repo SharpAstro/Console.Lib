@@ -10,6 +10,21 @@ Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); th
 changed and why.
 
 
+## 5.10
+
+**DIR.Lib 11.26's math reaches mdcat through the pin**, which moves from `11.25.*` to `11.26.*`. Stretchy delimiters,
+radicals and big operators are drawn the size asked for: a radical over a tall radicand grows with it, where STIX Two
+Math's stopped at 80 rows at 32 px, and DejaVu Sans's delimiters are no longer up to four times too tall. A root's
+index (`\sqrt[3]{x}`) no longer touches the radical. Math rasterizes 13 to 32 times faster once warm, because the font
+is parsed once per process rather than once per formula. The Markdown parse, 50 to 190 times faster, already reached
+5.9 through its floating pin (DIR.Lib 11.25.x). The parity golden did not move. DIR.Lib's own `## 11.25` and
+`## 11.26` entries say how and why.
+
+**The math corpus states the width-fit cases it covers**: three passes, rastering just above the two-thirds floor,
+and falling back just past it. A test fails by the case's name when a DIR.Lib release moves one off its target, as
+11.23's math italic once moved two of them unnoticed. The renderer records each fit in an internal trace for it; no
+public API changes.
+
 ## 5.9
 
 **Display math that holds `\text` or an escaped brace rasters.** The renderer prepared the raster path's source with
