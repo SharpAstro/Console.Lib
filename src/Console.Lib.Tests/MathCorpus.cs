@@ -12,18 +12,15 @@ internal static class MathCorpus
     /// paragraph split rather than the display block this corpus has always measured.
     /// <para>
     /// The wide ones are there for the width-fit loop. At width 30 <c>quadratic</c>,
-    /// <c>definite-integral</c> and <c>fine-structure</c> shrink to fit as Sixel; at 60 the half-block
-    /// rasters of <c>gauss-sum</c>, <c>gaussian-integral</c> and <c>vectors</c> take three passes, because
-    /// the first shrink leaves them still too wide; <c>fourteen-terms</c> shrinks as Sixel at 60 and as
-    /// sextant at 120, and is too wide for any raster at 30. The last formula cannot be lexed by the math
-    /// grammar at all, so it pins the Unicode fallback.
+    /// <c>definite-integral</c> and <c>fine-structure</c> shrink to fit as Sixel, and <c>fourteen-terms</c>
+    /// is too wide for any raster; it shrinks as Sixel at 60 and as sextant at 120. The last formula cannot
+    /// be lexed by the math grammar at all, so it pins the Unicode fallback.
     /// </para>
     /// <para>
-    /// Up to DIR.Lib 11.22 <c>limit</c> as half-block at 60 took three passes as well, and
-    /// <c>hypotenuse</c> as half-block at 30 landed exactly on the two-thirds floor. The math-italic
-    /// variables of 11.23 widened both: <c>limit</c> now settles in two passes, and <c>hypotenuse</c>, two
-    /// cells wider at its default size, falls just short of the floor and takes the Unicode path. No case
-    /// here sits on the floor any more.
+    /// Which cases take the loop to its edges (three passes, rastering just above the two-thirds floor,
+    /// falling back just past it) is stated in <see cref="FitTargets"/> and checked, because a DIR.Lib
+    /// release moves them: 11.23's math italic took <c>limit</c> off three passes and <c>hypotenuse</c> off
+    /// the floor, and for a while no case sat on the floor at all.
     /// </para>
     /// </summary>
     internal static readonly (string Name, string Source)[] Formulas =
@@ -45,6 +42,36 @@ internal static class MathCorpus
         ("binomial", @"\binom{n}{k}"),
         ("vectors", @"\vec{F} = m \vec{a}"),
         ("factorial-unlexable", @"\prod_{k=1}^{n} k = n!"),
+    ];
+
+    /// <summary>What a corpus case is there to make the width-fit loop do.</summary>
+    internal enum FitTarget
+    {
+        /// <summary>Three passes or more: the first shrink leaves the formula still too wide.</summary>
+        ThreePasses,
+
+        /// <summary>Rasters less than half a point above the two-thirds floor, the least a shrink moves, so one
+        /// more shrink would have crossed it.</summary>
+        OnTheFloor,
+
+        /// <summary>Shrinks at least once, then stops because the next shrink would cross the floor, and takes
+        /// the Unicode path.</summary>
+        PastTheFloor,
+    }
+
+    /// <summary>
+    /// The width-fit cases the corpus must keep covering, each with the target it covers. A DIR.Lib that
+    /// widens or narrows a formula can move a case off its target, as 11.23's math italic once moved
+    /// <c>limit</c> and <c>hypotenuse</c> off theirs without anyone noticing; the test that checks these then
+    /// fails by the case's name, and the corpus gets a case that covers the target again.
+    /// </summary>
+    internal static readonly (string Name, BoxRenderMode Mode, int Width, FitTarget Target)[] FitTargets =
+    [
+        ("gauss-sum", BoxRenderMode.HalfBlock, 60, FitTarget.ThreePasses),
+        ("definite-integral", BoxRenderMode.Sextant, 60, FitTarget.ThreePasses),
+        ("mass-energy", BoxRenderMode.HalfBlock, 30, FitTarget.OnTheFloor),
+        ("gauss-sum", BoxRenderMode.HalfBlock, 60, FitTarget.OnTheFloor),
+        ("gaussian-integral", BoxRenderMode.Sextant, 30, FitTarget.PastTheFloor),
     ];
 
     /// <summary>The formulas wide enough that some width in <see cref="Widths"/> sends them round the width-fit loop.</summary>
