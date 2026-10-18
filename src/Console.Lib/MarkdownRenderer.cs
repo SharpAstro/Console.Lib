@@ -163,9 +163,11 @@ public static partial class MarkdownRenderer
 
             if (ParseMathBox(source, new BoxStyle(fontPath, defaultSize)) is not { } builder) return false;
             var available = width > 0 ? Math.Max(1, width - indent) : 0;
+            var passes = 0;
 
             while (true)
             {
+                passes++;
                 var style = new BoxStyle(fontPath, fontSize);
                 var box = builder(style);
                 var (rasterWidth, rasterHeight) = MathRasterSize(box, style);
@@ -183,11 +185,16 @@ public static partial class MarkdownRenderer
                     // layout is not exactly linear in the size (rules and spacing have minimums), so the
                     // next pass measures again rather than trusting the ratio.
                     var next = Math.Min(fontSize * available / cells, fontSize - 0.5f);
-                    if (next < minimumSize) return false;
+                    if (next < minimumSize)
+                    {
+                        t_lastMathFit = new MathFit(passes, fontSize, minimumSize, Rastered: false);
+                        return false;
+                    }
                     fontSize = next;
                     continue;
                 }
 
+                t_lastMathFit = new MathFit(passes, fontSize, minimumSize, Rastered: true);
                 var image = BoxRasterizer.RenderToRgba(box, style);
                 t_mathRasterizations++;
                 if (image.Width <= 0 || image.Height <= 0) return false;
@@ -231,6 +238,16 @@ public static partial class MarkdownRenderer
     /// do not count each other's rasters.
     /// </summary>
     [ThreadStatic] internal static int t_mathRasterizations;
+
+    /// <summary>
+    /// How the width-fit loop of the last display formula on this thread ended: the passes it took, the
+    /// size it settled at (or the last size it tried, when the next shrink would have crossed the floor),
+    /// the two-thirds floor, and whether it rastered. The math corpus states which of these it covers.
+    /// </summary>
+    [ThreadStatic] internal static MathFit t_lastMathFit;
+
+    /// <summary>One width-fit loop's outcome, recorded in <see cref="t_lastMathFit"/>.</summary>
+    internal readonly record struct MathFit(int Passes, float Size, float Floor, bool Rastered);
 
     /// <summary>
     /// Parses preprocessed math source into the builder that lays its box tree out at a given style, or

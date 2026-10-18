@@ -75,6 +75,40 @@ public sealed class MathRenderParityTests
         }
     }
 
+    public static TheoryData<string, BoxRenderMode, int, string> FitTargetCases()
+    {
+        var data = new TheoryData<string, BoxRenderMode, int, string>();
+        foreach (var (name, mode, width, target) in MathCorpus.FitTargets)
+            data.Add(name, mode, width, target.ToString());
+        return data;
+    }
+
+    /// <summary>
+    /// The corpus still sends the width-fit loop where it is meant to: three passes, rastering just above
+    /// the two-thirds floor, and falling back just past it (<see cref="MathCorpus.FitTargets"/>). A case a
+    /// DIR.Lib release moves off its target fails here by name, rather than the corpus quietly no longer
+    /// covering the loop's edges.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(FitTargetCases))]
+    public void Corpus_KeepsCoveringItsWidthFitTarget(string name, BoxRenderMode mode, int width, string target)
+    {
+        var source = MathCorpus.Formulas.Single(c => c.Name == name).Source;
+
+        MarkdownRenderer.t_lastMathFit = default;
+        Render(source, mode, width);
+        var fit = MarkdownRenderer.t_lastMathFit;
+
+        var covered = Enum.Parse<MathCorpus.FitTarget>(target) switch
+        {
+            MathCorpus.FitTarget.ThreePasses => fit.Rastered && fit.Passes >= 3,
+            MathCorpus.FitTarget.OnTheFloor => fit.Rastered && fit.Size - fit.Floor < 0.5f,
+            MathCorpus.FitTarget.PastTheFloor => !fit.Rastered && fit.Passes >= 2,
+            _ => false,
+        };
+        covered.ShouldBeTrue($"{name} as {mode} at width {width} no longer covers {target}: {fit}");
+    }
+
     /// <summary>
     /// The width-fit loop sizes each candidate from the box and rasterizes only the size it settles on:
     /// once when the formula rasters, at whatever size, and not at all when even the two-thirds floor is
