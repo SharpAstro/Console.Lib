@@ -45,194 +45,16 @@ internal static class Program
             return 1;
         }
 
-        int width = options.Width ?? ConsoleSize.GetWidth();
-
-        var (colorMode, theme) = ResolveColorAndTheme(options.Color);
-
-        // A single terminal probe drives both the math-raster mode and image
-        // rendering (cell pixel size + Sixel/blocks capability). It is skipped
-        // whenever nothing can raster: under --mode unicode, and without
-        // colour, since the renderer keeps ColorMode.None free of escape
-        // sequences and so takes the Unicode path and alt text there anyway.
-        BoxRenderMode? mathMode = options.Mode;
-        MarkdownImageOptions? images = null;
-        var baseDir = ResolveDocumentBaseDir(options.FilePath);
-        if (!options.Unicode && colorMode != ColorMode.None)
-        {
-            var probe = await ProbeTerminalAsync();
-            if (mathMode == null && probe.Available)
-                mathMode = probe.Sixel ? BoxRenderMode.Sixel : BoxRenderMode.Sextant;
-            images = BuildImageOptions(probe, options.Mode, baseDir);
-        }
-
-        // Render into a buffer first, then flush. The renderer writes
-        // incrementally, so catching around a direct-to-stdout render would
-        // still leave half-rendered output before the throw. Buffering keeps
-        // mdcat cat-tolerant: if the markdown/LaTeX pipeline throws on some
-        // grammar edge case, we emit the raw file contents instead of crashing
-        // with a stack trace — you always get the document either way.
-        var buffer = new StringWriter();
-        try
-        {
-            MarkdownRenderer.Render(
-                content,
-                buffer,
-                width,
-                colorMode: colorMode,
-                theme: theme,
-                mathMode: mathMode,
-                mathFontPath: ResolveMathFont(),
-                images: images,
-                linkResolver: url => ResolveLocalLink(url, baseDir));
-        }
-        catch (Exception ex)
-        {
-            SysConsole.Error.WriteLine($"mdcat: could not render markdown ({ex.Message}); emitting raw text.");
-            SysConsole.Out.Write(content);
-            return 0;
-        }
-
-        SysConsole.Out.Write(buffer.ToString());
+        // How it renders (colour, the one terminal probe, images and links) is Console.Lib's MarkdownOutput, which
+        // writes the raw text when the pipeline throws, so the document always comes out.
+        await MarkdownOutput.RenderAsync(content, SysConsole.Out, new MarkdownOutputOptions(
+            Mode: options.Mode,
+            Unicode: options.Unicode,
+            Width: options.Width,
+            Color: options.Color,
+            BaseDir: MarkdownOutput.DocumentBaseDir(options.FilePath),
+            MathFontPath: ResolveMathFont()), SysConsole.Error);
         return 0;
-    }
-
-    /// <summary>
-    /// Resolves the effective <see cref="ColorMode"/> and theme. An explicit
-    /// <c>--color</c> / <c>--no-color</c> wins; otherwise NO_COLOR forces plain,
-    /// and we keep emitting truecolor escapes (unchanged) but only upgrade to
-    /// the richer <see cref="MarkdownTheme.Modern"/> palette when the terminal
-    /// is confirmed truecolor — a 16-colour terminal would mangle the hex tones.
-    /// </summary>
-    private static (ColorMode mode, MarkdownTheme? theme) ResolveColorAndTheme(ColorMode? explicitMode)
-    {
-        if (explicitMode is { } m)
-            return (m, m == ColorMode.TrueColor ? MarkdownTheme.Modern : null);
-
-        if (StreamColor.NoColorRequested)
-            return (ColorMode.None, null);
-
-        return (ColorMode.TrueColor, SupportsTrueColor() ? MarkdownTheme.Modern : null);
-    }
-
-    /// <summary>
-    /// Best-effort 24-bit-colour detection. There is no universally reliable
-    /// probe, so we use the de-facto conventions: COLORTERM=truecolor|24bit,
-    /// then known-terminal env markers (Windows Terminal sets WT_SESSION;
-    /// iTerm2 / WezTerm / VS Code set TERM_PROGRAM).
-    /// </summary>
-    private static bool SupportsTrueColor()
-    {
-        var colorTerm = Environment.GetEnvironmentVariable("COLORTERM");
-        if (colorTerm is "truecolor" or "24bit") return true;
-        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WT_SESSION"))) return true;
-        return Environment.GetEnvironmentVariable("TERM_PROGRAM")
-            is "iTerm.app" or "WezTerm" or "vscode";
-    }
-
-    private readonly record struct TerminalProbe(
-        bool Available, bool Sixel, ImageDisplayCapability ImageCap, int CellW, int CellH);
-
-    private static async Task<TerminalProbe> ProbeTerminalAsync()
-    {
-        try
-        {
-            await using var probe = new VirtualTerminal();
-            await probe.InitAsync();
-            var cell = probe.CellSize;
-            return new TerminalProbe(true, probe.HasSixelSupport, probe.ImageDisplayCapability, cell.Width, cell.Height);
-        }
-        catch
-        {
-            return default; // Available == false
-        }
-    }
-
-    /// <summary>
-    /// Builds image-rendering options from the terminal probe. Returns null
-    /// (→ alt text) when the terminal can't display images. An explicit
-    /// <c>--mode</c> raster choice overrides the detected capability so images
-    /// share the math encoding the user asked for.
-    /// </summary>
-    private static MarkdownImageOptions? BuildImageOptions(TerminalProbe probe, BoxRenderMode? explicitMode, string baseDir)
-    {
-        if (!probe.Available) return null;
-        var mode = explicitMode ?? probe.ImageCap switch
-        {
-            ImageDisplayCapability.Sixel => BoxRenderMode.Sixel,
-            ImageDisplayCapability.AsciiBlock => BoxRenderMode.Sextant,
-            _ => (BoxRenderMode?)null, // NoColor → no raster
-        };
-        if (mode is not { } m) return null;
-
-        var cellW = probe.CellW > 0 ? probe.CellW : 10;
-        var cellH = probe.CellH > 0 ? probe.CellH : 20;
-        return new MarkdownImageOptions(src => LoadLocalImage(src, baseDir), m, cellW, cellH);
-    }
-
-    /// <summary>Directory relative image sources and links resolve against: the document's folder, else CWD (stdin).</summary>
-    private static string ResolveDocumentBaseDir(string? filePath)
-    {
-        if (filePath is not null && filePath != "-")
-        {
-            try
-            {
-                var dir = Path.GetDirectoryName(Path.GetFullPath(filePath));
-                if (!string.IsNullOrEmpty(dir)) return dir;
-            }
-            catch { /* fall through to CWD */ }
-        }
-        return Directory.GetCurrentDirectory();
-    }
-
-    /// <summary>
-    /// Loads a local image file for the renderer. mdcat does NOT fetch over the
-    /// network — remote (<c>http(s)://</c>) and <c>data:</c> URLs return null so
-    /// the image falls back to its alt text. Relative paths resolve against
-    /// <paramref name="baseDir"/>.
-    /// </summary>
-    private static byte[]? LoadLocalImage(string src, string baseDir)
-    {
-        if (string.IsNullOrWhiteSpace(src)) return null;
-        if (src.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
-            || src.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-            || src.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-            return null;
-        try
-        {
-            var path = Path.IsPathRooted(src) ? src : Path.Combine(baseDir, src);
-            return File.Exists(path) ? File.ReadAllBytes(path) : null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Resolves a Markdown link href for the OSC 8 hyperlink target. A bare
-    /// relative href (<c>docs/foo.md</c>, <c>LICENSE</c>) is not a valid absolute
-    /// URI, so terminals reject it as a clickable target ("invalid link" in
-    /// Windows Terminal) even though the label still renders. An href that
-    /// already parses as an absolute URI — <c>http(s)://</c>, <c>mailto:</c>, an
-    /// already-<c>file://</c> link, or (per <see cref="Uri"/>'s own parsing) a
-    /// rooted Windows path or UNC share — is left untouched; everything else
-    /// resolves against <paramref name="baseDir"/> into a <c>file://</c> URI, the
-    /// same base directory local images resolve against. A leading <c>#</c>
-    /// (an in-page anchor) is left alone too: there's no file on disk to point at.
-    /// </summary>
-    private static string ResolveLocalLink(string url, string baseDir)
-    {
-        if (string.IsNullOrWhiteSpace(url) || url[0] == '#') return url;
-        if (Uri.TryCreate(url, UriKind.Absolute, out _)) return url;
-        try
-        {
-            var fullPath = Path.GetFullPath(Path.Combine(baseDir, url));
-            return new Uri(fullPath).AbsoluteUri;
-        }
-        catch
-        {
-            return url;
-        }
     }
 
     private static string? ResolveMathFont()
@@ -255,7 +77,7 @@ internal static class Program
         BoxRenderMode? mode = null;
         var unicode = false;
         int? width = null;
-        // null = auto: ResolveColorAndTheme detects truecolor and honours
+        // null = auto: MarkdownOutput.ResolveColorAndTheme detects truecolor and honours
         // NO_COLOR. An explicit --color / --no-color sets a non-null value
         // that overrides detection.
         ColorMode? color = null;
