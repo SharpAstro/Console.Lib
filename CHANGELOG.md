@@ -10,6 +10,18 @@ Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); th
 changed and why.
 
 
+## 5.11
+
+**mdcat's way of writing Markdown to standard output is a library API, `MarkdownOutput`**, so every CLI that prints
+Markdown decides the same way. `RenderAsync` takes the colour and theme (truecolor detection, `NO_COLOR`), one
+terminal probe for display math and images, local images and `file://` links, and writes the raw text when the
+pipeline throws. `OutputFormat` (`Auto`, `Rich`, `Markdown`, `Plain`) and `ResolveFormatAsync` back an
+`--output-format` option: `Auto` is rich only when standard output is a terminal, `NO_COLOR` is unset and the terminal
+shows Sixel, and plain otherwise. The redirect is checked before anything is asked, so a pipe never waits on a probe.
+The pieces are public too (`ResolveColorAndTheme`, `SupportsTrueColor`, `ProbeAsync`, `BuildImageOptions`,
+`LoadLocalImage`, `ResolveLocalLink`, `DocumentBaseDir`). mdcat now calls `RenderAsync`, and its output is
+byte-for-byte what it was. pilot's `status` is the first other caller.
+
 ## 5.10
 
 **DIR.Lib 11.26's math reaches mdcat through the pin**, which moves from `11.25.*` to `11.26.*`. Stretchy delimiters,
