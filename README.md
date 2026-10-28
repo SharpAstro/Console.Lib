@@ -64,6 +64,22 @@ dotnet test src/Console.Lib.Tests
 dotnet run --project src/MdCat -- README.md   # build & run the mdcat CLI in place
 ```
 
+## Debug builds (`Console.Lib.Debug`)
+
+The published `Console.Lib` is built Release, so the `#if DEBUG` types (`ConsoleDebugInspector` and the rest of
+the debug-inspector layer) are absent from it. `Console.Lib.Debug` is the same library at the same version, built
+Debug, and it depends on `DIR.Lib.Debug`. Reference one or the other by configuration (Visual Studio needs a
+restore after switching):
+
+```xml
+<ItemGroup Condition="'$(Configuration)' == 'Debug'">
+  <PackageReference Include="Console.Lib.Debug" Version="5.12.*" />
+</ItemGroup>
+<ItemGroup Condition="'$(Configuration)' != 'Debug'">
+  <PackageReference Include="Console.Lib" Version="5.12.*" />
+</ItemGroup>
+```
+
 ## Documentation
 
 See [`src/Console.Lib/README.md`](src/Console.Lib/README.md) for the full API reference, architecture diagram, and detailed usage guide.

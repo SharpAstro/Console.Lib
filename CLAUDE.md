@@ -59,6 +59,15 @@ The property is called `VersionMajorMinor` rather than something Console.Lib-spe
 
 The **mdcat** global tool's version is melded to Console.Lib's: CI passes the same `-p:Version` to the whole solution, and a dedicated `dotnet pack src/MdCat` step (mdcat is `PackAsTool`, so it can't use `GeneratePackageOnBuild`) publishes it to nuget.org alongside the library. Deriving its `VersionPrefix` keeps the LOCAL build in step too. (mdcat *binaries* — the native AOT GitHub Releases from `mdcat-release.yml` — are independent, tag-driven via `mdcat-vX.Y.Z`.)
 
+The same version also stamps the **Console.Lib.Debug** twin: CI packs `src/Console.Lib` a second time with
+`-c Debug -p:DebugTwin=true` (and `-p:GeneratePackageOnBuild=false`, so bin/Debug holds no second nupkg), because
+the Release Console.Lib has no `#if DEBUG` types. Under `DebugTwin` the csproj forces the DIR.Lib package path and
+references DIR.Lib.Debug instead of DIR.Lib; the `DIR.Lib` and `DIR.Lib.Debug` pins in `Directory.Packages.props`
+move together. `tools/debug-twin-check` is a consumer with no ProjectReference that compiles against that package
+only and fails if its restore pulled the plain DIR.Lib
+(`dotnet build tools/debug-twin-check/DebugTwinCheck.csproj -c Debug`, after a twin pack into
+`artifacts/debug-twin`; CI passes `-p:ConsoleLibDebugVersion=<stamped version>`).
+
 ## DIR.Lib local-project reference
 
 `Console.Lib.csproj` uses a conditional reference for **DIR.Lib**: if the sibling working copy `../DIR.Lib/src/DIR.Lib/DIR.Lib.csproj` exists on disk, MSBuild picks it up as a `ProjectReference` (great for in-tree iteration). Otherwise it falls back to the NuGet `PackageReference`. The switch is controlled by the `UseLocalDirLib` MSBuild property, which can also be set explicitly (e.g., `-p:UseLocalDirLib=false`) to force the package path.

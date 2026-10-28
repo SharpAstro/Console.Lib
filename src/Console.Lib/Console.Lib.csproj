@@ -19,6 +19,22 @@
     <DebugType>embedded</DebugType>
   </PropertyGroup>
 
+  <!--
+    Opt-in Debug twin (-p:DebugTwin=true): the same library packed from a Debug build as Console.Lib.Debug,
+    at the same version as Console.Lib. A published Console.Lib is built Release, so every #if DEBUG type in
+    it (ConsoleDebugInspector and the rest of the debug-inspector layer) is absent and a Debug consumer
+    cannot compile against it. A consumer switches with a Configuration-conditioned PackageReference:
+    Console.Lib when not Debug, Console.Lib.Debug when Debug. Visual Studio needs a restore after switching
+    configuration.
+  -->
+  <PropertyGroup Condition="'$(DebugTwin)' == 'true'">
+    <PackageID>Console.Lib.Debug</PackageID>
+    <Description>The Debug build of Console.Lib, for Debug consumers that need ConsoleDebugInspector and the other #if DEBUG types, which the Release Console.Lib package does not contain. Same version as Console.Lib, and it depends on DIR.Lib.Debug rather than DIR.Lib. Reference Console.Lib when the configuration is not Debug and Console.Lib.Debug when it is, with a Configuration-conditioned PackageReference; Visual Studio needs a restore after switching configuration.</Description>
+  </PropertyGroup>
+  <Target Name="RequireDebugForTwin" BeforeTargets="Pack;GenerateNuspec;CoreCompile" Condition="'$(DebugTwin)' == 'true' AND '$(Configuration)' != 'Debug'">
+    <Error Text="DebugTwin=true packs Console.Lib.Debug and must be built with -c Debug (Configuration is '$(Configuration)')." />
+  </Target>
+
   <ItemGroup>
     <InternalsVisibleTo Include="Console.Lib.Tests" />
   </ItemGroup>
@@ -41,13 +57,19 @@
     to PackageReference automatically.
   -->
   <PropertyGroup>
+    <UseLocalDirLib Condition="'$(DebugTwin)' == 'true'">false</UseLocalDirLib>
     <UseLocalDirLib Condition="'$(UseLocalDirLib)' == '' AND Exists('..\..\..\DIR.Lib\src\DIR.Lib\DIR.Lib.csproj')">true</UseLocalDirLib>
   </PropertyGroup>
   <ItemGroup Condition="'$(UseLocalDirLib)' == 'true'">
     <ProjectReference Include="..\..\..\DIR.Lib\src\DIR.Lib\DIR.Lib.csproj" />
   </ItemGroup>
-  <ItemGroup Condition="'$(UseLocalDirLib)' != 'true'">
+  <ItemGroup Condition="'$(UseLocalDirLib)' != 'true' AND '$(DebugTwin)' != 'true'">
     <PackageReference Include="DIR.Lib" />
+  </ItemGroup>
+  <!-- The twin depends on DIR.Lib.Debug, never DIR.Lib, and never on the sibling project (which would put
+       DIR.Lib in the nuspec), so DebugTwin forces the package path above. -->
+  <ItemGroup Condition="'$(DebugTwin)' == 'true'">
+    <PackageReference Include="DIR.Lib.Debug" />
   </ItemGroup>
 
   <!--
