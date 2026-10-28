@@ -9,6 +9,28 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.12
+
+Additive: a second package, **Console.Lib.Debug**, the same library built Debug, at the same version as
+Console.Lib and pushed with it. It depends on DIR.Lib.Debug (never DIR.Lib), and the DIR.Lib pin moves to 11.40,
+the first version that publishes that twin.
+
+A published Console.Lib is built Release, so every `#if DEBUG` type in it (`ConsoleDebugInspector` and the rest
+of the debug-inspector layer) is absent. A Debug consumer that restored it failed to compile, and on a plane,
+where no sibling sources are found, that was the only package it could get. Console.Lib.Debug carries those
+types. A consumer switches with a Configuration-conditioned reference:
+
+```xml
+<ItemGroup Condition="'$(Configuration)' == 'Debug'">
+  <PackageReference Include="Console.Lib.Debug" Version="5.12.*" />
+</ItemGroup>
+<ItemGroup Condition="'$(Configuration)' != 'Debug'">
+  <PackageReference Include="Console.Lib" Version="5.12.*" />
+</ItemGroup>
+```
+
+Visual Studio needs a restore after switching configuration. CI packs the twin (`-p:DebugTwin=true`) and builds
+`tools/debug-twin-check` against it, which fails if the restore pulled DIR.Lib instead of DIR.Lib.Debug.
 
 ## 5.11
 

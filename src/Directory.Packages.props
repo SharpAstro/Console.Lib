@@ -14,7 +14,10 @@
          for MdMathInline.IsDisplay, and 8.3 for IconKind.Plus and Minus). Anything older fails to
          compile here rather than merely missing a feature, so this pin can never move ahead of a
          PUBLISHED DIR.Lib, and bumping it is the second half of a release, never the first. -->
-    <PackageVersion Include="DIR.Lib" Version="11.26.*" />
+    <PackageVersion Include="DIR.Lib" Version="11.40.*" />
+    <!-- The Debug twin (first published at 11.40), pinned in lockstep with DIR.Lib so Console.Lib and
+         Console.Lib.Debug resolve the same DIR.Lib. -->
+    <PackageVersion Include="DIR.Lib.Debug" Version="11.40.*" />
     <!-- Console.Lib.Inspector's own two: the MCP sidecar references nothing from the library, but
          its pins belong here anyway so a sweep of this file sees the whole repo. -->
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
