@@ -114,6 +114,9 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
+          # Only the mdcat archives: an unfiltered download takes every artifact the run made, and the release
+          # uploads all of dist/ (openphd2-multiscope's release failed on a log artifact this way).
+          pattern: mdcat-*
           path: dist
           merge-multiple: true
 
