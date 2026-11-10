@@ -408,7 +408,7 @@ public static class CellLayout
     /// <c>IPixelWidget.GetRegisteredTextInputs</c>, and what a terminal host feeds
     /// <c>TextInputInteraction.KeyContext.TabFields</c> so Tab cycles fields in the order they appear.
     /// <para>
-    /// Read off the tree rather than accumulated during <see cref="Paint"/>, so it is answerable without
+    /// Read off the tree rather than accumulated during <see cref="Paint(ITerminalViewport, ImmutableArray{Layout.ArrangedNode{int}}, Action{Layout.Content.Fill, Rect{int}})"/>, so it is answerable without
     /// having painted and cannot go stale against a tree that was rebuilt since. Order is the flat pre-order
     /// the engine produced, which IS the visual order, so tab order needs no declaring and no maintaining.
     /// </para>
@@ -633,7 +633,7 @@ public static class CellLayout
     }
 
     /// <param name="under">The background this text is painted over, from the nearest enclosing node that
-    /// painted one (see the stack in <see cref="Paint"/>). Stated explicitly rather than inherited, so the
+    /// painted one (see the stack in <see cref="Paint(ITerminalViewport, ImmutableArray{Layout.ArrangedNode{int}}, Action{Layout.Content.Fill, Rect{int}})"/>). Stated explicitly rather than inherited, so the
     /// cell carries it; an unset value is emitted as the terminal's default rather than as black.</param>
     /// <param name="link">
     /// The nearest enclosing <see cref="HitResult.LinkHit"/>'s target, or null. Only TEXT is wrapped: the

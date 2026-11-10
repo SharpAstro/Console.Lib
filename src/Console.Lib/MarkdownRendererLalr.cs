@@ -11,7 +11,7 @@ using SharpAstro.Codecs;
 namespace Console.Lib;
 
 /// <summary>
-/// LALR.CC-driven rendering path. <see cref="MarkdownRenderer.RenderLines"/>
+/// LALR.CC-driven rendering path. <see cref="MarkdownRenderer.RenderLines(string, int, ColorMode, MarkdownTheme, BoxRenderMode?, string, MarkdownImageOptions, Func{string, string})"/>
 /// dispatches here unconditionally: the method parses the source via
 /// <see cref="MarkdownBlockVisitor"/> (from <c>DIR.Lib.Markdown</c>) and walks
 /// the resulting <see cref="MdBlock"/> / <see cref="MdInline"/> tree, emitting
@@ -23,7 +23,7 @@ namespace Console.Lib;
 public static partial class MarkdownRenderer
 {
     /// <summary>Renders Markdown via the LALR.CC inline + block
-    /// grammars. Same signature as <see cref="RenderLines"/>; output
+    /// grammars. Same signature as <see cref="RenderLines(string, int, ColorMode, MarkdownTheme, BoxRenderMode?, string, MarkdownImageOptions, Func{string, string})"/>; output
     /// should match byte-for-byte for the cases both paths cover.</summary>
     public static List<string> RenderLinesLalr(string markdown, int width,
         ColorMode colorMode = ColorMode.TrueColor, MarkdownTheme? theme = null,
