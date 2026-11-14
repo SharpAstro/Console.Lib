@@ -163,7 +163,9 @@ public class CellInputRouterTests
                 .Activatable(_ => activated.Add(index));
         }
 
-        var tree = Layout.Builder.VStack(rows).WithScroll(scroll).H(Layout.Sizing.Fixed(viewportRows)).WStar();
+        // Inside a parent stack so the fixed height is honoured: a root fills the whole frame.
+        var tree = Layout.Builder.VStack(
+            Layout.Builder.VStack(rows).WithScroll(scroll).H(Layout.Sizing.Fixed(viewportRows)).WStar());
         return (tree, scroll, activated);
     }
 
