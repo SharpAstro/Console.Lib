@@ -409,7 +409,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
 
     /// <summary>
     /// Pulls the DECRQM reply (<c>ESC [ ? 2026 ; N $ y</c>) out of the combined DECRQM + DA1 response.
-    /// N of 1 (set) or 2 (reset) means supported; 0 (unknown) and 4 (permanently reset) do not, and an
+    /// N of 1 (set), 2 (reset) or 3 (permanently set) means supported; 0 (unknown) and 4 (permanently reset) do not, and an
     /// absent reply means unsupported. The remainder is the response without the DECRQM reply, ready for
     /// the DA1 capability parse.
     /// </summary>
