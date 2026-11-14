@@ -9,6 +9,18 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.16
+
+Additive (no public API change): DIR.Lib pin 11.40 to 11.60 (DIR.Lib.Debug with it), and an open popover claims
+the pointer for its content on the cell surface (#57). `CellInputSurface.Declare` registers a region over the
+popover content's rect (the first child of its anchored node), so a press on the content's empty padding is
+no longer the dismissing scrim's and never reaches a list row painted under it, nor moves the list cursor;
+a press outside the content still dismisses as the popover declares. DIR.Lib's `WindowUiSettings.ClaimPointer`
+and `NoteFrameBegin` are internal, so the cell surface claims from its own regions and does not set
+`PointerOwner` (hover confinement and the trigger-beneath rule need a public claim from DIR.Lib). Rows a
+`Scroll` viewport clips out stay rows of their list for the keyboard, as before (the clipped-rows hook was
+already here).
+
 ## 5.15
 
 Additive (no public API change; tianwen picks it up in its own build): the parked caret no longer restarts its
