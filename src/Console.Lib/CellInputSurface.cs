@@ -24,6 +24,7 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
     private readonly List<TextInputState> _fields = [];
     private readonly Dictionary<TextInputState, (int X, int Width)> _fieldRects = [];
     private readonly List<ListCursor.PaintedRow> _rows = [];
+    private readonly List<ScrolledRow> _scrolledRows = [];
 
     public WindowUiSettings Ui { get; } = ui;
 
@@ -42,6 +43,8 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
         _fields.Clear();
         _fieldRects.Clear();
 
+        _scrolledRows.Clear();
+        var scrolls = new Stack<(int Depth, ListScrollController Scroll, Rect<int> Clip)>();
         var disabledDepth = -1;
         var closedPopoverDepth = -1;
 
@@ -49,7 +52,8 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
         {
             var node = an.Node;
             var depth = an.Depth;
-            var r = an.Bounds;
+            var full = an.Bounds;
+            var r = full;
 
             if (disabledDepth >= 0 && depth <= disabledDepth)
             {
@@ -71,6 +75,29 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
                 continue;
             }
 
+            while (scrolls.Count > 0 && scrolls.Peek().Depth >= depth)
+            {
+                scrolls.Pop();
+            }
+
+            if (scrolls.Count > 0)
+            {
+                var top = scrolls.Peek();
+                if (!CellLayout.Overlaps(top.Clip, r))
+                {
+                    // Off screen: nothing registered, so it cannot answer a press, but a list row is still a
+                    // row of its list and is noted for the keyboard.
+                    if (node.Hit is HitResult.ListItemHit clipped)
+                    {
+                        NoteScrolledRow(clipped, node, node.IsDisabled || disabledDepth >= 0, true, top.Scroll, full);
+                    }
+
+                    continue;
+                }
+
+                r = CellLayout.Intersect(top.Clip, r);
+            }
+
             _painted.Add(new Layout.ArrangedNode<float>(node, new Rect<float>(r.X, r.Y, r.Width, r.Height))
             {
                 Depth = depth,
@@ -87,6 +114,11 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
 
             if (node.Hit is { } hit)
             {
+                if (hit is HitResult.ListItemHit listRow && scrolls.Count > 0)
+                {
+                    NoteScrolledRow(listRow, node, disabled, false, scrolls.Peek().Scroll, full);
+                }
+
                 var region = new ClickableRegion(r.X, r.Y, r.Width, r.Height, hit, disabled ? null : node.OnClick, cursor)
                 {
                     OnPress = disabled ? null : node.OnPress,
@@ -112,6 +144,12 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
                     Scroll = node.Scroll,
                 };
                 _tracker.Register(ref region);
+            }
+
+            // The node's children are under its viewport from here on; its own region is never clipped by it.
+            if (node.Scroll is { } scrolled)
+            {
+                scrolls.Push((depth, scrolled, r));
             }
 
             // Registered after the node's own hit so the field wins the click, as on the pixel surface.
@@ -173,7 +211,54 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
         }
     }
 
-    public ListScrollController? ScrollTargetAt(float x, float y) => null;
+    /// <summary>The innermost scrolled node under the point (the last registered, as parents register first).</summary>
+    public ListScrollController? ScrollTargetAt(float x, float y)
+    {
+        if (!Current)
+        {
+            return null;
+        }
+
+        var regions = _tracker.Regions;
+        for (var i = regions.Length - 1; i >= 0; i--)
+        {
+            var r = regions[i];
+            if (r.Scroll is { } scroll && x >= r.X && x < r.X + r.Width && y >= r.Y && y < r.Y + r.Height)
+            {
+                return scroll;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// A list row met inside a scrolled node: where it sits in what that node scrolls over (its WHOLE extent, since
+    /// bringing it into view means all of it), and its handler, so Enter can act on a row that was revealed but
+    /// has not been repainted (a clipped row registered no region).
+    /// </summary>
+    private readonly record struct ScrolledRow(HitResult.ListItemHit Hit, bool IsDisabled, bool IsClipped,
+        ListScrollController Scroll, float Start, float End, Action<InputModifier>? Act);
+
+    private void NoteScrolledRow(HitResult.ListItemHit hit, Layout.Node node, bool isDisabled, bool isClipped,
+        ListScrollController scroll, Rect<int> bounds)
+    {
+        var (start, end) = scroll.ContentExtentOf(new RectF32(bounds.X, bounds.Y, bounds.Width, bounds.Height));
+        _scrolledRows.Add(new ScrolledRow(hit, isDisabled, isClipped, scroll, start, end,
+            isDisabled ? null : node.OnActivate ?? node.OnClick));
+    }
+
+    private void RevealListCursor()
+    {
+        foreach (var row in _scrolledRows)
+        {
+            if (ListCursor.IsOn(row.Hit))
+            {
+                row.Scroll.RevealExtent(row.Start, row.End);
+                return;
+            }
+        }
+    }
 
     public CursorKind? HitTestCursor(float x, float y) => Current ? _tracker.HitTestCursor(x, y) : null;
 
@@ -194,7 +279,22 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
             }
         }
 
-        return ListCursor.Step(delta, _rows);
+        // And the rows a scrolled list arranged but its viewport clipped out: rows of the list all the same.
+        foreach (var row in _scrolledRows)
+        {
+            if (row.IsClipped && ListCursor.Owns(row.Hit))
+            {
+                _rows.Add(new ListCursor.PaintedRow(row.Hit.Index, row.IsDisabled));
+            }
+        }
+
+        if (!ListCursor.Step(delta, _rows))
+        {
+            return false;
+        }
+
+        RevealListCursor();
+        return true;
     }
 
     /// <summary>Acts on the cursor's row as a click would (Enter's own handler first); false if nothing was acted on.</summary>
@@ -224,6 +324,21 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
 
             act(modifier);
             return true;
+        }
+
+        // Revealed by the keyboard but not repainted yet: no region, so the noted row's own handler acts.
+        foreach (var row in _scrolledRows)
+        {
+            if (row.IsClipped && ListCursor.IsOn(row.Hit))
+            {
+                if (row.Act is not { } act)
+                {
+                    return false;
+                }
+
+                act(modifier);
+                return true;
+            }
         }
 
         return false;

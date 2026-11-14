@@ -67,6 +67,11 @@ public static class CellLayout
         Action<Layout.Content.Fill, Rect<int>>? drawFill = null)
         => Paint(viewport, arranged, drawFill, reverse: false);
 
+    // No scrollbar is drawn for a Scroll node. The engine reserves ScrollBarWidthPx (6 design units, which is 6
+    // columns at CellAuthored) beside the rows of an overflowing list unless its controller's Mode is None, and
+    // a six-column bar is not a terminal scrollbar; a cell host sets Mode = None and scrolls by wheel and
+    // list cursor. A one-column bar needs its own thumb geometry and a reserve the engine does not offer.
+
     /// <summary>
     /// Paints as the other overloads do, and declares the tree to <paramref name="surface"/> (clearing what
     /// the last frame declared), so an <see cref="InputRouter"/> over the surface routes it.
@@ -118,10 +123,31 @@ public static class CellLayout
         // also means no new property on Layout.Node, and nothing to keep in step with the one that exists.
         var links = new Stack<(int Depth, string Url)>();
 
+        // The viewports of the Scroll nodes the walk is inside, innermost on top. The engine has already slid
+        // the children by the controller's offset, so a child outside the viewport sits beyond its edge: it
+        // is not painted, and one straddling the edge is painted only where it shows. No Scroll node, no
+        // entries, and the walk is what it always was.
+        var scrolls = new Stack<(int Depth, Rect<int> Clip)>();
+
         foreach (var arrangedNode in arranged)
         {
             var node = arrangedNode.Node;
             var rect = arrangedNode.Bounds;
+
+            while (scrolls.Count > 0 && scrolls.Peek().Depth >= arrangedNode.Depth)
+            {
+                scrolls.Pop();
+            }
+
+            if (scrolls.Count > 0)
+            {
+                if (!Overlaps(scrolls.Peek().Clip, rect))
+                {
+                    continue;
+                }
+
+                rect = Intersect(scrolls.Peek().Clip, rect);
+            }
 
             while (backgrounds.Count > 0 && backgrounds.Peek().Depth >= arrangedNode.Depth)
             {
@@ -153,6 +179,14 @@ public static class CellLayout
                 under = bg;
             }
 
+            if (node.Scroll is { } scrolled)
+            {
+                // The arranged rect IS the viewport, in cells: one cell is one unit of the controller.
+                scrolled.BindViewport(new RectF32(arrangedNode.Bounds.X, arrangedNode.Bounds.Y,
+                    arrangedNode.Bounds.Width, arrangedNode.Bounds.Height));
+                scrolls.Push((arrangedNode.Depth, rect));
+            }
+
             if (node is not Layout.Node.Leaf leaf)
             {
                 continue;
@@ -177,6 +211,20 @@ public static class CellLayout
                     break;
             }
         }
+    }
+
+    /// <summary>Whether two cell rects share at least one cell.</summary>
+    internal static bool Overlaps(Rect<int> clip, Rect<int> r)
+        => r.X < clip.Right && r.Right > clip.X && r.Y < clip.Bottom && r.Bottom > clip.Y;
+
+    /// <summary>The cells two rects share (empty when they share none).</summary>
+    internal static Rect<int> Intersect(Rect<int> clip, Rect<int> r)
+    {
+        var x0 = Math.Max(clip.X, r.X);
+        var y0 = Math.Max(clip.Y, r.Y);
+        var x1 = Math.Min(clip.Right, r.Right);
+        var y1 = Math.Min(clip.Bottom, r.Bottom);
+        return new Rect<int>(x0, y0, Math.Max(0, x1 - x0), Math.Max(0, y1 - y0));
     }
 
     /// <summary>
