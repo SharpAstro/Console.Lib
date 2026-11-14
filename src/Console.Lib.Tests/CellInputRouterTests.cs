@@ -57,13 +57,11 @@ public class CellInputRouterTests
         public bool Key(InputKey key, InputModifier mods = InputModifier.None)
             => Router.Handle(new InputEvent.KeyDown(key, mods));
 
-        /// <summary>What a terminal host does for a printable key: the key, then the text if nobody took it.</summary>
+        /// <summary>What a terminal host does for a printable key: the KeyDown, then its text as a TextInput.</summary>
         public void Typed(InputKey key, string text)
         {
-            if (!Key(key))
-            {
-                Router.Handle(new InputEvent.TextInput(text));
-            }
+            Key(key);
+            Router.Handle(new InputEvent.TextInput(text));
         }
     }
 
