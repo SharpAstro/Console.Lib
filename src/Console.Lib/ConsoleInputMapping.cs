@@ -67,7 +67,7 @@ public static class ConsoleInputMapping
         public (InputKey Key, InputModifier Modifiers) ToInput => (evt.Key.ToInputKey, evt.Modifiers.ToInputModifier);
 
         /// <summary>
-        /// <see cref="ToInputEvent"/> for a cell host: mouse, move and scroll coordinates end up in CELLS.
+        /// <c>ToInputEvent</c> for a cell host: mouse, move and scroll coordinates end up in CELLS.
         /// <see cref="VirtualTerminal"/> reports mouse positions in pixels once it has probed the cell size,
         /// so they are divided by <paramref name="cellSize"/> here; pass <c>null</c> (or a zero size) when the
         /// size is unprobed and the coordinates are already cells. Keys are unchanged.
