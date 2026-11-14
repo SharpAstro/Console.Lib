@@ -31,7 +31,7 @@ var surface = new CellInputSurface(ui);
 var router = CellInputRouter.Create(surface, tasks, requestRedraw, fallback);
 // per frame: CellLayout.Paint(viewport, arranged, surface, ...)
 // per event: read ConsoleInputEvent, map to cells (a probed VirtualTerminal reports mouse in pixels),
-// then route; pass null for an unprobed cell size, whose coordinates are already cells
+// then route; always pass terminal.CellSize after InitAsync (a failed probe keeps its 10x20 default); null only for a source already in cells
 if (evt.ToCellInputEvent(terminal.CellSize) is { } inputEvent) router.Handle(inputEvent);
 ```
 

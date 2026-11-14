@@ -69,8 +69,10 @@ public static class ConsoleInputMapping
         /// <summary>
         /// <c>ToInputEvent</c> for a cell host: mouse, move and scroll coordinates end up in CELLS.
         /// <see cref="VirtualTerminal"/> reports mouse positions in pixels once it has probed the cell size,
-        /// so they are divided by <paramref name="cellSize"/> here; pass <c>null</c> (or a zero size) when the
-        /// size is unprobed and the coordinates are already cells. Keys are unchanged.
+        /// so they are divided by <paramref name="cellSize"/> here. After <c>InitAsync</c> always pass
+        /// <c>terminal.CellSize</c>, even when the probe failed (it keeps the 10x20 default and reports are still pixels at
+        /// that size); <c>CellSize</c> throws before <c>InitAsync</c>. Pass <c>null</c> (or a zero size) only for an event
+        /// source that already reports cells. Keys are unchanged.
         /// </summary>
         public InputEvent? ToCellInputEvent(TermCell? cellSize)
         {

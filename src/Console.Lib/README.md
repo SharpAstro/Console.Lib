@@ -388,7 +388,7 @@ cursor, then to your fallback.
 var surface = new CellInputSurface(ui);
 var router = CellInputRouter.Create(surface, tasks, requestRedraw);
 // per frame: CellLayout.Paint(viewport, arranged, surface, ...)
-// per event: a probed VirtualTerminal reports mouse in pixels, so map to cells (null cell size = already cells)
+// per event: a probed VirtualTerminal reports mouse in pixels, so map to cells (pass terminal.CellSize after InitAsync, even if the probe failed; null only for a source already in cells)
 if (evt.ToCellInputEvent(terminal.CellSize) is { } input) router.Handle(input);
 ```
 
