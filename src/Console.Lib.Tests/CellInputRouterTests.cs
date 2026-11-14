@@ -72,7 +72,7 @@ public class CellInputRouterTests
     public void ACtrlShortcutFiresWhileAFieldIsFocused_AndABareKeyIsTypedIntoIt()
     {
         var host = new Host();
-        var field = new TextInputState { Text = "ab" };
+        var field = new TextInputState { Text = "ab", CursorPos = 2 };
         var fired = 0;
         var tree = Layout.Builder.VStack(
             Field(field),
