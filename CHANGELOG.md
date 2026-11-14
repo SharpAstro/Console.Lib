@@ -9,6 +9,31 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.13
+
+Additive: a cell-painted `Layout.Node` tree now registers what it declares into DIR.Lib's `InputRouter`, so a
+terminal host gets list keys, shortcuts, field focus, Tab and clicks with no host-side routing. No existing public
+signature changed; the DIR.Lib pin is unchanged (11.40).
+
+Why: a cell-painted tree registered nothing, so every terminal host had to route list keys, shortcuts and field
+focus itself (SharpAstro/pilot#1052).
+
+What `CellInputSurface` (an `IPixelWidget`, cells held as float units) registers each `CellLayout.Paint`: click
+regions and hit tests, text fields (focus, caret by pointer column), shortcuts, list rows (a list cursor with
+Up/Down/Enter) and `Layout.Node.Scroll` viewports, which `CellLayout` clips and binds so the cursor scrolls the
+row it lands on into view and the wheel scrolls through the router. `CellInputRouter.Create` builds the
+`InputRouter` around it.
+
+The consumer loop:
+
+```csharp
+var surface = new CellInputSurface(ui);
+var router = CellInputRouter.Create(surface, tasks, requestRedraw, fallback);
+// per frame: CellLayout.Paint(viewport, arranged, surface, ...)
+// per event: read ConsoleInputEvent, map with ToInputEvent (cells), then
+router.Handle(inputEvent);
+```
+
 ## 5.12
 
 Additive: a second package, **Console.Lib.Debug**, the same library built Debug, at the same version as

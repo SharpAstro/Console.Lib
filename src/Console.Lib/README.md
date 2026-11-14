@@ -376,6 +376,21 @@ So the tree owns placement and the widget owns behaviour. Two things make this w
   it at and rebuild the renderer when it changes; otherwise the surface silently keeps encoding at its
   original size after a terminal resize.
 
+#### Routing input from the declared tree (5.13+)
+
+A cell-painted tree can feed DIR.Lib's `InputRouter`, so list keys, shortcuts, field focus, Tab, clicks and the
+wheel work from what the tree declares, with no host routing. `CellInputSurface` is the `IPixelWidget` that
+`CellLayout.Paint(viewport, arranged, surface, ...)` fills each frame (cells as float units, `Scroll` nodes clipped
+and bound); `CellInputRouter.Create` wraps it in an `InputRouter` whose unhandled keys go to the surface's list
+cursor, then to your fallback.
+
+```csharp
+var surface = new CellInputSurface(ui);
+var router = CellInputRouter.Create(surface, tasks, requestRedraw);
+// per frame: CellLayout.Paint(viewport, arranged, surface, ...)
+// per event: map the ConsoleInputEvent with ToInputEvent, then router.Handle(evt)
+```
+
 ## Widgets
 
 All widgets inherit from `Widget`, which provides:

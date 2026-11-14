@@ -110,6 +110,10 @@ has the pixel-surface `PixelMenuWidget<TSurface>`. Console.Lib supplies the **ce
   `Hit` (firing `OnClick`).
 - `MenuWidget` — cell-surface counterpart to `PixelMenuWidget<TSurface>`; wraps `MenuModel`
   + `MenuLayout` via `CellLayout`.
+- `CellInputSurface` + `CellInputRouter.Create` (5.13): the cell host's `IPixelWidget`. `CellLayout.Paint(viewport, arranged, surface, ...)`
+  registers the tree's click regions, fields, shortcuts, list rows and `Scroll` viewports in cells (as float units), and
+  the `InputRouter` it builds routes keys, Tab, focus, clicks and the wheel with no host routing. Its list-key half mirrors
+  DIR.Lib's `PixelWidgetBase`; keep the two in step.
 - `TerminalLayout` — now delegates the edge arithmetic to `DockLayout<int>` (cells), keeping
   only the terminal-specific safety clamp (a strip never exceeds remaining cells) + viewport wiring.
 
