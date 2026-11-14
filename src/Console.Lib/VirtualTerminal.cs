@@ -15,6 +15,29 @@ public sealed class VirtualTerminal : IVirtualTerminal
 {
     private bool _initialized;
     private bool _noConsole;
+
+    /// <summary>Test seam: when set, every byte on the Flush/caret path goes here instead of
+    /// <see cref="System.Console.Out"/>, and <see cref="Size"/> / <see cref="ColorMode"/> never read the console.</summary>
+    private readonly TextWriter? _outOverride;
+    private readonly (int Width, int Height)? _fixedSize;
+    private readonly ColorMode? _fixedColorMode;
+
+    private TextWriter Out => _outOverride ?? System.Console.Out;
+
+    public VirtualTerminal()
+    {
+    }
+
+    /// <summary>Test constructor: output to <paramref name="output"/>, fixed size and colour mode, marked
+    /// initialized with no probes, so a Flush is assertable as a byte stream with no console.</summary>
+    internal VirtualTerminal(TextWriter output, int width, int height, ColorMode colorMode)
+    {
+        _outOverride = output;
+        _fixedSize = (width, height);
+        _fixedColorMode = colorMode;
+        _lastSize = (width, height);
+        _initialized = true;
+    }
     private HashSet<TerminalCapability> _deviceCapabilities = [];
     private TermCell? _cellSize;
     private bool _alternateScreen;
@@ -135,7 +158,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
         }
     }
 
-    public ColorMode ColorMode => ResolveColorMode(s_isOutputRedirected || _noConsole, s_noColor,
+    public ColorMode ColorMode => _fixedColorMode ?? ResolveColorMode(s_isOutputRedirected || _noConsole, s_noColor,
         _initialized && _deviceCapabilities.Contains(TerminalCapability.Color));
 
     internal static ColorMode ResolveColorMode(bool isOutputRedirected, bool noColor, bool hasColorCapability)
@@ -185,6 +208,8 @@ public sealed class VirtualTerminal : IVirtualTerminal
     {
         get
         {
+            if (_fixedSize is { } fixedSize) return fixedSize;
+
             // Read every time rather than cached, so a window resize lands on the next
             // frame; ConsoleSize falls through to CONOUT$ when stdout is redirected, which
             // is why this keeps tracking the real window even then.
@@ -238,7 +263,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
         var (width, height) = Size;
         CellBuffer = new CellBuffer { ColorMode = ColorMode };
         CellBuffer.Resize(width, height);
-        _sink = new ConsoleCellSink();
+        _sink = new ConsoleCellSink(this);
 
         // Seed the size the resize-detection in Flush compares against. Without this it stays (0,0), so the
         // FIRST Flush always reads as a resize and calls Resize again -- which reallocates the back buffer
@@ -257,11 +282,14 @@ public sealed class VirtualTerminal : IVirtualTerminal
     /// <summary>Writes a diffed run straight to the console — <see cref="CellBuffer"/>'s emit target.</summary>
     private sealed class ConsoleCellSink : ICellSink
     {
+        private readonly VirtualTerminal _owner;
         private VtStyle? _pen;
         private bool _reverse;
         private ColorMode _mode = ColorMode.Sgr16;
         private string? _link;
         private bool _linkKnown;
+
+        public ConsoleCellSink(VirtualTerminal owner) => _owner = owner;
 
         public ColorMode Mode { set => _mode = value; }
 
@@ -290,7 +318,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
         /// ordered by construction.
         /// </para>
         /// </summary>
-        public void MoveTo(int column, int row) => System.Console.Write(MoveEscape(column, row));
+        public void MoveTo(int column, int row) => _owner.Out.Write(MoveEscape(column, row));
 
         public void SetPen(VtStyle style, bool reverse)
         {
@@ -307,7 +335,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
             _pen = style;
             _reverse = reverse;
 
-            System.Console.Write(PenEscape(style, _mode, reverse, mustStateReverse));
+            _owner.Out.Write(PenEscape(style, _mode, reverse, mustStateReverse));
         }
 
         /// <summary>
@@ -328,10 +356,10 @@ public sealed class VirtualTerminal : IVirtualTerminal
             // ColorMode.None means "no escapes at all" for the pen, and a hyperlink is no different.
             if (_mode == ColorMode.None) return;
 
-            System.Console.Write(url is null ? Osc8.Close : Osc8.Open(url, Osc8.IdFor(url)));
+            _owner.Out.Write(url is null ? Osc8.Close : Osc8.Open(url, Osc8.IdFor(url)));
         }
 
-        public void Write(ReadOnlySpan<char> run) => System.Console.Out.Write(run);
+        public void Write(ReadOnlySpan<char> run) => _owner.Out.Write(run);
     }
 
     /// <summary>
@@ -483,14 +511,14 @@ public sealed class VirtualTerminal : IVirtualTerminal
         }
 
         if (_caretShown) HideCaretNow();
-        System.Console.Write(text);
+        Out.Write(text);
     }
 
     public void WriteLine(string? text = null)
     {
         // WriteLine bypasses the cell buffer even when one is enabled, so it retracts the caret either way.
         if (_caretShown) HideCaretNow();
-        System.Console.WriteLine(text);
+        Out.WriteLine(text);
     }
 
     /// <summary>
@@ -533,14 +561,14 @@ public sealed class VirtualTerminal : IVirtualTerminal
         }
 
         ApplyCaret();
-        System.Console.Out.Flush();
+        Out.Flush();
     }
 
     /// <summary>Retracts the caret's DECTCEM show immediately — the paint-side half of the caret protocol;
     /// <see cref="ApplyCaret"/> is the flush-side half that brings it back.</summary>
     private void HideCaretNow()
     {
-        System.Console.Write(HideCursorEscape);
+        Out.Write(HideCursorEscape);
         _caretShown = false;
     }
 
@@ -554,7 +582,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
         if (ColorMode == ColorMode.None) return;
 
         var (escape, shown, shape) = CaretTransition(_caret, _caretShown, _caretShape);
-        if (escape.Length > 0) System.Console.Write(escape);
+        if (escape.Length > 0) Out.Write(escape);
         _caretShown = shown;
         _caretShape = shape;
     }
