@@ -30,8 +30,10 @@ public sealed class VirtualTerminal : IVirtualTerminal
 
     /// <summary>Test constructor: output to <paramref name="output"/>, fixed size and colour mode, marked
     /// initialized with no probes, so a Flush is assertable as a byte stream with no console.</summary>
-    internal VirtualTerminal(TextWriter output, int width, int height, ColorMode colorMode)
+    internal VirtualTerminal(TextWriter output, int width, int height, ColorMode colorMode,
+        bool synchronizedOutput = false)
     {
+        _ = synchronizedOutput;
         _outOverride = output;
         _fixedSize = (width, height);
         _fixedColorMode = colorMode;
@@ -367,6 +369,8 @@ public sealed class VirtualTerminal : IVirtualTerminal
     /// is a named function rather than an inline interpolation.
     /// </summary>
     internal static string MoveEscape(int column, int row) => $"\e[{row + 1};{column + 1}H";
+
+    internal static (bool Supported, string Remainder) ParseSynchronizedOutputReply(string reply) => (false, reply); // STUB
 
     /// <summary>DECTCEM set: show the cursor.</summary>
     internal const string ShowCursorEscape = "\e[?25h";
