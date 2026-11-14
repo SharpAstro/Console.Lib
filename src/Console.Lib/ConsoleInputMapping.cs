@@ -67,6 +67,33 @@ public static class ConsoleInputMapping
         public (InputKey Key, InputModifier Modifiers) ToInput => (evt.Key.ToInputKey, evt.Modifiers.ToInputModifier);
 
         /// <summary>
+        /// <see cref="ToInputEvent"/> for a cell host: mouse, move and scroll coordinates end up in CELLS.
+        /// <see cref="VirtualTerminal"/> reports mouse positions in pixels once it has probed the cell size,
+        /// so they are divided by <paramref name="cellSize"/> here; pass <c>null</c> (or a zero size) when the
+        /// size is unprobed and the coordinates are already cells. Keys are unchanged.
+        /// </summary>
+        public InputEvent? ToCellInputEvent(TermCell? cellSize)
+        {
+            var mapped = evt.ToInputEvent;
+            if (cellSize is not { Width: > 0, Height: > 0 } cell)
+            {
+                return mapped;
+            }
+
+            int Col(float x) => (int)MathF.Floor(x / cell.Width);
+            int Row(float y) => (int)MathF.Floor(y / cell.Height);
+
+            return mapped switch
+            {
+                InputEvent.MouseDown d => d with { X = Col(d.X), Y = Row(d.Y) },
+                InputEvent.MouseUp u => u with { X = Col(u.X), Y = Row(u.Y) },
+                InputEvent.MouseMove m => m with { X = Col(m.X), Y = Row(m.Y) },
+                InputEvent.Scroll sc => sc with { X = Col(sc.X), Y = Row(sc.Y) },
+                _ => mapped,
+            };
+        }
+
+        /// <summary>
         /// Converts the console input event to a platform-agnostic <see cref="InputEvent"/>.
         /// Mouse events take precedence; falls back to keyboard if no mouse data.
         /// </summary>

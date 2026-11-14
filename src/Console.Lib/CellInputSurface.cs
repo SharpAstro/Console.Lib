@@ -357,7 +357,8 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
 /// <summary>
 /// The one entry point for a cell host: an <see cref="InputRouter"/> whose widgets are the surface and whose
 /// unhandled events go to the surface's list keys, then to the host's fallback. A consumer's loop is then
-/// read event, map to <see cref="InputEvent"/> in cells (<c>ConsoleInputEvent.ToInputEvent</c>), <c>router.Handle</c>.
+/// read event, map to <see cref="InputEvent"/> in cells (<c>ConsoleInputEvent.ToCellInputEvent(terminal.CellSize)</c>, which divides
+/// the pixel mouse coordinates of a probed terminal), <c>router.Handle</c>.
 /// </summary>
 public static class CellInputRouter
 {
