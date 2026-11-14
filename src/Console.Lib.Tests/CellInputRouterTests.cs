@@ -106,6 +106,27 @@ public class CellInputRouterTests
     }
 
     [Fact]
+    public void APixelCoordinateMousePressMappedThroughToCellInputEventFocusesTheField()
+    {
+        var host = new Host();
+        var first = new TextInputState { Text = "first" };
+        var second = new TextInputState { Text = "second" };
+        host.Frame(Layout.Builder.VStack(Field(first), Field(second)));
+
+        // A probed VirtualTerminal reports cell (3,1) as pixels: 3*10, 1*20 (plus offsets inside the cell).
+        var evt = new ConsoleInputEvent(new MouseEvent(0, 3 * 10 + 4, 1 * 20 + 7, IsRelease: false), ConsoleKey.None, 0);
+        var mapped = evt.ToCellInputEvent(new TermCell(10, 20));
+
+        mapped.ShouldBeOfType<InputEvent.MouseDown>().X.ShouldBe(3f);
+        host.Router.Handle(mapped.ShouldNotBeNull()).ShouldBeTrue();
+        host.Focus.Current.ShouldBeSameAs(second);
+
+        // An unprobed cell size leaves the coordinates alone: they are already cells.
+        var raw = new ConsoleInputEvent(new MouseEvent(0, 3, 1, IsRelease: false), ConsoleKey.None, 0);
+        raw.ToCellInputEvent(null).ShouldBeOfType<InputEvent.MouseDown>().Y.ShouldBe(1f);
+    }
+
+    [Fact]
     public void TabCyclesFieldsInPaintOrder()
     {
         var host = new Host();

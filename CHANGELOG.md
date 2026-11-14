@@ -22,7 +22,7 @@ What `CellInputSurface` (an `IPixelWidget`, cells held as float units) registers
 regions and hit tests, text fields (focus, caret by pointer column), shortcuts, list rows (a list cursor with
 Up/Down/Enter) and `Layout.Node.Scroll` viewports, which `CellLayout` clips and binds so the cursor scrolls the
 row it lands on into view and the wheel scrolls through the router. `CellInputRouter.Create` builds the
-`InputRouter` around it.
+`InputRouter` around it, and `ConsoleInputEvent.ToCellInputEvent(TermCell?)` maps an event to cells.
 
 The consumer loop:
 
@@ -30,8 +30,9 @@ The consumer loop:
 var surface = new CellInputSurface(ui);
 var router = CellInputRouter.Create(surface, tasks, requestRedraw, fallback);
 // per frame: CellLayout.Paint(viewport, arranged, surface, ...)
-// per event: read ConsoleInputEvent, map with ToInputEvent (cells), then
-router.Handle(inputEvent);
+// per event: read ConsoleInputEvent, map to cells (a probed VirtualTerminal reports mouse in pixels),
+// then route; pass null for an unprobed cell size, whose coordinates are already cells
+if (evt.ToCellInputEvent(terminal.CellSize) is { } inputEvent) router.Handle(inputEvent);
 ```
 
 ## 5.12
