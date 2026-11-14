@@ -48,6 +48,12 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
         var disabledDepth = -1;
         var closedPopoverDepth = -1;
 
+        // An open popover claims the pointer for its CONTENT rect (the first child of its Anchored node, one
+        // level below it), as DIR.Lib's PixelWidgetBase does: -1 is "not inside an open popover".
+        var openPopoverDepth = -1;
+        var pendingContentDepth = -1;
+        var claimed = false;
+
         foreach (var an in arranged)
         {
             var node = an.Node;
@@ -65,9 +71,21 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
                 closedPopoverDepth = -1;
             }
 
+            if (openPopoverDepth >= 0 && depth <= openPopoverDepth)
+            {
+                openPopoverDepth = -1;
+                pendingContentDepth = -1;
+            }
+
             if (node.Popover is { IsOpen: false } && closedPopoverDepth < 0)
             {
                 closedPopoverDepth = depth;
+            }
+            else if (node.Popover is { IsOpen: true } && closedPopoverDepth < 0)
+            {
+                openPopoverDepth = depth;
+                pendingContentDepth = -1;
+                claimed = false;
             }
 
             if (closedPopoverDepth >= 0)
@@ -102,6 +120,23 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
             {
                 Depth = depth,
             });
+
+            // The popover's content takes every press inside it, so the scrim under it (which dismisses) and the
+            // list rows under that never see it, on the content's empty padding as much as on a child. Registered
+            // before the content's own hit and its children, which therefore still win where they are. This is
+            // the cell surface's own claim: DIR.Lib's WindowUiSettings.ClaimPointer and NoteFrameBegin are
+            // internal, so PointerOwner (hover confinement, trigger-beneath) is not set from here.
+            if (pendingContentDepth >= 0 && depth == pendingContentDepth && !claimed)
+            {
+                claimed = true;
+                pendingContentDepth = -1;
+                var claim = new ClickableRegion(r.X, r.Y, r.Width, r.Height, new HitResult.ChromeHit(), null, CursorKind.Default);
+                _tracker.Register(ref claim);
+            }
+            else if (openPopoverDepth >= 0 && !claimed && node is Layout.Node.Anchored)
+            {
+                pendingContentDepth = depth + 1;
+            }
 
             if (node.IsDisabled && disabledDepth < 0)
             {
