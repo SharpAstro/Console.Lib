@@ -9,6 +9,16 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.15
+
+Additive (no public API change; tianwen picks it up in its own build): the parked caret no longer restarts its
+blink (#49). A `Flush` with no changed cells and an unchanged caret now writes nothing (the cursor position is
+re-emitted only when it may have moved), and a `Flush` that paints is wrapped in synchronized output
+(`ESC[?2026h` ... `ESC[?2026l`) instead of hiding and re-showing the caret, where the terminal supports it.
+Support is probed in `InitAsync` with DECRQM (`ESC[?2026$p`) sent just before the DA1 query, so it costs no
+extra round trip. Terminals without mode 2026 keep the old hide/show around a paint, but only when there is a
+paint.
+
 ## 5.14
 
 Additive: a terminal title API. `ITerminalViewport.Title` (a set-only property, default no-op, forwarded by

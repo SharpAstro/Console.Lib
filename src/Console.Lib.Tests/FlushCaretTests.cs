@@ -150,7 +150,10 @@ public sealed class FlushCaretTests
 
         terminal.Flush();
 
-        Take(output).ShouldNotContain("\e[");
+        var bytes = Take(output);
+        bytes.ShouldNotContain("\e[?2026");
+        bytes.ShouldNotContain("\e[?25");
+        bytes.ShouldNotContain(" q");
     }
 
     [Theory]

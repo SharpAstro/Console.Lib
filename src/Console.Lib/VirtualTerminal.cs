@@ -33,13 +33,27 @@ public sealed class VirtualTerminal : IVirtualTerminal
     internal VirtualTerminal(TextWriter output, int width, int height, ColorMode colorMode,
         bool synchronizedOutput = false)
     {
-        _ = synchronizedOutput;
+        _sync2026 = synchronizedOutput;
         _outOverride = output;
         _fixedSize = (width, height);
         _fixedColorMode = colorMode;
         _lastSize = (width, height);
         _initialized = true;
     }
+
+    /// <summary>The terminal answered DECRQM for mode 2026 (synchronized output) with "supported" (1 or 2).</summary>
+    private bool _sync2026;
+
+    /// <summary>Whether the real cursor is known to sit at <see cref="_parkedAt"/>: set once the caret is
+    /// applied, cleared by any byte that could have moved it (a sink write, raw or immediate output, clear,
+    /// resize). With it set, a Flush that painted nothing has no reason to re-place the cursor.</summary>
+    private bool _cursorAtCaret;
+    private (int Column, int Row) _parkedAt;
+
+    /// <summary>A frame is open: the first sink write of this Flush has already started the 2026 bracket
+    /// (or the fallback hide), so it is closed at the end of the Flush.</summary>
+    private bool _frameOpen;
+
     private HashSet<TerminalCapability> _deviceCapabilities = [];
     private TermCell? _cellSize;
     private bool _alternateScreen;
@@ -104,7 +118,10 @@ public sealed class VirtualTerminal : IVirtualTerminal
             return;
         }
 
-        var daResponse = await GetControlSequenceResponseAsync("\e[0c", 'c');
+        // DECRQM for mode 2026 rides in front of DA1 so the probe costs no extra round trip: a terminal that
+        // knows DECRQM answers it first, one that does not just answers DA1.
+        var daResponse = await GetControlSequenceResponseAsync(QuerySynchronizedOutputEscape + "\e[0c", 'c');
+        (_sync2026, daResponse) = ParseSynchronizedOutputReply(daResponse);
         _deviceCapabilities = [.. daResponse
                 .TrimStart('\e', '[', '?')
                 .TrimEnd('c')
@@ -320,7 +337,11 @@ public sealed class VirtualTerminal : IVirtualTerminal
         /// ordered by construction.
         /// </para>
         /// </summary>
-        public void MoveTo(int column, int row) => _owner.Out.Write(MoveEscape(column, row));
+        public void MoveTo(int column, int row)
+        {
+            _owner.OpenFrame();
+            _owner.Out.Write(MoveEscape(column, row));
+        }
 
         public void SetPen(VtStyle style, bool reverse)
         {
@@ -333,6 +354,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
             // that point on: headers came out as a solid bar of their foreground, the selection as dark text
             // on white. Emitted only on a CHANGE, so a screen with no reverse cells is byte-identical, and
             // also after Invalidate, when the terminal's attribute state is unknown rather than merely stale.
+            _owner.OpenFrame();
             var mustStateReverse = _pen is null || _reverse != reverse;
             _pen = style;
             _reverse = reverse;
@@ -358,10 +380,15 @@ public sealed class VirtualTerminal : IVirtualTerminal
             // ColorMode.None means "no escapes at all" for the pen, and a hyperlink is no different.
             if (_mode == ColorMode.None) return;
 
+            _owner.OpenFrame();
             _owner.Out.Write(url is null ? Osc8.Close : Osc8.Open(url, Osc8.IdFor(url)));
         }
 
-        public void Write(ReadOnlySpan<char> run) => _owner.Out.Write(run);
+        public void Write(ReadOnlySpan<char> run)
+        {
+            _owner.OpenFrame();
+            _owner.Out.Write(run);
+        }
     }
 
     /// <summary>
@@ -370,7 +397,35 @@ public sealed class VirtualTerminal : IVirtualTerminal
     /// </summary>
     internal static string MoveEscape(int column, int row) => $"\e[{row + 1};{column + 1}H";
 
-    internal static (bool Supported, string Remainder) ParseSynchronizedOutputReply(string reply) => (false, reply); // STUB
+
+    /// <summary>DECRQM: ask whether mode 2026 (synchronized output) is supported.</summary>
+    internal const string QuerySynchronizedOutputEscape = "\e[?2026$p";
+
+    /// <summary>Begin synchronized update: the terminal holds the frame until <see cref="EndSyncEscape"/>.</summary>
+    internal const string BeginSyncEscape = "\e[?2026h";
+
+    /// <summary>End synchronized update.</summary>
+    internal const string EndSyncEscape = "\e[?2026l";
+
+    /// <summary>
+    /// Pulls the DECRQM reply (<c>ESC [ ? 2026 ; N $ y</c>) out of the combined DECRQM + DA1 response.
+    /// N of 1 (set) or 2 (reset) means supported; 0 (unknown) and 4 (permanently reset) do not, and an
+    /// absent reply means unsupported. The remainder is the response without the DECRQM reply, ready for
+    /// the DA1 capability parse.
+    /// </summary>
+    internal static (bool Supported, string Remainder) ParseSynchronizedOutputReply(string reply)
+    {
+        const string prefix = "\e[?2026;";
+        var start = reply.IndexOf(prefix, StringComparison.Ordinal);
+        if (start < 0) return (false, reply);
+
+        var statusStart = start + prefix.Length;
+        var end = reply.IndexOf("$y", statusStart, StringComparison.Ordinal);
+        if (end < 0) return (false, reply);
+
+        var status = reply[statusStart..end];
+        return (status is "1" or "2", reply.Remove(start, end + 2 - start));
+    }
 
     /// <summary>DECTCEM set: show the cursor.</summary>
     internal const string ShowCursorEscape = "\e[?25h";
@@ -441,12 +496,14 @@ public sealed class VirtualTerminal : IVirtualTerminal
     /// <summary>
     /// The escape sequence that reconciles the terminal's cursor with the pending caret request, plus the
     /// state to remember afterwards. Shape and visibility are emitted only on a CHANGE — the pen's "emit
-    /// less" rule — but the position is emitted every time: the paint that just ran moves the real cursor
-    /// as a side effect of writing, so the previous position can never be trusted. Pulled out of
+    /// less" rule — and so is the position, but only when <paramref name="cursorAtCaret"/> says the real
+    /// cursor is already known to sit there: any paint moves it as a side effect of writing, so the caller
+    /// clears that fact on every write, and a Flush that wrote nothing then re-places nothing (a re-placed
+    /// cursor restarts the terminal's blink, #49). Pulled out of
     /// <see cref="ApplyCaret"/> so the protocol is assertable without a console.
     /// </summary>
     internal static (string Escape, bool Shown, CaretStyle? Shape) CaretTransition(
-        (int Column, int Row, CaretStyle Style)? caret, bool shown, CaretStyle? shape)
+        (int Column, int Row, CaretStyle Style)? caret, bool shown, CaretStyle? shape, bool cursorAtCaret = false)
     {
         if (caret is not { } c)
         {
@@ -455,7 +512,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
 
         var escape = new StringBuilder(24);
         if (shape != c.Style) escape.Append(CaretEscape(c.Style));
-        escape.Append(MoveEscape(c.Column, c.Row));
+        if (!cursorAtCaret) escape.Append(MoveEscape(c.Column, c.Row));
         if (!shown) escape.Append(ShowCursorEscape);
         return (escape.ToString(), true, c.Style);
     }
@@ -476,6 +533,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
     public void Clear()
     {
         System.Console.Clear();
+        _cursorAtCaret = false;
         if (CellBuffer is { } buffer)
         {
             // A clear leaves the terminal blank, which the front buffer knows nothing about: re-arm it so
@@ -503,6 +561,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
         // the diff), so the first direct write of a new paint retracts it — otherwise the visible cursor
         // rides along with every cell the frame touches.
         if (_caretShown) HideCaretNow();
+        _cursorAtCaret = false;
         System.Console.SetCursorPosition(col, row);
     }
 
@@ -515,6 +574,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
         }
 
         if (_caretShown) HideCaretNow();
+        _cursorAtCaret = false;
         Out.Write(text);
     }
 
@@ -522,6 +582,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
     {
         // WriteLine bypasses the cell buffer even when one is enabled, so it retracts the caret either way.
         if (_caretShown) HideCaretNow();
+        _cursorAtCaret = false;
         Out.WriteLine(text);
     }
 
@@ -553,19 +614,45 @@ public sealed class VirtualTerminal : IVirtualTerminal
                 _bufferedSize = size;
                 buffer.Resize(size.Width, size.Height);
                 sink.Invalidate();
+                _cursorAtCaret = false;
             }
 
-            // The diff moves the real cursor per run; with a caret showing that is a cursor visibly darting
-            // across the screen, so it hides for the paint and re-appears (below) once the frame is out.
-            if (_caretShown) HideCaretNow();
-
+            // The frame is opened lazily by the sink's first write (see OpenFrame), so a Flush with an empty
+            // diff opens nothing and a caret that is already parked is left alone.
             sink.Mode = ColorMode;
             FlushedCellsTotal += buffer.Flush(sink);
             FlushedOpaqueCellsTotal += buffer.LastFlushOpaqueCells;
         }
 
         ApplyCaret();
+        CloseFrame();
         Out.Flush();
+    }
+
+    /// <summary>
+    /// Called by the sink before its first byte of a Flush. The diff moves the real cursor per run; with a
+    /// caret showing that is a cursor visibly darting across the screen. Where the terminal supports
+    /// synchronized output the frame is bracketed with mode 2026, so the caret stays shown and its blink
+    /// untouched; elsewhere it falls back to hiding the caret for the paint (it re-appears in
+    /// <see cref="ApplyCaret"/>). Only a Flush that actually paints gets here.
+    /// </summary>
+    private void OpenFrame()
+    {
+        _cursorAtCaret = false;
+        if (_frameOpen) return;
+        _frameOpen = true;
+
+        if (ColorMode == ColorMode.None) return;
+
+        if (_sync2026) Out.Write(BeginSyncEscape);
+        else if (_caretShown) HideCaretNow();
+    }
+
+    private void CloseFrame()
+    {
+        if (!_frameOpen) return;
+        _frameOpen = false;
+        if (_sync2026 && ColorMode != ColorMode.None) Out.Write(EndSyncEscape);
     }
 
     /// <summary>Retracts the caret's DECTCEM show immediately — the paint-side half of the caret protocol;
@@ -585,10 +672,13 @@ public sealed class VirtualTerminal : IVirtualTerminal
     {
         if (ColorMode == ColorMode.None) return;
 
-        var (escape, shown, shape) = CaretTransition(_caret, _caretShown, _caretShape);
+        var atCaret = _caret is { } c && _cursorAtCaret && _parkedAt == (c.Column, c.Row);
+        var (escape, shown, shape) = CaretTransition(_caret, _caretShown, _caretShape, atCaret);
         if (escape.Length > 0) Out.Write(escape);
         _caretShown = shown;
         _caretShape = shape;
+        _cursorAtCaret = _caret is not null;
+        if (_caret is { } parked) _parkedAt = (parked.Column, parked.Row);
     }
 
     /// <summary>
@@ -609,6 +699,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
         if (CellBuffer is null)
         {
             if (_caretShown) HideCaretNow();
+            _cursorAtCaret = false;
             System.Console.SetCursorPosition(col, r);
             return;
         }
@@ -617,6 +708,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
         // Flush just re-applied the caret; raw bytes are about to stream, and a visible cursor would ride
         // the blit. Retract it — the next Flush brings it back.
         if (_caretShown) HideCaretNow();
+        _cursorAtCaret = false;
         System.Console.SetCursorPosition(col, r);
         System.Console.Out.Flush();
         _sink?.Invalidate();
