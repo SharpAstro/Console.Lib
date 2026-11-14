@@ -65,4 +65,42 @@ public sealed class TerminalTitleTests
         VirtualTerminal.TitleRestoreEscape(true).ShouldBe(Pop);
         VirtualTerminal.TitleRestoreEscape(false).ShouldBe("");
     }
+
+    [Fact]
+    public void NullTitle_IsIgnoredAndEmptyTitleIsASetTitle()
+    {
+        var (nullEscape, nullLast, nullPushed) = VirtualTerminal.TitleTransition(null, "A", true, false);
+        nullEscape.ShouldBe("");
+        nullLast.ShouldBe("A");
+        nullPushed.ShouldBeTrue();
+
+        var (emptyEscape, emptyLast, _) = VirtualTerminal.TitleTransition("\n", "A", true, false);
+        emptyEscape.ShouldBe("\e]2;\e\\");
+        emptyLast.ShouldBe("");
+    }
+
+    [Fact]
+    public void TerminalViewport_ForwardsTitleToItsParent()
+    {
+        var parent = new RecordingViewport();
+        var child = new TerminalViewport(parent, 2, 3, 10, 5);
+
+        child.Title = "Hello";
+
+        parent.Titles.ShouldBe(["Hello"]);
+    }
+
+    private sealed class RecordingViewport : ITerminalViewport
+    {
+        public List<string?> Titles { get; } = [];
+        public string? Title { set => Titles.Add(value); }
+        public (int Column, int Row) Offset => (0, 0);
+        public (int Width, int Height) Size => (80, 24);
+        public void SetCursorPosition(int left, int top) { }
+        public void Write(string text) { }
+        public void WriteLine(string? text = null) { }
+        public TermCell CellSize => default;
+        public void Flush() { }
+        public Stream OutputStream => Stream.Null;
+    }
 }
