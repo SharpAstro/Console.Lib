@@ -160,6 +160,7 @@ public sealed class FlushCaretTests
     [InlineData("\e[?2026;1$y\e[?62;4c", true, "\e[?62;4c")]
     [InlineData("\e[?2026;2$y\e[?62;4c", true, "\e[?62;4c")]
     [InlineData("\e[?2026;0$y\e[?62;4c", false, "\e[?62;4c")]
+    [InlineData("\e[?2026;3$y\e[?62;4c", true, "\e[?62;4c")]
     [InlineData("\e[?2026;4$y\e[?62;4c", false, "\e[?62;4c")]
     [InlineData("\e[?62;4c", false, "\e[?62;4c")]
     [InlineData("", false, "")]
@@ -169,5 +170,36 @@ public sealed class FlushCaretTests
 
         ok.ShouldBe(supported);
         rest.ShouldBe(remainder);
+    }
+
+    [Fact]
+    public async Task ReadResponseWaitsForASecondReplyArrivingAfterAnEmptyPoll()
+    {
+        // DECRQM reply is there at once; the DA1 reply lands only after an empty poll.
+        var input = new Queue<char>("\e[?2026;2$y");
+        var delays = 0;
+        var result = await VirtualTerminal.ReadResponseAsync(
+            'c',
+            () => input.Count > 0,
+            () => input.Dequeue(),
+            _ =>
+            {
+                if (++delays == 1) foreach (var ch in "\e[?62;4c") input.Enqueue(ch);
+                return Task.CompletedTask;
+            });
+
+        result.ShouldBe("\e[?2026;2$y\e[?62;4c");
+        delays.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task ReadResponseGivesUpAfterBoundedIdlePolls()
+    {
+        var delays = 0;
+        var result = await VirtualTerminal.ReadResponseAsync(
+            'c', () => false, () => throw new InvalidOperationException(), _ => { delays++; return Task.CompletedTask; }, maxIdlePolls: 3);
+
+        result.ShouldBe("");
+        delays.ShouldBe(3);
     }
 }

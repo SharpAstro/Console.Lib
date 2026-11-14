@@ -620,8 +620,17 @@ public sealed class VirtualTerminal : IVirtualTerminal
             // The frame is opened lazily by the sink's first write (see OpenFrame), so a Flush with an empty
             // diff opens nothing and a caret that is already parked is left alone.
             sink.Mode = ColorMode;
-            FlushedCellsTotal += buffer.Flush(sink);
-            FlushedOpaqueCellsTotal += buffer.LastFlushOpaqueCells;
+            try
+            {
+                FlushedCellsTotal += buffer.Flush(sink);
+                FlushedOpaqueCellsTotal += buffer.LastFlushOpaqueCells;
+            }
+            catch
+            {
+                // Keep the 2026 bracket balanced if the sink throws (closed pipe).
+                CloseFrame();
+                throw;
+            }
         }
 
         ApplyCaret();
