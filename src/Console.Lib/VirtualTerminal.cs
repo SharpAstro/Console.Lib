@@ -700,10 +700,8 @@ public sealed class VirtualTerminal : IVirtualTerminal
             if (!_alternateScreen) System.Console.Write(ShowCursorEscape);
         }
 
-        if (_titlePushed)
-        {
-            System.Console.Write(TitleRestoreEscape(_titlePushed));
-        }
+        var restoreTitle = TitleRestoreEscape(_titlePushed);
+        if (restoreTitle.Length > 0) System.Console.Write(restoreTitle);
 
         if (_alternateScreen)
         {
