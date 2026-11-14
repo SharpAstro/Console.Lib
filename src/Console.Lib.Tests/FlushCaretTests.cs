@@ -173,6 +173,39 @@ public sealed class FlushCaretTests
     }
 
     [Fact]
+    public void ThrowingSinkStillClosesTheSyncBracket()
+    {
+        var output = new ThrowOnceWriter("X");
+        var terminal = new VirtualTerminal(output, 40, 10, ColorMode.TrueColor, true);
+        terminal.EnableCellBuffer();
+        terminal.Write("X");
+
+        Should.Throw<IOException>(() => terminal.Flush());
+
+        var bytes = output.ToString();
+        bytes.ShouldStartWith(SyncOn);
+        bytes.ShouldEndWith(SyncOff);
+    }
+
+    /// <summary>Records everything and throws once, on the first write containing a trigger (a closed pipe).</summary>
+    private sealed class ThrowOnceWriter(string trigger) : StringWriter
+    {
+        private bool _thrown;
+
+        private void Check(string text)
+        {
+            if (_thrown || !text.Contains(trigger, StringComparison.Ordinal)) return;
+            _thrown = true;
+            throw new IOException("closed pipe");
+        }
+
+        public override void Write(char value) { Check(value.ToString()); base.Write(value); }
+        public override void Write(string? value) { Check(value ?? ""); base.Write(value); }
+        public override void Write(char[] buffer, int index, int count) { Check(new string(buffer, index, count)); base.Write(buffer, index, count); }
+        public override void Write(ReadOnlySpan<char> buffer) { Check(new string(buffer)); base.Write(buffer); }
+    }
+
+    [Fact]
     public async Task ReadResponseWaitsForASecondReplyArrivingAfterAnEmptyPoll()
     {
         // DECRQM reply is there at once; the DA1 reply lands only after an empty poll.
