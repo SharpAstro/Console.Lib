@@ -6,18 +6,22 @@ using Xunit;
 namespace Console.Lib.Tests;
 
 /// <summary>
-/// Characterization of the bytes <see cref="VirtualTerminal.Flush"/> writes around a parked caret (#49).
-/// Everything runs in memory over a <see cref="StringWriter"/>; no console is touched.
+/// The bytes <see cref="VirtualTerminal.Flush"/> writes around a parked caret (#49): a quiet Flush writes
+/// nothing, a painting Flush is bracketed by synchronized output where supported. Everything runs in memory
+/// over a <see cref="StringWriter"/>; no console is touched.
 /// </summary>
 public sealed class FlushCaretTests
 {
     private const string Hide = "\e[?25l";
     private const string Show = "\e[?25h";
+    private const string SyncOn = "\e[?2026h";
+    private const string SyncOff = "\e[?2026l";
 
-    private static (VirtualTerminal Terminal, StringWriter Output) Create()
+    private static (VirtualTerminal Terminal, StringWriter Output) Create(bool sync = false,
+        ColorMode mode = ColorMode.TrueColor)
     {
         var output = new StringWriter();
-        var terminal = new VirtualTerminal(output, 40, 10, ColorMode.TrueColor);
+        var terminal = new VirtualTerminal(output, 40, 10, mode, sync);
         terminal.EnableCellBuffer();
         return (terminal, output);
     }
@@ -29,43 +33,100 @@ public sealed class FlushCaretTests
         return text;
     }
 
-    [Fact]
-    public void EmptyFlushWithShownCaretHidesAndReshowsIt()
+    private static (VirtualTerminal Terminal, StringWriter Output) Parked(bool sync)
     {
-        var (terminal, output) = Create();
+        var (terminal, output) = Create(sync);
         terminal.SetCaret(5, 3, CaretStyle.BlinkingBar);
         terminal.Flush();
         Take(output);
-
-        // CURRENT behaviour (the bug in #49): nothing painted, yet the caret is retracted and re-shown,
-        // which restarts the terminal's blink.
-        terminal.Flush();
-        var bytes = Take(output);
-
-        bytes.ShouldContain(Hide);
-        bytes.ShouldContain(Show);
-        bytes.IndexOf(Hide, StringComparison.Ordinal).ShouldBeLessThan(bytes.IndexOf(Show, StringComparison.Ordinal));
+        return (terminal, output);
     }
 
     [Fact]
-    public void ChangedCellFlushEmitsRunThenParksCaret()
+    public void EmptyFlushWithSameCaretWritesNothing()
     {
-        var (terminal, output) = Create();
-        terminal.SetCaret(5, 3, CaretStyle.BlinkingBar);
+        var (terminal, output) = Parked(sync: false);
+
         terminal.Flush();
-        Take(output);
+
+        Take(output).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void EmptyFlushWithSameCaretWritesNothingUnderSync()
+    {
+        var (terminal, output) = Parked(sync: true);
+
+        terminal.Flush();
+
+        Take(output).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void ChangedCellsWithSyncAreBracketedAndNeverToggleVisibility()
+    {
+        var (terminal, output) = Parked(sync: true);
 
         terminal.Write("X");
         terminal.Flush();
         var bytes = Take(output);
 
         var cup = VirtualTerminal.MoveEscape(5, 3);
+        bytes.ShouldNotContain(Hide);
+        bytes.ShouldNotContain(Show);
+        bytes.ShouldStartWith(SyncOn);
+        bytes.ShouldEndWith(cup + SyncOff);
         bytes.ShouldContain("X");
-        bytes.ShouldContain(cup);
-        bytes.IndexOf("X", StringComparison.Ordinal)
-            .ShouldBeLessThan(bytes.LastIndexOf(cup, StringComparison.Ordinal));
-        bytes.ShouldContain(Hide);
+    }
+
+    [Fact]
+    public void MovedCaretWithNoChangedCellsWritesExactlyOneCup()
+    {
+        var (terminal, output) = Parked(sync: true);
+
+        terminal.SetCaret(7, 2, CaretStyle.BlinkingBar);
+        terminal.Flush();
+
+        Take(output).ShouldBe(VirtualTerminal.MoveEscape(7, 2));
+    }
+
+    [Fact]
+    public void ChangedCellsWithoutSyncStillHideAndReshow()
+    {
+        var (terminal, output) = Parked(sync: false);
+
+        terminal.Write("X");
+        terminal.Flush();
+        var bytes = Take(output);
+
+        var cup = VirtualTerminal.MoveEscape(5, 3);
+        bytes.ShouldNotContain(SyncOn);
+        bytes.ShouldStartWith(Hide);
         bytes.ShouldEndWith(cup + Show);
+        bytes.IndexOf("X", StringComparison.Ordinal).ShouldBeLessThan(bytes.LastIndexOf(cup, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ChangedShapeReemitsOnlyTheShape()
+    {
+        var (terminal, output) = Parked(sync: true);
+
+        terminal.SetCaret(5, 3, CaretStyle.SteadyBlock);
+        terminal.Flush();
+
+        Take(output).ShouldBe(VirtualTerminal.CaretEscape(CaretStyle.SteadyBlock));
+    }
+
+    [Fact]
+    public void ImmediateWriteForgetsTheCursorSoTheCaretIsReplaced()
+    {
+        var (terminal, output) = Parked(sync: true);
+        terminal.WriteLine("hi");
+        Take(output);
+
+        terminal.Flush();
+
+        Take(output).ShouldContain(VirtualTerminal.MoveEscape(5, 3));
     }
 
     [Fact]
@@ -78,5 +139,32 @@ public sealed class FlushCaretTests
         terminal.Flush();
 
         Take(output).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void ColorModeNoneWritesNoSyncEscapes()
+    {
+        var (terminal, output) = Create(sync: true, ColorMode.None);
+        terminal.Write("X");
+        terminal.SetCaret(1, 1, CaretStyle.BlinkingBar);
+
+        terminal.Flush();
+
+        Take(output).ShouldNotContain("\e[");
+    }
+
+    [Theory]
+    [InlineData("\e[?2026;1$y\e[?62;4c", true, "\e[?62;4c")]
+    [InlineData("\e[?2026;2$y\e[?62;4c", true, "\e[?62;4c")]
+    [InlineData("\e[?2026;0$y\e[?62;4c", false, "\e[?62;4c")]
+    [InlineData("\e[?2026;4$y\e[?62;4c", false, "\e[?62;4c")]
+    [InlineData("\e[?62;4c", false, "\e[?62;4c")]
+    [InlineData("", false, "")]
+    public void ParsesTheDecrqmReply(string reply, bool supported, string remainder)
+    {
+        var (ok, rest) = VirtualTerminal.ParseSynchronizedOutputReply(reply);
+
+        ok.ShouldBe(supported);
+        rest.ShouldBe(remainder);
     }
 }
