@@ -149,4 +149,77 @@ public class CellInputRouterTests
         host.Key(InputKey.Enter).ShouldBeTrue();
         activated.ShouldBe([2]);
     }
+
+    private static (Layout.Node Tree, ListScrollController Scroll, List<int> Activated) ScrolledList(int rowCount, int viewportRows)
+    {
+        var activated = new List<int>();
+        var scroll = new ListScrollController { Mode = ScrollBarMode.None };
+        var rows = new Layout.Node[rowCount];
+        for (var i = 0; i < rows.Length; i++)
+        {
+            var index = i;
+            rows[i] = Layout.Builder.Text($"row {i}", 1f).RowH(1).WStar()
+                .Clickable(new HitResult.ListItemHit("rows", index))
+                .Activatable(_ => activated.Add(index));
+        }
+
+        var tree = Layout.Builder.VStack(rows).WithScroll(scroll).H(Layout.Sizing.Fixed(viewportRows)).WStar();
+        return (tree, scroll, activated);
+    }
+
+    [Fact]
+    public void DownPastTheViewportScrollsTheRowIntoTheNextFrame_AndEnterActivatesIt()
+    {
+        var host = new Host();
+        var (tree, scroll, activated) = ScrolledList(5, 3);
+        host.Surface.ListCursor.Open("rows", 0);
+        host.Frame(tree);
+
+        host.Surface.HitTest(2, 4).ShouldBeNull(); // row 4 is clipped: nothing registered below the viewport
+
+        for (var i = 0; i < 4; i++)
+        {
+            host.Key(InputKey.Down).ShouldBeTrue();
+        }
+
+        host.Surface.ListCursor.Index.ShouldBe(4);
+        scroll.Offset.ShouldBe(2f);
+
+        host.Frame(tree);
+        host.Surface.HitTest(2, 2).ShouldBeOfType<HitResult.ListItemHit>().Index.ShouldBe(4);
+
+        host.Key(InputKey.Enter).ShouldBeTrue();
+        activated.ShouldBe([4]);
+    }
+
+    [Fact]
+    public void EnterOnARowRevealedButNotYetRepaintedStillActivatesIt()
+    {
+        var host = new Host();
+        var (tree, _, activated) = ScrolledList(5, 3);
+        host.Surface.ListCursor.Open("rows", 0);
+        host.Frame(tree);
+
+        for (var i = 0; i < 4; i++)
+        {
+            host.Key(InputKey.Down);
+        }
+
+        host.Key(InputKey.Enter).ShouldBeTrue();
+        activated.ShouldBe([4]);
+    }
+
+    [Fact]
+    public void TheWheelOverAScrolledViewportMovesItsOffset()
+    {
+        var host = new Host();
+        var (tree, scroll, _) = ScrolledList(5, 3);
+        host.Frame(tree);
+
+        host.Router.Handle(new InputEvent.Scroll(-1f, 2f, 1f)).ShouldBeTrue();
+        scroll.Offset.ShouldBe(2f);
+
+        host.Frame(tree);
+        host.Surface.HitTest(2, 0).ShouldBeOfType<HitResult.ListItemHit>().Index.ShouldBe(2);
+    }
 }
