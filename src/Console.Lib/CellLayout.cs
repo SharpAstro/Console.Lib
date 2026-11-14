@@ -67,6 +67,11 @@ public static class CellLayout
         Action<Layout.Content.Fill, Rect<int>>? drawFill = null)
         => Paint(viewport, arranged, drawFill, reverse: false);
 
+    /// <summary>STUB: paints as before and registers nothing into <paramref name="surface"/>.</summary>
+    public static void Paint(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
+        CellInputSurface surface, Action<Layout.Content.Fill, Rect<int>>? drawFill = null, bool reverse = false)
+        => Paint(viewport, arranged, drawFill, reverse);
+
     /// <summary>
     /// Paints the arranged tree, in reverse video when <paramref name="reverse"/> is set: every text run and
     /// every fill carries the attribute after its pen, since each run ends in a reset that would clear an
