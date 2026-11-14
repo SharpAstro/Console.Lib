@@ -357,6 +357,55 @@ public sealed class VirtualTerminal : IVirtualTerminal
     /// would survive into the user's shell prompt.</summary>
     internal const string ResetCaretShapeEscape = "\e[0 q";
 
+    /// <summary>xterm title stack push (CSI 22;0 t): saves the current icon and window title.</summary>
+    internal const string PushTitleEscape = "\e[22;0t";
+
+    /// <summary>xterm title stack pop (CSI 23;0 t): restores the saved titles.</summary>
+    internal const string PopTitleEscape = "\e[23;0t";
+
+    /// <summary>
+    /// The escape sequence that sets the window title (OSC 2), plus the state to remember. The user's title is
+    /// pushed once, before the first set. C0, DEL and C1 controls are stripped so a title can never terminate
+    /// the OSC early or inject a sequence. Same title again emits nothing; suppressed (redirected output or
+    /// no colour) emits nothing and never pushes.
+    /// </summary>
+    internal static (string Escape, string? LastTitle, bool Pushed) TitleTransition(
+        string? newTitle, string? lastTitle, bool pushed, bool suppressed)
+    {
+        if (suppressed || newTitle is null) return ("", lastTitle, pushed);
+
+        var clean = new StringBuilder(newTitle.Length);
+        foreach (var ch in newTitle)
+        {
+            if (ch >= 0x20 && ch != 0x7F && (ch < 0x80 || ch > 0x9F)) clean.Append(ch);
+        }
+
+        var title = clean.ToString();
+        if (title == lastTitle) return ("", lastTitle, pushed);
+
+        var escape = (pushed ? "" : PushTitleEscape) + "\e]2;" + title + "\e\\";
+        return (escape, title, true);
+    }
+
+    /// <summary>The dispose-side half of <see cref="TitleTransition"/>: the pop, iff a push was emitted.</summary>
+    internal static string TitleRestoreEscape(bool pushed) => pushed ? PopTitleEscape : "";
+
+    private string? _lastTitle;
+    private bool _titlePushed;
+
+    /// <inheritdoc cref="ITerminalViewport.Title"/>
+    public string? Title
+    {
+        set
+        {
+            var (escape, last, pushed) = TitleTransition(value, _lastTitle, _titlePushed,
+                IsOutputRedirected || ColorMode == ColorMode.None);
+            _lastTitle = last;
+            _titlePushed = pushed;
+            if (escape.Length > 0) System.Console.Write(escape);
+        }
+    }
+
     /// <summary>
     /// The escape sequence that reconciles the terminal's cursor with the pending caret request, plus the
     /// state to remember afterwards. Shape and visibility are emitted only on a CHANGE — the pen's "emit
@@ -649,6 +698,11 @@ public sealed class VirtualTerminal : IVirtualTerminal
             // In normal-buffer mode there is no unconditional show below, and the caret machinery may have
             // left the cursor retracted mid-paint — hand the user's shell a visible cursor back.
             if (!_alternateScreen) System.Console.Write(ShowCursorEscape);
+        }
+
+        if (_titlePushed)
+        {
+            System.Console.Write(TitleRestoreEscape(_titlePushed));
         }
 
         if (_alternateScreen)

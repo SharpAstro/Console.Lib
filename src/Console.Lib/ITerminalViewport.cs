@@ -41,6 +41,14 @@ public interface ITerminalViewport
     /// of the next <see cref="Flush"/>. Default no-op.</summary>
     void HideCaret() { }
 
+    /// <summary>
+    /// Sets the terminal window title (OSC 2). The first title pushes the user's current one onto the xterm
+    /// title stack, and disposing the terminal pops it, so the previous title comes back on exit. Control
+    /// characters are stripped. Default no-op, so surfaces without a title (test fakes, capture buffers)
+    /// ignore it.
+    /// </summary>
+    string? Title { set { } }
+
     /// <summary>Viewport size in pixels (columns * cellWidth, rows * cellHeight).</summary>
     (uint Width, uint Height) PixelSize
     {

@@ -9,6 +9,14 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.14
+
+Additive: a terminal title API. `ITerminalViewport.Title` (a set-only property, default no-op, forwarded by
+`TerminalViewport`) sets the window title with OSC 2 in `VirtualTerminal`. The first title pushes the user's
+current one onto the xterm title stack (`CSI 22;0 t`) and disposing the terminal pops it (`CSI 23;0 t`), so the
+previous title comes back on exit. The same title twice writes once, control characters are stripped from the
+title, and nothing is written when output is redirected or `ColorMode` is `None`.
+
 ## 5.13
 
 Additive: a cell-painted `Layout.Node` tree now registers what it declares into DIR.Lib's `InputRouter`, so a

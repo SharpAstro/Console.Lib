@@ -62,6 +62,8 @@ public sealed class TerminalViewport(ITerminalViewport parent, int columnOffset,
 
     public void HideCaret() => parent.HideCaret();
 
+    public string? Title { set => parent.Title = value; }
+
     public void Write(string text) => parent.Write(text);
 
     public void WriteLine(string? text = null) => parent.WriteLine(text);
