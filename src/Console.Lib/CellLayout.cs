@@ -67,10 +67,16 @@ public static class CellLayout
         Action<Layout.Content.Fill, Rect<int>>? drawFill = null)
         => Paint(viewport, arranged, drawFill, reverse: false);
 
-    /// <summary>STUB: paints as before and registers nothing into <paramref name="surface"/>.</summary>
+    /// <summary>
+    /// Paints as the other overloads do, and declares the tree to <paramref name="surface"/> (clearing what
+    /// the last frame declared), so an <see cref="InputRouter"/> over the surface routes it.
+    /// </summary>
     public static void Paint(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
         CellInputSurface surface, Action<Layout.Content.Fill, Rect<int>>? drawFill = null, bool reverse = false)
-        => Paint(viewport, arranged, drawFill, reverse);
+    {
+        Paint(viewport, arranged, drawFill, reverse);
+        surface.Declare(arranged);
+    }
 
     /// <summary>
     /// Paints the arranged tree, in reverse video when <paramref name="reverse"/> is set: every text run and
@@ -361,7 +367,7 @@ public static class CellLayout
     /// pre-existing and left alone rather than half-fixed on one surface.
     /// </para>
     /// </summary>
-    private static int VisibleOffset(int cursor, int maxChars) => Math.Max(0, cursor - maxChars + 1);
+    internal static int VisibleOffset(int cursor, int maxChars) => Math.Max(0, cursor - maxChars + 1);
 
     /// <summary>
     /// Reverse-order (top-most wins) hit test in cell coordinates: invokes the matched leaf's
