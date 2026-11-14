@@ -424,7 +424,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
         if (end < 0) return (false, reply);
 
         var status = reply[statusStart..end];
-        return (status is "1" or "2", reply.Remove(start, end + 2 - start));
+        return (status is "1" or "2" or "3", reply.Remove(start, end + 2 - start));
     }
 
     /// <summary>DECTCEM set: show the cursor.</summary>
@@ -855,37 +855,54 @@ public sealed class VirtualTerminal : IVirtualTerminal
     {
         if (s_isInputRedirected) return string.Empty;
 
-        const int maxTries = 10;
-
         System.Console.Write(sequence);
         System.Console.Out.Flush();
 
-        var response = new StringBuilder();
-
         try
         {
-            var tries = 0;
-            while (!System.Console.KeyAvailable && tries++ < maxTries)
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(10));
-            }
-
-            while (System.Console.KeyAvailable)
-            {
-                var key = System.Console.ReadKey(true);
-                response.Append(key.KeyChar);
-
-                if (key.KeyChar == terminator)
-                {
-                    break;
-                }
-            }
+            return await ReadResponseAsync(
+                terminator,
+                () => System.Console.KeyAvailable,
+                () => System.Console.ReadKey(true).KeyChar,
+                d => Task.Delay(d));
         }
         catch (OperationCanceledException)
         {
             // Terminal did not respond in time
+            return string.Empty;
         }
+    }
 
+    /// <summary>
+    /// Reads a terminal reply up to <paramref name="terminator"/>. Waits for the first byte, then keeps polling
+    /// (no spin: each empty poll awaits <paramref name="delay"/>) until the terminator arrives or
+    /// <c>maxIdlePolls</c> consecutive empty polls pass since the last byte, so a reply split over several
+    /// writes (DECRQM then DA1) is read whole.
+    /// </summary>
+    internal static async Task<string> ReadResponseAsync(
+        char terminator,
+        Func<bool> keyAvailable,
+        Func<char> readKey,
+        Func<TimeSpan, Task> delay,
+        int maxIdlePolls = 10)
+    {
+        var response = new StringBuilder();
+        var idle = 0;
+        while (idle < maxIdlePolls)
+        {
+            if (keyAvailable())
+            {
+                idle = 0;
+                var ch = readKey();
+                response.Append(ch);
+                if (ch == terminator) break;
+            }
+            else
+            {
+                idle++;
+                await delay(TimeSpan.FromMilliseconds(10));
+            }
+        }
         return response.ToString();
     }
 
