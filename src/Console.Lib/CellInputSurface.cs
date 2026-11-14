@@ -33,6 +33,9 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
 
     public (float X, float Y)? Pointer { get; set; }
 
+    // A claim's handler: present so the router does not read the claim as inert chrome and look through it.
+    private static void NoOp(InputModifier _) { }
+
     private bool Current => _tracker.Frame == Ui.FrameId;
 
     /// <summary>Clears last frame's declarations and registers this arranged tree's, in paint order.</summary>
@@ -130,7 +133,7 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
             {
                 claimed = true;
                 pendingContentDepth = -1;
-                var claim = new ClickableRegion(r.X, r.Y, r.Width, r.Height, new HitResult.ChromeHit(), null, CursorKind.Default);
+                var claim = new ClickableRegion(r.X, r.Y, r.Width, r.Height, new HitResult.ChromeHit(), NoOp, CursorKind.Default);
                 _tracker.Register(ref claim);
             }
             else if (openPopoverDepth >= 0 && !claimed && node is Layout.Node.Anchored)
