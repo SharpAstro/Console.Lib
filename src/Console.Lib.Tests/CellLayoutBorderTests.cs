@@ -204,7 +204,7 @@ public class CellLayoutBorderTests
         var c = Box(new Layout.Node.Stack([Label("c")]).BorderRight(Red), w: 5, h: 2);
         var d = Box(new Layout.Node.Stack([Label("d")]), h: 2);
 
-        var grid = Grid(Paint(Layout.Builder.VStack(Layout.Builder.HStack(a, b), Layout.Builder.HStack(c, d)), height: 4));
+        var grid = Grid(Paint(Layout.Builder.VStack(Layout.Builder.HStack(a, b).WStar(), Layout.Builder.HStack(c, d).WStar()).WStar(), height: 4));
 
         grid[1].ShouldBe("────┼─────");
         grid[0][4].ShouldBe('│');
