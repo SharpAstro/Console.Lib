@@ -467,4 +467,45 @@ public class CellWireframeTests
 
         result.IsEmpty.ShouldBeTrue(CellWireframe.Describe(result));
     }
+
+    private static CellWireframeResult CheckBordered(int arrangedHeight, int viewportHeight, Layout.Sizing? fixedHeight = null)
+    {
+        var stack = new Layout.Node.Stack([Label("Hi")]) { Background = Paint };
+        if (fixedHeight is { } h)
+        {
+            stack = stack with { Height = h };
+        }
+
+        var node = stack.Border(new RGBAColor32(0xff, 0, 0, 0xff));
+        var buffer = new CellBuffer { ColorMode = ColorMode.TrueColor };
+        buffer.Resize(Width, Height);
+        var viewport = new CellBufferViewport(buffer, Width, viewportHeight);
+        var arranged = Layout.Engine.Arrange(node, new Rect<int>(0, 0, 10, arrangedHeight), new CellMeasureContext());
+        var frame = CellWireframe.RecordCells(viewport, arranged, buffer: buffer);
+        return CellWireframe.CheckCells(frame);
+    }
+
+    [Fact]
+    public void BorderedFilledContainerCutToTopBorderRowAndTextIsNotEmptyRows()
+    {
+        var result = CheckBordered(4, 2, Layout.Sizing.Fixed(4));
+
+        CellRules(result).ShouldNotContain(CellWireframeRules.EmptyRows, CellWireframe.Describe(result));
+    }
+
+    [Fact]
+    public void BorderedFilledContainerShownWholeAroundOneRowIsNotEmptyRows()
+    {
+        var result = CheckBordered(3, 3);
+
+        CellRules(result).ShouldNotContain(CellWireframeRules.EmptyRows, CellWireframe.Describe(result));
+    }
+
+    [Fact]
+    public void BorderedFilledContainerFixedTallerThanBorderAndContentIsEmptyRows()
+    {
+        var result = CheckBordered(6, 6, Layout.Sizing.Fixed(6));
+
+        CellRules(result).ShouldContain(CellWireframeRules.EmptyRows, CellWireframe.Describe(result));
+    }
 }

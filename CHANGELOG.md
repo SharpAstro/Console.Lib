@@ -9,6 +9,16 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.26
+
+- **`CellRules.EmptyRows` no longer counts a declared border's visible Top/Bottom rows as empty (#84).**
+  A filled container with a border, cut by its scroll clip to its top border row plus one text row (or shown
+  whole as border, one text row, border), was reported as having empty rows inside its fill, though the
+  border row is painted. `CellFact.BorderRows` records how many declared Top/Bottom rows are visible in the
+  clipped rect, and the rule's allowance is vertical padding plus those rows. A bordered container still
+  taller than border, content and padding is reported. A consumer that baselined this (the pilot CardsView
+  case) can drop the baseline.
+
 ## 5.25
 
 - **A border is one cell a side under `CellMeasureContext.PixelAuthored` (#82).** `MapExtent` now handles
