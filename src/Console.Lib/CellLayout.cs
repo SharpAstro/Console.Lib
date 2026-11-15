@@ -36,7 +36,43 @@ public sealed class CellMeasureContext(float designUnitsPerColumn = 1f, float de
     /// mapped onto a nominal 8x16 cell. This is the case that needs the axes to differ: the same 250-unit
     /// card is 31 columns across but only 8 rows down.
     /// </summary>
-    public static CellMeasureContext PixelAuthored { get; } = new CellMeasureContext(8f, 16f);
+    public static CellMeasureContext PixelAuthored { get; } = new CellMeasureContext(8f, 16f) { KeepsRowPerLine = true };
+
+    /// <summary>
+    /// Set for a pixel-authored mapping: <see cref="MapExtent"/> then keeps one row for one line of content
+    /// (a Fixed height takes the content's rows, vertical padding rounds down, an empty spacer under a cell
+    /// adds nothing, a filled node thinner than a cell keeps one row) and gives horizontal padding at most
+    /// one cell a side. Off, as in <see cref="CellAuthored"/>, an extent is today's plain rounding.
+    /// </summary>
+    private bool KeepsRowPerLine { get; init; }
+
+    /// <inheritdoc />
+    public int MapExtent(in Layout.ExtentRequest request)
+    {
+        if (!KeepsRowPerLine)
+        {
+            return request.Axis == Layout.Axis.Horizontal ? ToSurfaceX(request.Value) : ToSurfaceY(request.Value);
+        }
+
+        if (request.Axis == Layout.Axis.Horizontal)
+        {
+            var columns = ToSurfaceX(request.Value);
+            return request.Kind == Layout.ExtentKind.Padding ? Math.Min(1, columns) : columns;
+        }
+
+        var rows = (int)MathF.Floor(request.Value / designUnitsPerRow);
+        if (request.Kind == Layout.ExtentKind.Padding)
+        {
+            return rows;
+        }
+
+        if (request.HasContent)
+        {
+            return Math.Max(request.ContentLines, rows);
+        }
+
+        return request.HasFill && request.Value > 0f ? Math.Max(1, rows) : rows;
+    }
 
     public Layout.Size<int> MeasureText(ReadOnlySpan<char> text, float fontSize) => new(text.Length, 1);
 
