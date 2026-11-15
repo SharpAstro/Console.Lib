@@ -40,6 +40,8 @@ public class CellInputRouterTests
 
         public InputRouter Router { get; }
 
+        public CellBuffer Buffer => _buffer;
+
         public List<InputEvent> Fallback { get; } = [];
 
         public TextInputFocus Focus => Surface.Ui.Focus;
@@ -244,5 +246,47 @@ public class CellInputRouterTests
 
         host.Frame(tree);
         host.Surface.HitTest(2, 0).ShouldBeOfType<HitResult.ListItemHit>().Index.ShouldBe(2);
+    }
+
+    private sealed class FakeClock : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = new(2026, 11, 15, 0, 0, 0, TimeSpan.Zero);
+
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
+
+    [Fact]
+    public void NoButtonMotionLightsBgHoverAndRaisesTheTooltipAfterItsDelay_AndPointerLeftClearsBoth()
+    {
+        var clock = new FakeClock();
+        var host = new Host();
+        host.Router.Clock = clock;
+        var hover = new RGBAColor32(0x30, 0x60, 0x90, 0xff);
+        var tree = Layout.Builder.VStack(
+            Layout.Builder.Text("row", 1f).RowH(1).WStar().BgHover(hover).WithTooltip("tip"));
+        host.Frame(tree);
+        host.Buffer.BackAt(30, 0).Style.Background.ShouldNotBe(hover);
+
+        host.Router.Handle(new InputEvent.MouseMove(30, 0, MouseButton.None, InputModifier.None));
+        host.Router.Tooltip.ShouldBeNull();
+        host.Frame(tree);
+        host.Buffer.BackAt(30, 0).Style.Background.ShouldBe(hover);
+
+        clock.Now += host.Router.TooltipDelay + TimeSpan.FromMilliseconds(1);
+        host.Router.Tooltip.ShouldNotBeNull().Text.ShouldBe("tip");
+
+        host.Router.Handle(new InputEvent.PointerLeft());
+        host.Router.Tooltip.ShouldBeNull();
+        host.Frame(tree);
+        host.Buffer.BackAt(30, 0).Style.Background.ShouldNotBe(hover);
+    }
+
+    [Fact]
+    public void AFocusOutReportMapsThroughToCellInputEventToPointerLeft()
+    {
+        var evt = new ConsoleInputEvent(null, ConsoleKey.None, 0) { PointerLeft = true };
+
+        evt.ToCellInputEvent(new TermCell(10, 20)).ShouldBeOfType<InputEvent.PointerLeft>();
+        evt.ToInputEvent.ShouldBeOfType<InputEvent.PointerLeft>();
     }
 }
