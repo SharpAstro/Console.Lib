@@ -40,7 +40,7 @@ public static class CellWireframe
 
     /// <summary>Like <see cref="Record"/>, but keeps the cell facts the cell rules need.</summary>
     public static CellWireframeFrame RecordCells(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
-        Action<Layout.Content.Fill, Rect<int>>? drawFill = null, bool reverse = false)
+        Action<Layout.Content.Fill, Rect<int>>? drawFill = null, bool reverse = false, CellBuffer? buffer = null)
     {
         var recorder = new Recorder(viewport.Size);
         CellLayout.Paint(viewport, arranged, drawFill, reverse, null, recorder);

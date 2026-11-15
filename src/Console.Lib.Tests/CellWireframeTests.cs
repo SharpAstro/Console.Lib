@@ -242,4 +242,51 @@ public class CellWireframeTests
         CellWireframe.CheckCells(frame, new CellWireframeOptions { Rules = CellWireframeRules.VanishedFill })
             .CellFindings.ShouldBeEmpty();
     }
+
+    [Fact]
+    public void HostedWidgetOverlappedByALabelIsTextOverText()
+    {
+        var buffer = new CellBuffer { ColorMode = ColorMode.TrueColor };
+        buffer.Resize(Width, Height);
+        var viewport = new CellBufferViewport(buffer, Width, Height);
+        var hosted = new TerminalViewport(viewport, 0, 0, 1, 1);
+        var bar = new TextBar(hosted).Text("hosted bar text");
+        var fill = Layout.Builder.Fill(1f, 1f);
+        var frame = CellWireframe.RecordCells(viewport,
+            Arrange((fill, new Rect<int>(0, 0, 20, 1)), (Label("label"), new Rect<int>(4, 0, 8, 1))),
+            (_, rect) =>
+            {
+                hosted.UpdateGeometry(rect.X, rect.Y, rect.Width, rect.Height);
+                bar.Render();
+            }, buffer: buffer);
+
+        var result = CellWireframe.CheckCells(frame);
+
+        result.Findings.Select(f => f.Rule).ShouldContain(WireframeRules.TextOverText, CellWireframe.Describe(result));
+    }
+
+    [Fact]
+    public void FrameThatWritesCellsButRecordsNothingFailsAsNothingRecorded()
+    {
+        var buffer = new CellBuffer { ColorMode = ColorMode.TrueColor };
+        buffer.Resize(Width, Height);
+        var viewport = new CellBufferViewport(buffer, Width, Height);
+        var input = Layout.Builder.TextInput(new TextInputState { Text = "typed" }, 1f);
+        var frame = CellWireframe.RecordCells(viewport, Arrange((input, new Rect<int>(0, 0, 10, 1))), buffer: buffer);
+
+        var result = CellWireframe.CheckCells(frame);
+
+        result.CellFindings.Select(f => f.Rule).ShouldContain(CellWireframeRules.NothingRecorded, CellWireframe.Describe(result));
+    }
+
+    [Fact]
+    public void EmptyFrameThatWroteNothingPasses()
+    {
+        var buffer = new CellBuffer { ColorMode = ColorMode.TrueColor };
+        buffer.Resize(Width, Height);
+        var viewport = new CellBufferViewport(buffer, Width, Height);
+        var frame = CellWireframe.RecordCells(viewport, Arrange(), buffer: buffer);
+
+        CellWireframe.CheckCells(frame).IsEmpty.ShouldBeTrue();
+    }
 }
