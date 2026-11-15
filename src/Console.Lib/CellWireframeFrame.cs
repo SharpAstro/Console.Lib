@@ -25,14 +25,17 @@ public sealed record CellWireframeOptions
 {
     public CellWireframeRules Rules { get; init; } = CellWireframeRules.All;
 
-    /// <summary>Options for DIR.Lib's rules; null is tolerance 0.</summary>
+    /// <summary>Options for DIR.Lib's rules (ignore callbacks, rule flags); its own <c>Tolerance</c> is not used, see <see cref="Tolerance"/>.</summary>
     public WireframeOptions? Pixel { get; init; }
+
+    /// <summary>How many cells two things may share before it counts. 0 by default.</summary>
+    public float Tolerance { get; init; }
 }
 
 /// <summary>What the recorder saw of one arranged leaf or filled node, beyond what <see cref="WireframeFrame"/> carries.</summary>
 public readonly record struct CellFact(
     int Depth, Rect<int> Bounds, Rect<int> Clipped, bool IsText, bool OwnFill, bool FillPainted,
-    int Row, int TextLength, int PaintedLength);
+    int Row, int TextLength, int PaintedLength, bool PaintsContent = false);
 
 /// <summary>A DIR.Lib <see cref="WireframeFrame"/> plus the cell facts the cell rules need.</summary>
 public sealed record CellWireframeFrame(WireframeFrame Frame, ImmutableArray<CellFact> Facts);

@@ -39,6 +39,25 @@ internal static class CellRules
         return found.ToImmutable();
     }
 
+    /// <summary>True when fact <paramref name="j"/> encloses fact <paramref name="index"/>: it precedes it and every fact between is deeper.</summary>
+    private static bool IsAncestor(ImmutableArray<CellFact> facts, int j, int index)
+    {
+        if (j >= index || facts[j].Depth >= facts[index].Depth)
+        {
+            return false;
+        }
+
+        for (var k = j + 1; k < index; k++)
+        {
+            if (facts[k].Depth <= facts[j].Depth)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>The free cells right of text on its row inside the nearest enclosing container, or null when there are none.</summary>
     private static Rect<int>? RoomToTheRight(ImmutableArray<CellFact> facts, int index)
     {
@@ -65,11 +84,20 @@ internal static class CellRules
             return null;
         }
 
-        // Another text leaf in the span takes the room: what is right of this label is not free.
+        // Any other arranged thing that paints in the span takes the room: text, a painted fill (a Box
+        // swatch or a node's own background), or a non-text leaf such as an icon or a text input. Ancestors
+        // are skipped (the container's own fill is the ground the label sits on, not a neighbour).
         for (var j = 0; j < facts.Length; j++)
         {
-            if (j != index && facts[j].IsText && facts[j].Clipped.Y <= f.Row && facts[j].Clipped.Bottom > f.Row
-                && facts[j].Clipped.X < to && facts[j].Clipped.Right > from)
+            if (j == index || IsAncestor(facts, j, index))
+            {
+                continue;
+            }
+
+            var other = facts[j];
+            var paints = other.IsText || (other.OwnFill && other.FillPainted) || other.PaintsContent;
+            if (paints && other.Clipped.Y <= f.Row && other.Clipped.Bottom > f.Row
+                && other.Clipped.X < to && other.Clipped.Right > from)
             {
                 return null;
             }
