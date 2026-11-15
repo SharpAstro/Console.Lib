@@ -476,11 +476,17 @@ public class CellWireframeTests
             stack = stack with { Height = h };
         }
 
-        var node = stack.Border(new RGBAColor32(0xff, 0, 0, 0xff));
+        Layout.Node node = stack.Border(new RGBAColor32(0xff, 0, 0, 0xff));
+        if (viewportHeight < arrangedHeight)
+        {
+            // A scroll viewport viewportHeight rows tall cuts the node to its first rows.
+            node = new Layout.Node.Stack([node]) { Scroll = new ListScrollController(), Height = Layout.Sizing.Fixed(viewportHeight) };
+        }
+
         var buffer = new CellBuffer { ColorMode = ColorMode.TrueColor };
         buffer.Resize(Width, Height);
-        var viewport = new CellBufferViewport(buffer, Width, viewportHeight);
-        var arranged = Layout.Engine.Arrange(node, new Rect<int>(0, 0, 10, arrangedHeight), new CellMeasureContext());
+        var viewport = new CellBufferViewport(buffer, Width, Height);
+        var arranged = Layout.Engine.Arrange(node, new Rect<int>(0, 0, 10, viewportHeight < arrangedHeight ? viewportHeight : arrangedHeight), new CellMeasureContext());
         var frame = CellWireframe.RecordCells(viewport, arranged, buffer: buffer);
         return CellWireframe.CheckCells(frame);
     }
