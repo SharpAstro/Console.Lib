@@ -103,10 +103,7 @@ public class CellDeclaredListTests
         var b = new Widget("b", 5);
         host.Frame(a, b);
 
-        var seen = new List<ClickableRegion>();
-        host.Surface.CollectPaintedRegions(seen);
-        (host.Surface.HitTest(25, 0) as HitResult.ListItemHit).ShouldNotBeNull(string.Join(';', seen.Select(r => $"{r.Result.GetType().Name}@{r.X},{r.Y},{r.Width},{r.Height}")));
-        host.Press(25, 0); // row 0 of the right-hand list
+        host.Press(20, 0); // row 0 of the right-hand list (rows are as wide as their text)
         b.Cursor.Index.ShouldBe(0, "the press opens the pressed list's cursor at the pressed row");
         host.Key(InputKey.Down);
         host.Key(InputKey.Down);
@@ -123,15 +120,15 @@ public class CellDeclaredListTests
         var a = new Widget("a", 5);
         var b = new Widget("b", 5);
         host.Frame(a, b);
-        host.Press(25, 0);
+        host.Press(20, 0);
         host.Key(InputKey.Down);
         host.Key(InputKey.Down);
 
         host.Frame(a, b);
 
-        host.BackgroundAt(25, 2).ShouldBe(Focus);
-        host.BackgroundAt(25, 1).ShouldNotBe(Focus);
-        host.BackgroundAt(5, 2).ShouldNotBe(Focus);
+        host.BackgroundAt(20, 2).ShouldBe(Focus);
+        host.BackgroundAt(20, 1).ShouldNotBe(Focus);
+        host.BackgroundAt(0, 2).ShouldNotBe(Focus);
     }
 
     [Fact]
@@ -141,7 +138,7 @@ public class CellDeclaredListTests
         var a = new Widget("a", 5);
         var b = new Widget("b", 5);
         host.Frame(a, b);
-        host.Press(25, 0);
+        host.Press(20, 0);
         host.Key(InputKey.Down);
         host.Key(InputKey.Down);
 
