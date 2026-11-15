@@ -235,7 +235,7 @@ public static class CellLayout
                 : node.Background;
             if (nodeFill is { } bg)
             {
-                PaintFill(viewport, arranged, index, pixel, rect, bg, mode, under, rounded, reverse);
+                PaintFill(viewport, arranged, index, pixel, rect, bg, mode, under, rounded, reverse, scrolls.Count > 0 ? scrolls.Peek().Clip : null);
                 backgrounds.Push((arrangedNode.Depth, bg));
                 under = bg;
             }
@@ -259,7 +259,7 @@ public static class CellLayout
                     DrawText(viewport, rect, text, mode, under, links.Count > 0 ? links.Peek().Url : null, reverse);
                     break;
                 case Layout.Content.Box box when box.Color.Alpha > 0:
-                    PaintFill(viewport, arranged, index, pixel, rect, box.Color, mode, under, rounded, reverse);
+                    PaintFill(viewport, arranged, index, pixel, rect, box.Color, mode, under, rounded, reverse, scrolls.Count > 0 ? scrolls.Peek().Clip : null);
                     break;
                 case Layout.Content.Icon icon:
                     DrawText(viewport, rect, IconGlyph(icon), mode, under, null, reverse);
@@ -654,15 +654,26 @@ public static class CellLayout
         return null;
     }
 
+    private readonly record struct StarSpan(double Start, double End, RGBAColor32? NextFill, bool PrevFilled);
+
+    private static RGBAColor32? OwnFill(Layout.Node n) => n.Background is { } bg ? bg
+        : n is Layout.Node.Leaf { Content: Layout.Content.Box { Color.Alpha: > 0 } box } ? box.Color : null;
+
+    private static bool IsPlainStar(Layout.Node n)
+    {
+        var w = n.Width;
+        return w.Kind == Layout.SizeKind.Star && !w.UpToContent && !(w.Min > 0f) && !(w.Max > 0f) && w.Value > 0f;
+    }
+
     /// <summary>
-    /// The exact width in cells of a plain Star child of a horizontal stack (its share of what the fixed and
-    /// auto siblings leave), or null when the node is not one or the share is not derivable.
+    /// The exact span in cells of a plain Star child of a horizontal stack: its start is the parent's start plus
+    /// the exact widths of the siblings before it (so adjacent filled siblings tile with no gap), its width its
+    /// share of what the fixed and auto siblings leave. Null when the node is not one or it is not derivable.
     /// </summary>
-    private static double? ExactStarWidth(ImmutableArray<Layout.ArrangedNode<int>> arranged, int index)
+    private static StarSpan? ExactStarSpan(ImmutableArray<Layout.ArrangedNode<int>> arranged, int index)
     {
         var self = arranged[index];
-        var w = self.Node.Width;
-        if (w.Kind != Layout.SizeKind.Star || w.UpToContent || w.Min > 0f || w.Max > 0f || w.Value <= 0f)
+        if (!IsPlainStar(self.Node))
         {
             return null;
         }
@@ -679,10 +690,16 @@ public static class CellLayout
         }
 
         var kids = new List<Layout.ArrangedNode<int>>();
+        var selfK = -1;
         for (var j = p + 1; j < arranged.Length && arranged[j].Depth > arranged[p].Depth; j++)
         {
             if (arranged[j].Depth == self.Depth)
             {
+                if (j == index)
+                {
+                    selfK = kids.Count;
+                }
+
                 kids.Add(arranged[j]);
             }
         }
@@ -693,7 +710,7 @@ public static class CellLayout
             var kw = kids[k].Node.Width;
             if (kw.Kind == Layout.SizeKind.Star)
             {
-                if (kw.UpToContent || kw.Min > 0f || kw.Max > 0f)
+                if (!IsPlainStar(kids[k].Node))
                 {
                     return null;
                 }
@@ -711,29 +728,53 @@ public static class CellLayout
             }
         }
 
-        if (kids.Count == 0 || weights <= 0)
+        if (selfK < 0 || weights <= 0)
         {
             return null;
         }
 
-        var span = kids[^1].Bounds.Right - kids[0].Bounds.X;
-        return (span - nonStar - gaps) * w.Value / weights;
+        var starSpace = kids[^1].Bounds.Right - kids[0].Bounds.X - nonStar - gaps;
+        double x = kids[0].Bounds.X, start = x, end = x;
+        for (var k = 0; k < kids.Count; k++)
+        {
+            if (k > 0)
+            {
+                x += kids[k].Bounds.X - kids[k - 1].Bounds.Right;
+            }
+
+            var width = kids[k].Node.Width.Kind == Layout.SizeKind.Star
+                ? starSpace * kids[k].Node.Width.Value / weights
+                : kids[k].Bounds.Width;
+            if (k == selfK)
+            {
+                start = x;
+                end = x + width;
+            }
+
+            x += width;
+        }
+
+        RGBAColor32? next = selfK + 1 < kids.Count && IsPlainStar(kids[selfK + 1].Node) ? OwnFill(kids[selfK + 1].Node) : null;
+        var prevFilled = selfK > 0 && IsPlainStar(kids[selfK - 1].Node) && OwnFill(kids[selfK - 1].Node) is not null;
+        return new StarSpan(start, end, next, prevFilled);
     }
 
     /// <summary>
     /// Paints a fill. At a pixel-authored scale a fill under half a row (by design height) is a row of upper
-    /// half blocks, and a Star child of a horizontal stack ends in one eighth-block glyph (U+258F..U+2589,
-    /// fg the fill, bg what is under it) so its exact share shows to 1/8 cell. Anything else is FillCells.
+    /// half blocks, and a Star child of a horizontal stack covers its exact span to 1/8 cell: whole cells, plus an
+    /// eighth-block glyph (U+258F..U+2589) at each fractional edge. Between two filled Star siblings the boundary
+    /// cell is one glyph (fg the left colour, bg the right); next to anything else the other side is what is
+    /// under. Anything else is FillCells. (The sub-cell path does not clip rounded corners.)
     /// </summary>
     private static void PaintFill(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged, int index,
-        bool pixel, Rect<int> rect, RGBAColor32 color, ColorMode mode, RGBAColor32 under, bool rounded, bool reverse)
+        bool pixel, Rect<int> rect, RGBAColor32 color, ColorMode mode, RGBAColor32 under, bool rounded, bool reverse, Rect<int>? clip = null)
     {
         var half = false;
-        double? exact = null;
+        StarSpan? exact = null;
         if (pixel)
         {
             half = rect.Height == 1 && DesignHeight(arranged, index) is { } h && h < 8f;
-            exact = ExactStarWidth(arranged, index);
+            exact = ExactStarSpan(arranged, index);
         }
 
         if (!half && exact is null)
@@ -742,45 +783,73 @@ public static class CellLayout
             return;
         }
 
-        var whole = rect.Width;
-        var eighths = 0;
-        if (exact is { } e)
+        var (vw, vh) = viewport.Size;
+        // The exact span can reach a cell the engine's rounded rect leaves out (its 5.55 end is cell 5 of a
+        // 5-wide rect), so glyphs and runs clamp to the real clip (a Scroll viewport, else the viewport),
+        // not to the arranged rect.
+        var lo = Math.Max(0, clip?.X ?? 0);
+        var hi = Math.Min(clip?.Right ?? vw, vw);
+        int from = Math.Max(0, rect.X), to = Math.Min(rect.Right, vw);
+        int leadEighths = 0, leadCell = -1, trailEighths = 0, trailCell = -1;
+        RGBAColor32 trailBg = under;
+        if (exact is { } span)
         {
-            whole = (int)Math.Floor(e + 1e-9);
+            var sE = (long)Math.Round(span.Start * 8);
+            var eE = (long)Math.Round(span.End * 8);
             if (half)
             {
-                whole += e - whole >= 0.5 ? 1 : 0;
+                from = (int)Math.Max(lo, (sE + 4) / 8);
+                to = (int)Math.Min(hi, (eE + 4) / 8);
             }
             else
             {
-                eighths = (int)Math.Round((e - whole) * 8);
-                if (eighths == 8)
+                from = (int)Math.Max(lo, (sE + 7) / 8);
+                to = (int)Math.Min(hi, eE / 8);
+                if (sE % 8 != 0 && !span.PrevFilled)
                 {
-                    whole++;
-                    eighths = 0;
+                    leadCell = (int)(sE / 8);
+                    leadEighths = (int)(sE % 8);
+                }
+
+                if (eE % 8 != 0)
+                {
+                    trailCell = (int)(eE / 8);
+                    trailEighths = (int)(eE % 8);
+                    trailBg = span.NextFill ?? under;
+                }
+
+                if (leadCell == trailCell)
+                {
+                    leadCell = -1;
                 }
             }
         }
 
-        var (vw, vh) = viewport.Size;
-        var x = Math.Max(0, rect.X);
-        var end = Math.Min(rect.X + whole, vw);
-        var pen = new VtStyle(color, under).Apply(mode) + (reverse ? VtStyle.ReverseOn : "");
-        var solid = new VtStyle(color, color).Apply(mode) + (reverse ? VtStyle.ReverseOn : "");
+        var rev = reverse ? VtStyle.ReverseOn : "";
+        var pen = new VtStyle(color, under).Apply(mode) + rev;
+        var solid = new VtStyle(color, color).Apply(mode) + rev;
+        var leadPen = new VtStyle(under, color).Apply(mode) + rev;
+        var trailPen = new VtStyle(color, trailBg).Apply(mode) + rev;
         for (var row = Math.Max(0, rect.Y); row < Math.Min(rect.Bottom, vh); row++)
         {
-            if (end > x)
+            if (to > from)
             {
-                viewport.SetCursorPosition(x, row);
+                viewport.SetCursorPosition(from, row);
                 viewport.Write(half
-                    ? $"{VtStyle.Reset}{pen}{new string('▀', end - x)}{VtStyle.Reset}"
-                    : $"{solid}{new string(' ', end - x)}{VtStyle.Reset}");
+                    ? $"{VtStyle.Reset}{pen}{new string('▀', to - from)}{VtStyle.Reset}"
+                    : $"{solid}{new string(' ', to - from)}{VtStyle.Reset}");
             }
 
-            if (eighths > 0 && end < vw)
+            if (leadCell >= lo && leadCell < hi)
             {
-                viewport.SetCursorPosition(end, row);
-                viewport.Write($"{VtStyle.Reset}{pen}{(char)(0x2590 - eighths)}{VtStyle.Reset}");
+                viewport.SetCursorPosition(leadCell, row);
+                viewport.Write($"{VtStyle.Reset}{leadPen}{(char)(0x2590 - leadEighths)}{VtStyle.Reset}");
+            }
+
+            if (trailCell >= lo && trailCell < hi)
+            {
+                viewport.SetCursorPosition(trailCell, row);
+                viewport.Write($"{VtStyle.Reset}{trailPen}{(char)(0x2590 - trailEighths)}{VtStyle.Reset}");
             }
         }
     }
