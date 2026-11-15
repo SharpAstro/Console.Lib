@@ -103,6 +103,7 @@ public class CellDeclaredListTests
         var b = new Widget("b", 5);
         host.Frame(a, b);
 
+        host.Surface.HitTest(25, 0).ShouldBeOfType<HitResult.ListItemHit>().ListId.ShouldBe("b");
         host.Press(25, 0); // row 0 of the right-hand list
         b.Cursor.Index.ShouldBe(0, "the press opens the pressed list's cursor at the pressed row");
         host.Key(InputKey.Down);
