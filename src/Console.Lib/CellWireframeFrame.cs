@@ -14,6 +14,8 @@ public enum CellWireframeRules
     VanishedFill = 2,
     /// <summary>Text cut while its row has free cells to its right within the same container.</summary>
     CutWithRoom = 4,
+    /// <summary>The surface wrote cells but the frame holds no text, fill or region.</summary>
+    NothingRecorded = 8,
     All = DoubledRow | VanishedFill | CutWithRoom,
 }
 
