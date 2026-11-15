@@ -256,6 +256,12 @@ public static class CellLayout
                 2 * (pixel ? (int)MathF.Floor(node.PadDown / 16f) : (int)MathF.Round(node.PadDown)),
                 thinFill: nodeFilled && IsThinFill(arranged, index, pixel, rect));
 
+            if (node.BorderStyle is { Sides: not Layout.BorderSides.None, Width: > 0f, Color.Alpha: > 0 } border)
+            {
+                PaintBorder(viewport, arrangedNode.Bounds, scrolls.Count > 0 ? scrolls.Peek().Clip : null, border, mode, under, reverse);
+                recorder?.Border();
+            }
+
             if (recorder is not null && HitOf(node) is { } regionHit)
             {
                 recorder.Region(arrangedNode.Bounds, rect, regionHit);
@@ -293,6 +299,45 @@ public static class CellLayout
                 case Layout.Content.Fill fill:
                     drawFill?.Invoke(fill, rect);
                     break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Paints a declared border (<see cref="Layout.Node.BorderStyle"/>) on the outer ring of <paramref name="bounds"/>,
+    /// the cells the engine reserved for it, after the node's fill and before its children. Glyphs come from
+    /// <see cref="BorderChars.For"/> (light, or rounded when the radius is above zero), so box glyphs have one
+    /// source. A side present draws its run; a corner gets a corner glyph only when both of its sides are present,
+    /// else the run of the side present continues to the edge. Foreground is the border colour, background
+    /// <paramref name="under"/> (the node's own fill when it has one). Painted after the fill, so an arc corner
+    /// replaces the quadrant block <see cref="ClipFilledCorners"/> put there. Clipped to the scroll viewport and the terminal.
+    /// </summary>
+    private static void PaintBorder(ITerminalViewport viewport, Rect<int> bounds, Rect<int>? clip,
+        Layout.BorderStyle border, ColorMode mode, RGBAColor32 under, bool reverse)
+    {
+        var glyphs = BorderChars.For(border.Radius > 0f ? Console.Lib.BorderStyle.Rounded : Console.Lib.BorderStyle.Light);
+        var (vw, vh) = viewport.Size;
+        int x0 = Math.Max(Math.Max(0, bounds.X), clip?.X ?? int.MinValue), x1 = Math.Min(Math.Min(vw, bounds.Right), clip?.Right ?? int.MaxValue);
+        int y0 = Math.Max(Math.Max(0, bounds.Y), clip?.Y ?? int.MinValue), y1 = Math.Min(Math.Min(vh, bounds.Bottom), clip?.Bottom ?? int.MaxValue);
+        var pen = new VtStyle(border.Color, under).Apply(mode) + (reverse ? VtStyle.ReverseOn : "");
+        var sides = border.Sides;
+        for (var y = y0; y < y1; y++)
+        {
+            for (var x = x0; x < x1; x++)
+            {
+                var t = y == bounds.Y && sides.HasFlag(Layout.BorderSides.Top);
+                var b = y == bounds.Bottom - 1 && sides.HasFlag(Layout.BorderSides.Bottom);
+                var l = x == bounds.X && sides.HasFlag(Layout.BorderSides.Left);
+                var r = x == bounds.Right - 1 && sides.HasFlag(Layout.BorderSides.Right);
+                char glyph;
+                if (t && l) glyph = glyphs.TopLeft;
+                else if (t && r) glyph = glyphs.TopRight;
+                else if (b && l) glyph = glyphs.BottomLeft;
+                else if (b && r) glyph = glyphs.BottomRight;
+                else if (t || b) glyph = glyphs.Horizontal;
+                else if (l || r) glyph = glyphs.Vertical;
+                else continue;
+                WriteGlyph(viewport, x, y, glyph, pen);
             }
         }
     }

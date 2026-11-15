@@ -12,7 +12,7 @@ internal static class CellRules
         var found = ImmutableArray.CreateBuilder<CellWireframeFinding>();
         var wf = frame.Frame;
         if (rules.HasFlag(CellWireframeRules.NothingRecorded) && frame.CellsWritten > 0
-            && wf.Texts.Length == 0 && wf.Fills.Length == 0 && wf.Regions.Length == 0)
+            && wf.Texts.Length == 0 && wf.Fills.Length == 0 && wf.Regions.Length == 0 && !facts.Any(f => f.Bordered))
         {
             found.Add(new CellWireframeFinding(CellWireframeRules.NothingRecorded,
                 $"{frame.CellsWritten} cell(s) were written but the frame recorded no text, fill or region, so nothing was judged",

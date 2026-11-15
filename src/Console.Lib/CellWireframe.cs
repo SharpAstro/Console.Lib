@@ -141,6 +141,10 @@ public static class CellWireframe
         public void Node(int depth, Rect<int> bounds, Rect<int> clipped, bool isText, bool ownFill, bool fillPainted, bool paintsContent = false, int paddingRows = 0, bool thinFill = false)
             => _facts.Add(new CellFact(depth, bounds, clipped, isText, ownFill, fillPainted, -1, 0, 0, paintsContent) { PaddingRows = paddingRows, ThinFill = thinFill });
 
+        /// <summary>A declared border painted on the fact just recorded: part of its node, so neither text nor a fill.</summary>
+        public void Border()
+            => _facts[^1] = _facts[^1] with { Bordered = true };
+
         /// <summary>A Box leaf's own fill, on the fact just recorded for it.</summary>
         public void BoxFill(bool painted, bool thinFill = false)
         {
