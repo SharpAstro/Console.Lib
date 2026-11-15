@@ -138,8 +138,8 @@ public static class CellWireframe
 
         public ImmutableArray<CellFact> Facts => [.. _facts];
 
-        public void Node(int depth, Rect<int> bounds, Rect<int> clipped, bool isText, bool ownFill, bool fillPainted, bool paintsContent = false)
-            => _facts.Add(new CellFact(depth, bounds, clipped, isText, ownFill, fillPainted, -1, 0, 0, paintsContent));
+        public void Node(int depth, Rect<int> bounds, Rect<int> clipped, bool isText, bool ownFill, bool fillPainted, bool paintsContent = false, int paddingRows = 0)
+            => _facts.Add(new CellFact(depth, bounds, clipped, isText, ownFill, fillPainted, -1, 0, 0, paintsContent, paddingRows));
 
         /// <summary>A Box leaf's own fill, on the fact just recorded for it.</summary>
         public void BoxFill(bool painted)

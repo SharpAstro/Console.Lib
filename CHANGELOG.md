@@ -9,6 +9,15 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.20
+
+- **`CellWireframeRules.EmptyRows`** (on in `All`). A filled container whose content all sits on one row, while the container is
+  arranged taller than that row plus its own vertical padding, is a finding. This is the pilot bar defect: an `HStack` of labels
+  stretched to 12 of 24 rows, two one-row labels at the top and ten empty rows inside its fill. The rule is deliberately limited
+  to content on a single row: a sparse vertical page (labels on several rows with room left below) is legitimate, so it is not a
+  finding. `CellFact` gained a trailing optional `PaddingRows` (top plus bottom padding in cells) for the allowance. A one-line
+  text leaf that is too tall still reports `DoubledRow` only. Console.Lib #69, found by pilot #1065 (PIL1032).
+
 ## 5.19
 
 The cell wireframe recorder sees every write, not only `CellLayout.Paint`'s own calls (#65). `CellBuffer` gains a
