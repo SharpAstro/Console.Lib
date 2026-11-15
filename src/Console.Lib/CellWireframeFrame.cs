@@ -16,7 +16,7 @@ public enum CellWireframeRules
     CutWithRoom = 4,
     /// <summary>The surface wrote cells but the frame holds no text, fill or region.</summary>
     NothingRecorded = 8,
-    /// <summary>A filled container whose content all sits on one row while it is arranged taller than that row plus its own vertical padding.</summary>
+    /// <summary>A filled container whose content all sits on one row while it is arranged taller than that row plus its own vertical padding. Whether the extra height came from a stretch or a fixed size, it is a finding. <see cref="CellWireframeFinding.Where"/> is the clipped rect, the part a person sees.</summary>
     EmptyRows = 16,
     All = DoubledRow | VanishedFill | CutWithRoom | NothingRecorded | EmptyRows,
 }
@@ -39,7 +39,11 @@ public sealed record CellWireframeOptions
 /// <summary>What the recorder saw of one arranged leaf or filled node, beyond what <see cref="WireframeFrame"/> carries.</summary>
 public readonly record struct CellFact(
     int Depth, Rect<int> Bounds, Rect<int> Clipped, bool IsText, bool OwnFill, bool FillPainted,
-    int Row, int TextLength, int PaintedLength, bool PaintsContent = false, int PaddingRows = 0);
+    int Row, int TextLength, int PaintedLength, bool PaintsContent = false)
+{
+    /// <summary>Top plus bottom vertical padding in cells. An init property, not a constructor parameter, so the constructor keeps the shape it had before 5.20.</summary>
+    public int PaddingRows { get; init; }
+}
 
 /// <summary>A DIR.Lib <see cref="WireframeFrame"/> plus the cell facts the cell rules need.</summary>
 public sealed record CellWireframeFrame(WireframeFrame Frame, ImmutableArray<CellFact> Facts, int CellsWritten = 0);

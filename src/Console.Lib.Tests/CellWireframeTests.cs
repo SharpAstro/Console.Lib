@@ -195,6 +195,43 @@ public class CellWireframeTests
     }
 
     [Fact]
+    public void FilledContainerDeliberatelyFixedTallerThanItsOneRowIsEmptyRows()
+    {
+        var bar = new Layout.Node.Stack([]) { Background = Paint, Height = Layout.Sizing.Fixed(4) };
+        var result = CheckSized(80, 24,
+            At(bar, new Rect<int>(0, 0, 80, 4), 0),
+            At(Label("Home"), new Rect<int>(0, 0, 4, 1), 1));
+
+        CellRules(result).ShouldContain(CellWireframeRules.EmptyRows, CellWireframe.Describe(result));
+        result.CellFindings.First(f => f.Rule == CellWireframeRules.EmptyRows).Where.Height.ShouldBe(4f);
+    }
+
+    [Fact]
+    public void UnpaintedTextLeafIsNotContentOnRowMinusOne()
+    {
+        // A text leaf arranged wholly outside the viewport never paints, so it has no row; it must not
+        // make the container's content look like it spans rows -1 and 0.
+        var bar = new Layout.Node.Stack([]) { Background = Paint };
+        var result = CheckSized(80, 24,
+            At(bar, new Rect<int>(0, 0, 80, 12), 0),
+            At(Label("Home"), new Rect<int>(0, 0, 4, 1), 1),
+            At(Label("offscreen"), new Rect<int>(0, 30, 9, 1), 1));
+
+        CellRules(result).ShouldContain(CellWireframeRules.EmptyRows, CellWireframe.Describe(result));
+    }
+
+    [Fact]
+    public void PixelAuthoredBarWhoseExtraRowsAreItsPaddingIsNotEmptyRows()
+    {
+        var label = new Layout.Node.Leaf(new Layout.Content.Text("Home", 12f)) { Height = Layout.Sizing.Fixed(28), Width = Layout.Sizing.Star() };
+        var bar = new Layout.Node.Stack([label]) { Background = Paint, PaddingY = 16f, Height = Layout.Sizing.Fixed(60), Width = Layout.Sizing.Star() };
+        var arranged = Layout.Engine.Arrange(new Layout.Node.Stack([bar]), new Rect<int>(0, 0, Width, Height), CellMeasureContext.PixelAuthored);
+        var result = CellWireframe.CheckCells(RecordCells(arranged));
+
+        CellRules(result).ShouldNotContain(CellWireframeRules.EmptyRows, CellWireframe.Describe(result));
+    }
+
+    [Fact]
     public void DoubledRowLeafIsNotAlsoEmptyRows()
     {
         var label = Label("name") with { Background = Paint };
