@@ -173,8 +173,11 @@ public static class CellLayout
         // entries, and the walk is what it always was.
         var scrolls = new Stack<(int Depth, Rect<int> Clip)>();
 
-        foreach (var arrangedNode in arranged)
+        var pixel = IsPixelAuthored(arranged);
+
+        for (var index = 0; index < arranged.Length; index++)
         {
+            var arrangedNode = arranged[index];
             var node = arrangedNode.Node;
             var rect = arrangedNode.Bounds;
 
@@ -232,7 +235,7 @@ public static class CellLayout
                 : node.Background;
             if (nodeFill is { } bg)
             {
-                FillCells(viewport, rect, bg, mode, under, rounded, reverse);
+                PaintFill(viewport, arranged, index, pixel, rect, bg, mode, under, rounded, reverse);
                 backgrounds.Push((arrangedNode.Depth, bg));
                 under = bg;
             }
@@ -256,7 +259,7 @@ public static class CellLayout
                     DrawText(viewport, rect, text, mode, under, links.Count > 0 ? links.Peek().Url : null, reverse);
                     break;
                 case Layout.Content.Box box when box.Color.Alpha > 0:
-                    FillCells(viewport, rect, box.Color, mode, under, rounded, reverse);
+                    PaintFill(viewport, arranged, index, pixel, rect, box.Color, mode, under, rounded, reverse);
                     break;
                 case Layout.Content.Icon icon:
                     DrawText(viewport, rect, IconGlyph(icon), mode, under, null, reverse);
@@ -606,6 +609,181 @@ public static class CellLayout
         Layout.Content.Fill f => f.Key is { } key ? $"Fill(\"{key}\")" : "Fill",
         _ => "Content?",
     };
+
+    /// <summary>
+    /// Whether the arrangement was made at a pixel-authored scale: some Fixed extent holds more design units
+    /// than the cells it arranged to. At a cell-authored scale a design unit IS a cell, so that never holds
+    /// and none of the sub-cell fill rules below may fire.
+    /// </summary>
+    private static bool IsPixelAuthored(ImmutableArray<Layout.ArrangedNode<int>> arranged)
+    {
+        foreach (var a in arranged)
+        {
+            var n = a.Node;
+            if ((n.Height.Kind == Layout.SizeKind.Fixed && n.Height.Value >= 2f && a.Bounds.Height < (int)n.Height.Value)
+                || (n.Width.Kind == Layout.SizeKind.Fixed && n.Width.Value >= 2f && a.Bounds.Width < (int)n.Width.Value))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>The design height that governs a fill: its own Fixed height, else the nearest Fixed ancestor's.</summary>
+    private static float? DesignHeight(ImmutableArray<Layout.ArrangedNode<int>> arranged, int index)
+    {
+        if (arranged[index].Node.Height.Kind == Layout.SizeKind.Fixed)
+        {
+            return arranged[index].Node.Height.Value;
+        }
+
+        var depth = arranged[index].Depth;
+        for (var j = index - 1; j >= 0 && depth > 0; j--)
+        {
+            if (arranged[j].Depth < depth)
+            {
+                depth = arranged[j].Depth;
+                if (arranged[j].Node.Height.Kind == Layout.SizeKind.Fixed)
+                {
+                    return arranged[j].Node.Height.Value;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The exact width in cells of a plain Star child of a horizontal stack (its share of what the fixed and
+    /// auto siblings leave), or null when the node is not one or the share is not derivable.
+    /// </summary>
+    private static double? ExactStarWidth(ImmutableArray<Layout.ArrangedNode<int>> arranged, int index)
+    {
+        var self = arranged[index];
+        var w = self.Node.Width;
+        if (w.Kind != Layout.SizeKind.Star || w.UpToContent || w.Min > 0f || w.Max > 0f || w.Value <= 0f)
+        {
+            return null;
+        }
+
+        var p = index - 1;
+        while (p >= 0 && arranged[p].Depth >= self.Depth)
+        {
+            p--;
+        }
+
+        if (p < 0 || arranged[p].Node is not Layout.Node.Stack { Axis: Layout.Axis.Horizontal })
+        {
+            return null;
+        }
+
+        var kids = new List<Layout.ArrangedNode<int>>();
+        for (var j = p + 1; j < arranged.Length && arranged[j].Depth > arranged[p].Depth; j++)
+        {
+            if (arranged[j].Depth == self.Depth)
+            {
+                kids.Add(arranged[j]);
+            }
+        }
+
+        double weights = 0, nonStar = 0, gaps = 0;
+        for (var k = 0; k < kids.Count; k++)
+        {
+            var kw = kids[k].Node.Width;
+            if (kw.Kind == Layout.SizeKind.Star)
+            {
+                if (kw.UpToContent || kw.Min > 0f || kw.Max > 0f)
+                {
+                    return null;
+                }
+
+                weights += kw.Value;
+            }
+            else
+            {
+                nonStar += kids[k].Bounds.Width;
+            }
+
+            if (k > 0)
+            {
+                gaps += kids[k].Bounds.X - kids[k - 1].Bounds.Right;
+            }
+        }
+
+        if (kids.Count == 0 || weights <= 0)
+        {
+            return null;
+        }
+
+        var span = kids[^1].Bounds.Right - kids[0].Bounds.X;
+        return (span - nonStar - gaps) * w.Value / weights;
+    }
+
+    /// <summary>
+    /// Paints a fill. At a pixel-authored scale a fill under half a row (by design height) is a row of upper
+    /// half blocks, and a Star child of a horizontal stack ends in one eighth-block glyph (U+258F..U+2589,
+    /// fg the fill, bg what is under it) so its exact share shows to 1/8 cell. Anything else is FillCells.
+    /// </summary>
+    private static void PaintFill(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged, int index,
+        bool pixel, Rect<int> rect, RGBAColor32 color, ColorMode mode, RGBAColor32 under, bool rounded, bool reverse)
+    {
+        var half = false;
+        double? exact = null;
+        if (pixel)
+        {
+            half = rect.Height == 1 && DesignHeight(arranged, index) is { } h && h < 8f;
+            exact = ExactStarWidth(arranged, index);
+        }
+
+        if (!half && exact is null)
+        {
+            FillCells(viewport, rect, color, mode, under, rounded, reverse);
+            return;
+        }
+
+        var whole = rect.Width;
+        var eighths = 0;
+        if (exact is { } e)
+        {
+            whole = (int)Math.Floor(e + 1e-9);
+            if (half)
+            {
+                whole += e - whole >= 0.5 ? 1 : 0;
+            }
+            else
+            {
+                eighths = (int)Math.Round((e - whole) * 8);
+                if (eighths == 8)
+                {
+                    whole++;
+                    eighths = 0;
+                }
+            }
+        }
+
+        var (vw, vh) = viewport.Size;
+        var x = Math.Max(0, rect.X);
+        var end = Math.Min(rect.X + whole, vw);
+        var pen = new VtStyle(color, under).Apply(mode) + (reverse ? VtStyle.ReverseOn : "");
+        var solid = new VtStyle(color, color).Apply(mode) + (reverse ? VtStyle.ReverseOn : "");
+        for (var row = Math.Max(0, rect.Y); row < Math.Min(rect.Bottom, vh); row++)
+        {
+            if (end > x)
+            {
+                viewport.SetCursorPosition(x, row);
+                viewport.Write(half
+                    ? $"{VtStyle.Reset}{pen}{new string('▀', end - x)}{VtStyle.Reset}"
+                    : $"{solid}{new string(' ', end - x)}{VtStyle.Reset}");
+            }
+
+            if (eighths > 0 && end < vw)
+            {
+                viewport.SetCursorPosition(end, row);
+                viewport.Write($"{VtStyle.Reset}{pen}{(char)(0x2590 - eighths)}{VtStyle.Reset}");
+            }
+        }
+    }
 
     /// <param name="under">The background this fill sits on, needed only by the rounded-corner clip: the
     /// quadrant it omits has to show the enclosing colour, and a terminal cell cannot composite, so that
