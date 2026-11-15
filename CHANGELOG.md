@@ -17,7 +17,7 @@ activated (Enter) and revealed by DIR.Lib's `InputRouter`, which applies its own
 list, else the last pressed, else the only one); `CellInputSurface` gains `CollectClippedListRows` and
 `RevealListRow` so rows a `Scroll` viewport clips stay reachable, and `CellLayout.Paint` lights
 `Node.FocusBackground` from the nearest enclosing declared cursor, so the row the keys step is the row painted.
-A tree that declares no list keeps routing through `CellInputSurface.ListCursor` as before, and is lit too: with no declared cursor in scope, `CellLayout.Paint` resolves `FocusBackground` against that surface cursor, so an undeclared tree now paints its cursor row where it did not before. An open popover's claim also sets `WindowUiSettings.PointerOwner`, so a press on its padding keeps, rather than clears, the declared list that owns the arrows. The consumer loop,
+A tree that declares no list keeps routing through `CellInputSurface.ListCursor` as before, and is lit too: with no declared cursor in scope, `CellLayout.Paint` resolves `FocusBackground` against that surface cursor, so an undeclared tree now paints its cursor row where it did not before. An open popover's claim is made through `NoteFrameBegin` plus `ClaimPointer` (public in 11.61), which sets `PointerOwner` and settles, so `AfterPaint` asks for no further frame while a popover is open, and a press on its padding keeps, rather than clears, the declared list that owns the arrows. The consumer loop,
 with two widgets each owning a `ListCursor`:
 
 ```csharp
@@ -29,9 +29,8 @@ Earlier in 5.16: DIR.Lib pin 11.40 to 11.60 (DIR.Lib.Debug with it), and an open
 the pointer for its content on the cell surface (#57). `CellInputSurface.Declare` registers a region over the
 popover content's rect (the first child of its anchored node), so a press on the content's empty padding is
 no longer the dismissing scrim's and never reaches a list row painted under it, nor moves the list cursor;
-a press outside the content still dismisses as the popover declares. DIR.Lib's `WindowUiSettings.ClaimPointer`
-and `NoteFrameBegin` are internal, so the cell surface claims from its own regions and does not set
-`PointerOwner` (hover confinement and the trigger-beneath rule need a public claim from DIR.Lib). Rows a
+a press outside the content still dismisses as the popover declares. The cell surface also registers that claim with
+DIR.Lib's `ClaimPointer` and `NoteFrameBegin` (public in 11.61) so `PointerOwner` is set. Rows a
 `Scroll` viewport clips out stay rows of their list for the keyboard, as before (the clipped-rows hook was
 already here).
 
