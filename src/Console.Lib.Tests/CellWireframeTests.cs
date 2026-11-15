@@ -452,4 +452,19 @@ public class CellWireframeTests
 
         CellWireframe.CheckCells(frame).IsEmpty.ShouldBeTrue();
     }
+
+    [Fact]
+    public void BorderedNodeHoldingTextChecksClean()
+    {
+        var node = new Layout.Node.Stack([Label("Hi")]).Border(new RGBAColor32(0xff, 0, 0, 0xff));
+        var buffer = new CellBuffer { ColorMode = ColorMode.TrueColor };
+        buffer.Resize(Width, Height);
+        var viewport = new CellBufferViewport(buffer, Width, Height);
+        var arranged = Layout.Engine.Arrange(node, new Rect<int>(0, 0, 10, 4), new CellMeasureContext());
+
+        var frame = CellWireframe.RecordCells(viewport, arranged, buffer: buffer);
+        var result = CellWireframe.CheckCells(frame);
+
+        result.IsEmpty.ShouldBeTrue(CellWireframe.Describe(result));
+    }
 }
