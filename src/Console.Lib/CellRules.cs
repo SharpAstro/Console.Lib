@@ -10,6 +10,15 @@ internal static class CellRules
     {
         var facts = frame.Facts;
         var found = ImmutableArray.CreateBuilder<CellWireframeFinding>();
+        var wf = frame.Frame;
+        if (rules.HasFlag(CellWireframeRules.NothingRecorded) && frame.CellsWritten > 0
+            && wf.Texts.Length == 0 && wf.Fills.Length == 0 && wf.Regions.Length == 0)
+        {
+            found.Add(new CellWireframeFinding(CellWireframeRules.NothingRecorded,
+                $"{frame.CellsWritten} cell(s) were written but the frame recorded no text, fill or region, so nothing was judged",
+                wf.Bounds));
+        }
+
         for (var i = 0; i < facts.Length; i++)
         {
             var f = facts[i];

@@ -211,6 +211,55 @@ public sealed class CellBuffer
     /// </summary>
     public void Write(ReadOnlySpan<char> text)
     {
+        if (WriteObserver is null)
+        {
+            WriteCore(text);
+            return;
+        }
+
+        _observed.Clear();
+        WriteCore(text);
+        ReportRuns();
+    }
+
+    /// <summary>
+    /// Told of every run of cells <see cref="Write"/> puts in the back buffer: column, row, the glyphs, the pen and
+    /// whether it is reversed. A run is contiguous on one row under one pen. Null (the default) costs nothing.
+    /// Recording hangs here (see <c>CellWireframe</c>) because every painter, hosted widgets included, ends at this write.
+    /// </summary>
+    public Action<int, int, string, VtStyle, bool>? WriteObserver { get; set; }
+
+    private readonly List<(int Column, int Row, char Glyph, VtStyle Pen, bool Reverse)> _observed = [];
+
+    private void ReportRuns()
+    {
+        var observer = WriteObserver;
+        if (observer is null || _observed.Count == 0)
+        {
+            return;
+        }
+
+        var sb = new StringBuilder();
+        var start = _observed[0];
+        var next = start.Column;
+        foreach (var c in _observed)
+        {
+            if (c.Row != start.Row || c.Column != next || c.Pen != start.Pen || c.Reverse != start.Reverse)
+            {
+                observer(start.Column, start.Row, sb.ToString(), start.Pen, start.Reverse);
+                sb.Clear();
+                start = c;
+            }
+
+            sb.Append(c.Glyph);
+            next = c.Column + 1;
+        }
+
+        observer(start.Column, start.Row, sb.ToString(), start.Pen, start.Reverse);
+    }
+
+    private void WriteCore(ReadOnlySpan<char> text)
+    {
         for (var i = 0; i < text.Length; i++)
         {
             var ch = text[i];
@@ -230,6 +279,7 @@ public sealed class CellBuffer
 
             _back[_row * _width + _column] = new Cell(
                 ch, _pen, _reverse, _penUnmodellable ? CellKind.Opaque : CellKind.Text, _link);
+            if (WriteObserver is not null) _observed.Add((_column, _row, ch, _pen, _reverse));
             _column++;
         }
     }

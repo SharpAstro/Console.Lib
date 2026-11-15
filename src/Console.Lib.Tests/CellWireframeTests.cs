@@ -271,8 +271,14 @@ public class CellWireframeTests
         var buffer = new CellBuffer { ColorMode = ColorMode.TrueColor };
         buffer.Resize(Width, Height);
         var viewport = new CellBufferViewport(buffer, Width, Height);
-        var input = Layout.Builder.TextInput(new TextInputState { Text = "typed" }, 1f);
-        var frame = CellWireframe.RecordCells(viewport, Arrange((input, new Rect<int>(0, 0, 10, 1))), buffer: buffer);
+        // A host that blanks its slot with the default pen: cells are written, but there is no text and no opaque fill to judge.
+        var fill = Layout.Builder.Fill(1f, 1f);
+        var frame = CellWireframe.RecordCells(viewport, Arrange((fill, new Rect<int>(0, 0, 10, 1))),
+            (_, rect) =>
+            {
+                viewport.SetCursorPosition(rect.X, rect.Y);
+                viewport.Write(new string(' ', rect.Width));
+            }, buffer: buffer);
 
         var result = CellWireframe.CheckCells(frame);
 
