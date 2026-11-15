@@ -166,7 +166,7 @@ public class CellPopoverClaimTests
         router.Handle(new InputEvent.MouseDown((int)ok.X - 1, (int)ok.Y, MouseButton.Left, InputModifier.None, 1));
 
         router.Handle(new InputEvent.KeyDown(InputKey.Down, InputModifier.None)).ShouldBeTrue("list b still owns the arrows");
-        b.Index.ShouldBe(1);
+        b.Index.ShouldBe(2, "the press opened b at row 1 and Down stepped it once");
         a.IsOpen.ShouldBeFalse();
     }
 }
