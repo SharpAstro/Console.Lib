@@ -9,6 +9,16 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.19
+
+The cell wireframe recorder sees every write, not only `CellLayout.Paint`'s own calls (#65). `CellBuffer` gains a
+`WriteObserver` (each contiguous run with its pen), and `CellWireframe.Record` / `RecordCells` take the `CellBuffer`
+(a `VirtualTerminal`'s is its `CellBuffer` property) and observe it for the paint, detaching on the way out even on a
+throw. Cells a hosted widget writes from the `drawFill` callback through its own `TerminalViewport` are recorded as
+text and opaque fills at the write, so a label overlapping a hosted widget now fails the check. A new
+`CellWireframeRules.NothingRecorded` (on in `All`) fails a frame that wrote cells but recorded no text, fill or
+region, instead of letting it pass unjudged; an empty frame that wrote nothing still passes.
+
 ## 5.18
 
 Additive. Wireframe checks for a cell frame: `CellLayout.Paint` can record what it painted, in cells, and

@@ -22,11 +22,44 @@ public static class CellWireframe
 
     /// <summary>Paints <paramref name="arranged"/> to <paramref name="viewport"/> as <see cref="CellLayout.Paint(ITerminalViewport, ImmutableArray{Layout.ArrangedNode{int}}, Action{Layout.Content.Fill, Rect{int}})"/> does, and returns what it recorded.</summary>
     public static WireframeFrame Record(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
-        Action<Layout.Content.Fill, Rect<int>>? drawFill = null, bool reverse = false)
+        Action<Layout.Content.Fill, Rect<int>>? drawFill = null, bool reverse = false, CellBuffer? buffer = null)
     {
         var recorder = new Recorder(viewport.Size);
-        CellLayout.Paint(viewport, arranged, drawFill, reverse, null, recorder);
+        Paint(viewport, arranged, drawFill, reverse, recorder, buffer);
         return recorder.Frame;
+    }
+
+    /// <summary>
+    /// Paints with the recorder, and with <paramref name="buffer"/> (when given) observed for the whole paint, so a
+    /// hosted widget writing from <c>drawFill</c> through its own viewport is recorded at the write. The observer is
+    /// detached on the way out, also on a throw.
+    /// </summary>
+    private static void Paint(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
+        Action<Layout.Content.Fill, Rect<int>>? drawFill, bool reverse, Recorder recorder, CellBuffer? buffer)
+    {
+        if (buffer is null)
+        {
+            CellLayout.Paint(viewport, arranged, drawFill, reverse, null, recorder);
+            return;
+        }
+
+        var previous = buffer.WriteObserver;
+        buffer.WriteObserver = recorder.Written;
+        try
+        {
+            // Writes made from the host's callback are the ones no recorder call in Paint accounts for.
+            Action<Layout.Content.Fill, Rect<int>>? hosted = drawFill is null ? null : (fill, rect) =>
+            {
+                recorder.Hosted = true;
+                try { drawFill(fill, rect); }
+                finally { recorder.Hosted = false; }
+            };
+            CellLayout.Paint(viewport, arranged, hosted, reverse, null, recorder);
+        }
+        finally
+        {
+            buffer.WriteObserver = previous;
+        }
     }
 
     /// <summary>
@@ -43,8 +76,8 @@ public static class CellWireframe
         Action<Layout.Content.Fill, Rect<int>>? drawFill = null, bool reverse = false, CellBuffer? buffer = null)
     {
         var recorder = new Recorder(viewport.Size);
-        CellLayout.Paint(viewport, arranged, drawFill, reverse, null, recorder);
-        return new CellWireframeFrame(recorder.Frame, recorder.Facts);
+        Paint(viewport, arranged, drawFill, reverse, recorder, buffer);
+        return new CellWireframeFrame(recorder.Frame, recorder.Facts, recorder.CellsWritten);
     }
 
     /// <summary>DIR.Lib's rules plus the cell rules, reported side by side.</summary>
@@ -62,6 +95,30 @@ public static class CellWireframe
         private readonly List<WireframeRegion> _regions = [];
         private readonly List<CellFact> _facts = [];
         private int _order;
+
+        /// <summary>True while the host's drawFill callback runs.</summary>
+        public bool Hosted { get; set; }
+
+        /// <summary>Cells written to the observed buffer during the paint, by anyone.</summary>
+        public int CellsWritten { get; private set; }
+
+        /// <summary>The <see cref="CellBuffer.WriteObserver"/>: counts every run, records the hosted ones.</summary>
+        public void Written(int column, int row, string run, VtStyle pen, bool reverse)
+        {
+            CellsWritten += run.Length;
+            if (!Hosted)
+            {
+                return;
+            }
+
+            var rect = new Rect<int>(column, row, run.Length, 1);
+            var background = reverse ? pen.Foreground : pen.Background;
+            Fill(rect, background);
+            if (!string.IsNullOrWhiteSpace(run))
+            {
+                Text(rect, run, run.Length, column, row, column);
+            }
+        }
 
         public ImmutableArray<CellFact> Facts => [.. _facts];
 
