@@ -16,7 +16,9 @@ public enum CellWireframeRules
     CutWithRoom = 4,
     /// <summary>The surface wrote cells but the frame holds no text, fill or region.</summary>
     NothingRecorded = 8,
-    All = DoubledRow | VanishedFill | CutWithRoom | NothingRecorded,
+    /// <summary>A filled container whose content all sits on one row while it is arranged taller than that row plus its own vertical padding.</summary>
+    EmptyRows = 16,
+    All = DoubledRow | VanishedFill | CutWithRoom | NothingRecorded | EmptyRows,
 }
 
 /// <summary>A cell-only finding. <see cref="Where"/> is in cells, like DIR.Lib's findings on a cell frame.</summary>
@@ -37,7 +39,7 @@ public sealed record CellWireframeOptions
 /// <summary>What the recorder saw of one arranged leaf or filled node, beyond what <see cref="WireframeFrame"/> carries.</summary>
 public readonly record struct CellFact(
     int Depth, Rect<int> Bounds, Rect<int> Clipped, bool IsText, bool OwnFill, bool FillPainted,
-    int Row, int TextLength, int PaintedLength, bool PaintsContent = false);
+    int Row, int TextLength, int PaintedLength, bool PaintsContent = false, int PaddingRows = 0);
 
 /// <summary>A DIR.Lib <see cref="WireframeFrame"/> plus the cell facts the cell rules need.</summary>
 public sealed record CellWireframeFrame(WireframeFrame Frame, ImmutableArray<CellFact> Facts, int CellsWritten = 0);
