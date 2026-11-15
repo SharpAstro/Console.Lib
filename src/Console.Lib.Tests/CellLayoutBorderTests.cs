@@ -158,6 +158,6 @@ public class CellLayoutBorderTests
         var grid = Grid(Paint(node));
 
         string.Concat(grid).Any(c => c is >= '─' and <= '╿').ShouldBeFalse();
-        grid[1].ShouldBe(" Hi        ");
+        grid[1].ShouldBe(" Hi       ");
     }
 }
