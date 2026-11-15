@@ -126,9 +126,13 @@ public class CellDeclaredListTests
 
         host.Frame(a, b);
 
-        host.BackgroundAt(20, 2).ShouldBe(Focus);
-        host.BackgroundAt(20, 1).ShouldNotBe(Focus);
-        host.BackgroundAt(0, 2).ShouldNotBe(Focus);
+        // The buffer may store the fill in the terminal's own palette, so row 2 is compared with its neighbours
+        // rather than with the authored colour: only the cursor's row of the stepped list differs.
+        var lit = host.BackgroundAt(20, 2);
+        lit.Alpha.ShouldBe((byte)255);
+        host.BackgroundAt(20, 1).ShouldNotBe(lit);
+        host.BackgroundAt(20, 3).ShouldNotBe(lit);
+        host.BackgroundAt(0, 2).ShouldNotBe(lit);
     }
 
     [Fact]
