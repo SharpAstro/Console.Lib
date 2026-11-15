@@ -141,4 +141,72 @@ public class CellLayoutSubCellFillTests
             cell.Style.Background.ShouldBe(Track);
         }
     }
+
+    [Fact]
+    public void AGappedPairOfFilledStarSiblings_LeavesTheGapCellWithWhatIsUnderIt()
+    {
+        var a = new RGBAColor32(0xc0, 0x30, 0x30, 0xff);
+        var b = new RGBAColor32(0x30, 0xc0, 0x30, 0xff);
+        var page = new RGBAColor32(0x05, 0x05, 0x05, 0xff);
+        var row = Layout.Builder.HStack(
+                Layout.Builder.Spacer().WStar().HStar().Bg(a),
+                Layout.Builder.Spacer().WStar().HStar().Bg(b))
+            .WithGap(16f)
+            .RowH(8)
+            .Bg(page);
+
+        var buffer = Paint(new Layout.Node.Stack([row]), 20, 1);
+
+        var gapCells = 0;
+        for (var x = 0; x < 20; x++)
+        {
+            var cell = buffer.BackAt(x, 0);
+            if (cell.Style.Background == page && cell.Glyph == ' ')
+            {
+                gapCells++;
+            }
+        }
+
+        gapCells.ShouldBeGreaterThan(0, "the gap shows the page colour");
+    }
+
+    [Fact]
+    public void AFillInsideOneCell_KeepsAnEdgeGlyphInsteadOfVanishing()
+    {
+        var meter = Layout.Builder.HStack(
+                Layout.Builder.Spacer().WStar(0.05f).HStar().Bg(FillColor),
+                Layout.Builder.Spacer().WStar(0.95f).HStar())
+            .RowH(8)
+            .WFixed(120)
+            .Bg(Track);
+
+        var buffer = Paint(new Layout.Node.Stack([meter]), 15, 1);
+
+        var edge = buffer.BackAt(0, 0);
+        edge.Glyph.ShouldNotBe(' ');
+        edge.Style.Foreground.ShouldBe(FillColor);
+    }
+
+    [Fact]
+    public void ASpanArrangedWiderThanTheViewport_ClampsToTheViewport()
+    {
+        var meter = Layout.Builder.HStack(
+                Layout.Builder.Spacer().WStar(0.37f).HStar().Bg(FillColor),
+                Layout.Builder.Spacer().WStar(0.63f).HStar())
+            .RowH(8)
+            .WFixed(160)
+            .Bg(Track);
+        var tree = new Layout.Node.Stack([meter]);
+        var buffer = new CellBuffer { ColorMode = ColorMode.TrueColor };
+        buffer.Resize(4, 1);
+        var viewport = new CellBufferViewport(buffer, 4, 1, ColorMode.TrueColor);
+        var arranged = Layout.Engine.Arrange(tree, new Rect<int>(0, 0, 20, 1), CellMeasureContext.PixelAuthored);
+
+        CellLayout.Paint(viewport, arranged);
+
+        for (var x = 0; x < 4; x++)
+        {
+            buffer.BackAt(x, 0).Style.Background.ShouldBe(FillColor, $"column {x} is inside the fill");
+        }
+    }
 }
