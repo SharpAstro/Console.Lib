@@ -30,12 +30,13 @@ public static class CellWireframe
     }
 
     /// <summary>
-    /// <see cref="Wireframe.Check"/> over a cell frame. The tolerance defaults to 0 cells (a cell is the
-    /// smallest thing there is, so sharing one is sharing everything); <c>IgnoreText</c> and
-    /// <c>IgnoreRegion</c> pass through unchanged.
+    /// <see cref="Wireframe.Check"/> over a cell frame. The tolerance is owned here, in cells, and is 0 unless
+    /// <paramref name="tolerance"/> says otherwise (a cell is the smallest thing there is, so sharing one is
+    /// sharing everything); whatever <see cref="WireframeOptions.Tolerance"/> the caller's options carry is
+    /// ignored, so an options object that only sets <c>IgnoreText</c> cannot bring DIR.Lib's 1.5 back.
     /// </summary>
-    public static ImmutableArray<WireframeFinding> Check(WireframeFrame frame, WireframeOptions? options = null)
-        => Wireframe.Check(frame, options ?? new WireframeOptions { Tolerance = 0f });
+    public static ImmutableArray<WireframeFinding> Check(WireframeFrame frame, WireframeOptions? options = null, float tolerance = 0f)
+        => Wireframe.Check(frame, (options ?? new WireframeOptions()) with { Tolerance = tolerance });
 
     /// <summary>Like <see cref="Record"/>, but keeps the cell facts the cell rules need.</summary>
     public static CellWireframeFrame RecordCells(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
@@ -48,7 +49,7 @@ public static class CellWireframe
 
     /// <summary>DIR.Lib's rules plus the cell rules, reported side by side.</summary>
     public static CellWireframeResult CheckCells(CellWireframeFrame frame, CellWireframeOptions? options = null)
-        => new(Check(frame.Frame, options?.Pixel), CellRules.Judge(frame, options?.Rules ?? CellWireframeRules.All));
+        => new(Check(frame.Frame, options?.Pixel, options?.Tolerance ?? 0f),CellRules.Judge(frame, options?.Rules ?? CellWireframeRules.All));
 
     /// <summary>One message for both kinds of finding.</summary>
     public static string Describe(CellWireframeResult result)
@@ -64,8 +65,8 @@ public static class CellWireframe
 
         public ImmutableArray<CellFact> Facts => [.. _facts];
 
-        public void Node(int depth, Rect<int> bounds, Rect<int> clipped, bool isText, bool ownFill, bool fillPainted)
-            => _facts.Add(new CellFact(depth, bounds, clipped, isText, ownFill, fillPainted, -1, 0, 0));
+        public void Node(int depth, Rect<int> bounds, Rect<int> clipped, bool isText, bool ownFill, bool fillPainted, bool paintsContent = false)
+            => _facts.Add(new CellFact(depth, bounds, clipped, isText, ownFill, fillPainted, -1, 0, 0, paintsContent));
 
         /// <summary>A Box leaf's own fill, on the fact just recorded for it.</summary>
         public void BoxFill(bool painted)

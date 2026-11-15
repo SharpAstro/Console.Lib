@@ -249,7 +249,7 @@ public static class CellLayout
             }
 
             recorder?.Node(arrangedNode.Depth, arrangedNode.Bounds, rect, node is Layout.Node.Leaf { Content: Layout.Content.Text },
-                nodeFilled, nodePainted);
+                nodeFilled, nodePainted, node is Layout.Node.Leaf { Content: Layout.Content.Icon or Layout.Content.TextInput });
 
             if (recorder is not null && HitOf(node) is { } regionHit)
             {
@@ -1104,7 +1104,11 @@ public static class CellLayout
                 TextAlign.Far => rect.X + (maxW - text.Value.Length),
                 _ => rect.X,
             };
-            recorder.Text(rect, s, text.Value.Length, inkColumn, row, startCol);
+            // An ellipsized run was shortened ON PURPOSE: its ink is what was written (the ellipsis stands for the
+            // rest), whichever end or middle the ellipsis sits at. Only a hard clip (TextTrim.None) keeps the
+            // untrimmed ink, which is the cut DIR.Lib's rule reports.
+            var ellipsized = text.Trim != TextTrim.None && s.Length < text.Value.Length;
+            recorder.Text(rect, s, ellipsized ? s.Length : text.Value.Length, ellipsized ? startCol : inkColumn, row, startCol);
             recorder.TextFact(row, text.Value.Length, s.Length);
         }
 
