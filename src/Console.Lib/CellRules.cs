@@ -30,6 +30,16 @@ internal static class CellRules
                     $"one-line text is arranged {f.Clipped.Height} rows tall; rows other than {f.Row} are empty inside its fill", box));
             }
 
+            if (rules.HasFlag(CellWireframeRules.EmptyRows) && !f.IsText && f.OwnFill && f.FillPainted
+                && SingleContentRow(facts, i) is { } contentRow
+                && f.Clipped.Height > 1 + f.PaddingRows)
+            {
+                var empty = f.Clipped.Height - 1;
+                found.Add(new CellWireframeFinding(CellWireframeRules.EmptyRows,
+                    $"a filled container is arranged {f.Clipped.Height} rows tall but its content sits on row {contentRow} only; {empty} row(s) are empty inside its fill (own vertical padding {f.PaddingRows} row(s))",
+                    new RectF32(f.Clipped.X, f.Clipped.Y, f.Clipped.Width, f.Clipped.Height)));
+            }
+
             if (rules.HasFlag(CellWireframeRules.VanishedFill) && f.OwnFill && !f.FillPainted)
             {
                 found.Add(new CellWireframeFinding(CellWireframeRules.VanishedFill,
@@ -46,6 +56,41 @@ internal static class CellRules
         }
 
         return found.ToImmutable();
+    }
+
+    /// <summary>The one row every descendant of fact <paramref name="index"/> occupies, or null when it has none or they span several rows.</summary>
+    private static int? SingleContentRow(ImmutableArray<CellFact> facts, int index)
+    {
+        var depth = facts[index].Depth;
+        int? row = null;
+        for (var j = index + 1; j < facts.Length && facts[j].Depth > depth; j++)
+        {
+            var d = facts[j];
+            int top, bottom;
+            if (d.IsText)
+            {
+                top = d.Row;
+                bottom = d.Row + 1;
+            }
+            else if (d.PaintsContent || (d.OwnFill && d.FillPainted))
+            {
+                top = d.Clipped.Y;
+                bottom = d.Clipped.Bottom;
+            }
+            else
+            {
+                continue;
+            }
+
+            if (bottom - top != 1 || (row is { } r && r != top))
+            {
+                return null;
+            }
+
+            row = top;
+        }
+
+        return row;
     }
 
     /// <summary>The indices of the facts enclosing fact <paramref name="index"/>: walking back, each strictly shallower fact is an ancestor.</summary>

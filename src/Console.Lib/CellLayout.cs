@@ -249,7 +249,9 @@ public static class CellLayout
             }
 
             recorder?.Node(arrangedNode.Depth, arrangedNode.Bounds, rect, node is Layout.Node.Leaf { Content: Layout.Content.Text },
-                nodeFilled, nodePainted, node is Layout.Node.Leaf { Content: Layout.Content.Icon or Layout.Content.TextInput or Layout.Content.Fill });
+                nodeFilled, nodePainted, node is Layout.Node.Leaf { Content: Layout.Content.Icon or Layout.Content.TextInput or Layout.Content.Fill },
+                // Top plus bottom padding in cells, as the arrangement rounded it (a pixel-authored tree floors to whole rows).
+                2 * (pixel ? (int)MathF.Floor(node.PadDown / 16f) : (int)MathF.Round(node.PadDown)));
 
             if (recorder is not null && HitOf(node) is { } regionHit)
             {
