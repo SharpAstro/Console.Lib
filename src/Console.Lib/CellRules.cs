@@ -41,6 +41,15 @@ internal static class CellRules
                     new RectF32(f.Clipped.X, f.Clipped.Y, f.Clipped.Width, f.Clipped.Height)));
             }
 
+            if (rules.HasFlag(CellWireframeRules.SolidStrip) && !f.IsText && f.OwnFill && f.FillPainted && !f.ThinFill
+                && f.Clipped.Height == 1 && f.Clipped.Width > 0 && f.Clipped.Width == ContainerWidth(facts, i, wf)
+                && !HoldsContent(facts, i))
+            {
+                found.Add(new CellWireframeFinding(CellWireframeRules.SolidStrip,
+                    $"a filled node one row tall and {f.Clipped.Width} cells wide holds nothing and is painted solid; a rule should be a thin line, not a bar",
+                    new RectF32(f.Clipped.X, f.Clipped.Y, f.Clipped.Width, f.Clipped.Height)));
+            }
+
             if (rules.HasFlag(CellWireframeRules.VanishedFill) && f.OwnFill && !f.FillPainted)
             {
                 found.Add(new CellWireframeFinding(CellWireframeRules.VanishedFill,
@@ -98,6 +107,36 @@ internal static class CellRules
         }
 
         return row;
+    }
+
+    /// <summary>The clipped width of the nearest enclosing fact, or the frame width when there is none.</summary>
+    private static int ContainerWidth(ImmutableArray<CellFact> facts, int index, WireframeFrame wf)
+    {
+        for (var j = index - 1; j >= 0; j--)
+        {
+            if (facts[j].Depth < facts[index].Depth)
+            {
+                return facts[j].Clipped.Width;
+            }
+        }
+
+        return (int)wf.Bounds.Width;
+    }
+
+    /// <summary>Whether any descendant of fact <paramref name="index"/> is text with a row, paints content, or has its own painted fill.</summary>
+    private static bool HoldsContent(ImmutableArray<CellFact> facts, int index)
+    {
+        var depth = facts[index].Depth;
+        for (var j = index + 1; j < facts.Length && facts[j].Depth > depth; j++)
+        {
+            var d = facts[j];
+            if ((d.IsText && d.Row >= 0) || d.PaintsContent || (d.OwnFill && d.FillPainted))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>The indices of the facts enclosing fact <paramref name="index"/>: walking back, each strictly shallower fact is an ancestor.</summary>

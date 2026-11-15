@@ -264,14 +264,69 @@ public class CellWireframeTests
     }
 
     [Fact]
-    public void PixelAuthored8UnitBarPaintsAndPasses()
+    public void PixelAuthored8UnitBarPaintsAndIsOnlyASolidStrip()
     {
         var bar = new Layout.Node.Stack([]) { Background = Paint, Width = Layout.Sizing.Star(), Height = Layout.Sizing.Star() };
         var row = new Layout.Node.Stack([bar]) { Height = Layout.Sizing.Fixed(8), Width = Layout.Sizing.Star() };
         var arranged = Layout.Engine.Arrange(new Layout.Node.Stack([row]), new Rect<int>(0, 0, Width, Height), CellMeasureContext.PixelAuthored);
         var result = CellWireframe.CheckCells(RecordCells(arranged));
 
-        result.IsEmpty.ShouldBeTrue(CellWireframe.Describe(result));
+        // An empty full-width bar painted with whole cells is exactly the defect SolidStrip names (Console.Lib #70):
+        // it paints (no VanishedFill) and nothing else is wrong, but a rule should be a thin line.
+        result.Findings.IsEmpty.ShouldBeTrue(CellWireframe.Describe(result));
+        CellRules(result).ShouldBe([CellWireframeRules.SolidStrip], CellWireframe.Describe(result));
+    }
+
+    private static Layout.Node RuleStrip(float rowHeight, bool star = true) => new Layout.Node.Stack([])
+    {
+        Background = Paint, Height = Layout.Sizing.Fixed(rowHeight), Width = star ? Layout.Sizing.Star() : Layout.Sizing.Fixed(160),
+    };
+
+    private static CellWireframeResult CheckRuleTree(Layout.Node strip, Layout.Node? middle = null)
+    {
+        middle ??= new Layout.Node.Stack([new Layout.Node.Leaf(new Layout.Content.Text("> prompt", 12f)) { Height = Layout.Sizing.Fixed(16), Width = Layout.Sizing.Star() }])
+        { Height = Layout.Sizing.Fixed(16), Width = Layout.Sizing.Star() };
+        var tree = new Layout.Node.Stack([strip, middle, strip]);
+        var arranged = Layout.Engine.Arrange(tree, new Rect<int>(0, 0, Width, Height), CellMeasureContext.PixelAuthored);
+        return CellWireframe.CheckCells(RecordCells(arranged));
+    }
+
+    [Fact]
+    public void PixelAuthoredGreyRuleBarsAroundAPromptAreSolidStrips()
+    {
+        var result = CheckRuleTree(RuleStrip(16f));
+        var strips = result.CellFindings.Where(f => f.Rule == CellWireframeRules.SolidStrip).ToArray();
+
+        strips.Length.ShouldBe(2, CellWireframe.Describe(result));
+        strips.All(f => f.Where.Width == Width && f.Where.Height == 1f).ShouldBeTrue(CellWireframe.Describe(result));
+        strips[0].Where.Y.ShouldBe(0f);
+        strips[1].Where.Y.ShouldBe(2f);
+    }
+
+    [Fact]
+    public void PixelAuthoredThinRuleLinesAreNotSolidStrips()
+    {
+        var result = CheckRuleTree(RuleStrip(4f));
+
+        CellRules(result).ShouldNotContain(CellWireframeRules.SolidStrip, CellWireframe.Describe(result));
+    }
+
+    [Fact]
+    public void OneRowStripHoldingALabelIsNotASolidStrip()
+    {
+        var label = new Layout.Node.Leaf(new Layout.Content.Text("Home", 12f)) { Height = Layout.Sizing.Fixed(16), Width = Layout.Sizing.Star() };
+        var strip = new Layout.Node.Stack([label]) { Background = Paint, Height = Layout.Sizing.Fixed(16), Width = Layout.Sizing.Star() };
+        var result = CheckRuleTree(strip);
+
+        CellRules(result).ShouldNotContain(CellWireframeRules.SolidStrip, CellWireframe.Describe(result));
+    }
+
+    [Fact]
+    public void OneRowStripNarrowerThanItsContainerIsNotASolidStrip()
+    {
+        var result = CheckRuleTree(RuleStrip(16f, star: false));
+
+        CellRules(result).ShouldNotContain(CellWireframeRules.SolidStrip, CellWireframe.Describe(result));
     }
 
     [Fact]

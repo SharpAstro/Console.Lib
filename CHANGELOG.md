@@ -9,6 +9,10 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.21
+
+- `CellWireframeRules.SolidStrip` (included in `All`): a filled node one row tall that spans its container's full clipped width, holds no text or painted content and is painted with whole cells is a finding. A rule drawn as a grey bar (pilot's `Spacer().Bg(Faint).WStar().RowH(16f)`) lands here. A pixel-authored fill under 8 design units is painted as upper half blocks, a thin line, and is exempt, so the fix for a finding is `RowH(4f)`-style thin rules. `Where` is the clipped rect. `CellFact.ThinFill` (an init property, so the constructor keeps its 5.20 shape) records how the fill was painted. Console.Lib #70, found by pilot #1065 / PIL1049.
+
 ## 5.20
 
 - **`CellWireframeRules.EmptyRows`** (on in `All`). A filled container whose content all sits on one row, while the container is

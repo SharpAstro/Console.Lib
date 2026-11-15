@@ -18,7 +18,9 @@ public enum CellWireframeRules
     NothingRecorded = 8,
     /// <summary>A filled container whose content all sits on one row while it is arranged taller than that row plus its own vertical padding. Whether the extra height came from a stretch or a fixed size, it is a finding. <see cref="CellWireframeFinding.Where"/> is the clipped rect, the part a person sees.</summary>
     EmptyRows = 16,
-    All = DoubledRow | VanishedFill | CutWithRoom | NothingRecorded | EmptyRows,
+    /// <summary>A filled node one row tall, spanning its container's full clipped width, with no text or painted content inside, painted with whole cells. A rule drawn as a grey bar; a rule should be a thin line (upper half blocks). <see cref="CellWireframeFinding.Where"/> is the clipped rect.</summary>
+    SolidStrip = 32,
+    All = DoubledRow | VanishedFill | CutWithRoom | NothingRecorded | EmptyRows | SolidStrip,
 }
 
 /// <summary>A cell-only finding. <see cref="Where"/> is in cells, like DIR.Lib's findings on a cell frame.</summary>
@@ -43,6 +45,9 @@ public readonly record struct CellFact(
 {
     /// <summary>Top plus bottom vertical padding in cells. An init property, not a constructor parameter, so the constructor keeps the shape it had before 5.20.</summary>
     public int PaddingRows { get; init; }
+
+    /// <summary>The own fill was painted as sub-cell upper half blocks (a thin line), not whole cells. An init property for the same reason as <see cref="PaddingRows"/>.</summary>
+    public bool ThinFill { get; init; }
 }
 
 /// <summary>A DIR.Lib <see cref="WireframeFrame"/> plus the cell facts the cell rules need.</summary>
