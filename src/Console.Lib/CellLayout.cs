@@ -177,6 +177,7 @@ public static class CellLayout
         var scrolls = new Stack<(int Depth, Rect<int> Clip)>();
 
         var pixel = IsPixelAuthored(arranged);
+        var borderCells = new BorderCells();
 
         for (var index = 0; index < arranged.Length; index++)
         {
@@ -258,7 +259,7 @@ public static class CellLayout
 
             if (node.BorderStyle is { Sides: not Layout.BorderSides.None, Width: > 0f, Color.Alpha: > 0 } border)
             {
-                PaintBorder(viewport, arrangedNode.Bounds, scrolls.Count > 0 ? scrolls.Peek().Clip : null, border, mode, under, reverse);
+                PaintBorder(borderCells, viewport, arrangedNode.Bounds, scrolls.Count > 0 ? scrolls.Peek().Clip : null, border, mode, under, reverse);
                 recorder?.Border();
             }
 
@@ -303,23 +304,37 @@ public static class CellLayout
         }
     }
 
+    /// <summary>The directions a border cell draws toward, as flags, so a junction is the union of its arms.</summary>
+    [Flags]
+    private enum Arms { None = 0, Up = 1, Down = 2, Left = 4, Right = 8 }
+
+    /// <summary>The border cells of one <see cref="Paint(ITerminalViewport, ImmutableArray{Layout.ArrangedNode{int}}, Action{Layout.Content.Fill, Rect{int}})"/> pass.</summary>
+    private sealed class BorderCells
+    {
+        public readonly Dictionary<(int X, int Y), (Arms Arms, string Pen, bool Rounded)> Cells = [];
+    }
+
     /// <summary>
-    /// Paints a declared border (<see cref="Layout.Node.BorderStyle"/>) on the outer ring of <paramref name="bounds"/>,
-    /// the cells the engine reserved for it, after the node's fill and before its children. Glyphs come from
-    /// <see cref="BorderChars.For"/> (light, or rounded when the radius is above zero), so box glyphs have one
-    /// source. A side present draws its run; a corner gets a corner glyph only when both of its sides are present,
-    /// else the run of the side present continues to the edge. Foreground is the border colour, background
-    /// <paramref name="under"/> (the node's own fill when it has one). Painted after the fill, so an arc corner
-    /// replaces the quadrant block <see cref="ClipFilledCorners"/> put there. Clipped to the scroll viewport and the terminal.
+    /// Collects a declared border (<see cref="Layout.Node.BorderStyle"/>) on the outer ring of <paramref name="bounds"/>,
+    /// the cells the engine reserved for it, as arms per cell: a side draws its run (up and down on a vertical
+    /// side, left and right on a horizontal one), and a corner where both of its sides are present draws only the
+    /// two arms between them, else the run of the side present continues to the edge. Nothing is written here;
+    /// <see cref="FlushBorders"/> resolves glyphs once the whole pass has collected, so bordered siblings that meet
+    /// can join. Foreground is the border colour, background <paramref name="under"/> (the node's own fill when it
+    /// has one). Clipped to the scroll viewport and the terminal.
+    /// <para>
+    /// A cell painted by two nodes takes the union of their arms and the pen (colour) of the node painted LAST,
+    /// so the later sibling's border colour wins on a shared separator.
+    /// </para>
     /// </summary>
-    private static void PaintBorder(ITerminalViewport viewport, Rect<int> bounds, Rect<int>? clip,
+    private static void PaintBorder(BorderCells cells, ITerminalViewport viewport, Rect<int> bounds, Rect<int>? clip,
         Layout.BorderStyle border, ColorMode mode, RGBAColor32 under, bool reverse)
     {
-        var glyphs = BorderChars.For(border.Radius > 0f ? Console.Lib.BorderStyle.Rounded : Console.Lib.BorderStyle.Light);
         var (vw, vh) = viewport.Size;
         int x0 = Math.Max(Math.Max(0, bounds.X), clip?.X ?? int.MinValue), x1 = Math.Min(Math.Min(vw, bounds.Right), clip?.Right ?? int.MaxValue);
         int y0 = Math.Max(Math.Max(0, bounds.Y), clip?.Y ?? int.MinValue), y1 = Math.Min(Math.Min(vh, bounds.Bottom), clip?.Bottom ?? int.MaxValue);
         var pen = new VtStyle(border.Color, under).Apply(mode) + (reverse ? VtStyle.ReverseOn : "");
+        var rounded = border.Radius > 0f;
         var sides = border.Sides;
         for (var y = y0; y < y1; y++)
         {
@@ -329,16 +344,62 @@ public static class CellLayout
                 var b = y == bounds.Bottom - 1 && sides.HasFlag(Layout.BorderSides.Bottom);
                 var l = x == bounds.X && sides.HasFlag(Layout.BorderSides.Left);
                 var r = x == bounds.Right - 1 && sides.HasFlag(Layout.BorderSides.Right);
-                char glyph;
-                if (t && l) glyph = glyphs.TopLeft;
-                else if (t && r) glyph = glyphs.TopRight;
-                else if (b && l) glyph = glyphs.BottomLeft;
-                else if (b && r) glyph = glyphs.BottomRight;
-                else if (t || b) glyph = glyphs.Horizontal;
-                else if (l || r) glyph = glyphs.Vertical;
+                Arms arms;
+                if (t && l) arms = Arms.Right | Arms.Down;
+                else if (t && r) arms = Arms.Left | Arms.Down;
+                else if (b && l) arms = Arms.Right | Arms.Up;
+                else if (b && r) arms = Arms.Left | Arms.Up;
+                else if (t || b) arms = Arms.Left | Arms.Right;
+                else if (l || r) arms = Arms.Up | Arms.Down;
                 else continue;
-                WriteGlyph(viewport, x, y, glyph, pen);
+                cells.Cells[(x, y)] = cells.Cells.TryGetValue((x, y), out var prev)
+                    ? (prev.Arms | arms, pen, rounded)
+                    : (arms, pen, rounded);
             }
+        }
+    }
+
+    /// <summary>
+    /// Resolves and writes the collected border cells. A cell gains the arm toward a neighbour that draws the
+    /// opposite arm back at it (a vertical beside the bottom edge of the item above continues it), computed from
+    /// the arms as painted so the result does not depend on iteration order; the glyph for the final arm set comes
+    /// from <see cref="BorderChars"/> (corner, run, tee or cross). A rounded cell keeps its arc only while it is
+    /// still a plain corner; a junction is the light tee or cross.
+    /// </summary>
+    private static void FlushBorders(BorderCells cells, ITerminalViewport viewport)
+    {
+        if (cells.Cells.Count == 0)
+        {
+            return;
+        }
+
+        var light = BorderChars.For(Console.Lib.BorderStyle.Light);
+        var arc = BorderChars.For(Console.Lib.BorderStyle.Rounded);
+        foreach (var ((x, y), cell) in cells.Cells.OrderBy(c => c.Key.Y).ThenBy(c => c.Key.X).ToArray())
+        {
+            var arms = cell.Arms;
+            if (cells.Cells.TryGetValue((x, y - 1), out var up) && up.Arms.HasFlag(Arms.Down)) arms |= Arms.Up;
+            if (cells.Cells.TryGetValue((x, y + 1), out var down) && down.Arms.HasFlag(Arms.Up)) arms |= Arms.Down;
+            if (cells.Cells.TryGetValue((x - 1, y), out var left) && left.Arms.HasFlag(Arms.Right)) arms |= Arms.Left;
+            if (cells.Cells.TryGetValue((x + 1, y), out var right) && right.Arms.HasFlag(Arms.Left)) arms |= Arms.Right;
+            // The set to join over is every arm a neighbour points back at, but only toward a neighbour that is
+            // itself part of the frame line, so an unconnected corner keeps its own two arms.
+            var glyphs = cell.Rounded ? arc : light;
+            var glyph = arms switch
+            {
+                Arms.Right | Arms.Down => glyphs.TopLeft,
+                Arms.Left | Arms.Down => glyphs.TopRight,
+                Arms.Right | Arms.Up => glyphs.BottomLeft,
+                Arms.Left | Arms.Up => glyphs.BottomRight,
+                Arms.Left | Arms.Right | Arms.Down => light.TeeDown,
+                Arms.Left | Arms.Right | Arms.Up => light.TeeUp,
+                Arms.Up | Arms.Down | Arms.Right => light.TeeRight,
+                Arms.Up | Arms.Down | Arms.Left => light.TeeLeft,
+                Arms.Up | Arms.Down | Arms.Left | Arms.Right => light.Cross,
+                _ when arms.HasFlag(Arms.Up) || arms.HasFlag(Arms.Down) => light.Vertical,
+                _ => light.Horizontal,
+            };
+            WriteGlyph(viewport, x, y, glyph, cell.Pen);
         }
     }
 
