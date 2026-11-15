@@ -116,7 +116,7 @@ has the pixel-surface `PixelMenuWidget<TSurface>`. Console.Lib supplies the **ce
   its cursor (`Node.ListOf(cursor, listId)`, DIR.Lib 11.61) is stepped, activated and revealed by DIR.Lib's router itself
   (its `DeclaredList.Active` rule, not a copy here); the surface only answers `CollectClippedListRows` and `RevealListRow`,
   and `CellLayout.Paint` resolves `FocusBackground` against the nearest enclosing declared cursor, so two widgets' lists in
-  one tree need no per-page glue. `CellInputSurface.ListCursor` (`HandleListKey`) remains the path for a tree that declares nothing.
+  one tree need no per-page glue. `CellInputSurface.ListCursor` (`HandleListKey`) remains the path for a tree that declares nothing. A painted declared modal (`Builder.Modal`) is recorded by the same walk through `Ui.NoteModalPainted` (5.24), its card taken from an Anchored Top's child, so a cell host needs no call for modal routing.
 - `TerminalLayout` — now delegates the edge arithmetic to `DockLayout<int>` (cells), keeping
   only the terminal-specific safety clamp (a strip never exceeds remaining cells) + viewport wiring.
 
