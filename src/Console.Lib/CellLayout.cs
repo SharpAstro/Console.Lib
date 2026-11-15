@@ -232,6 +232,8 @@ public static class CellLayout
             // rect wants quadrant blocks where a bordered one would want the arc glyphs.
             var rounded = node.CornerRadius > 0f;
 
+            var nodeFilled = false;
+            var nodePainted = false;
             var focusCursor = declared.Count > 0 ? declared.Peek().Cursor : surfaceCursor;
             Func<Layout.Node, RGBAColor32?> fillOf = n => ResolveFill(n, focusCursor);
             var nodeFill = node.FocusBackground is { } focus && focusCursor is not null && focusCursor.IsOn(node.Hit)
@@ -240,10 +242,14 @@ public static class CellLayout
             if (nodeFill is { } bg)
             {
                 recorder?.Fill(rect, bg);
-                PaintFill(viewport, arranged, index, pixel, rect, bg, mode, under, rounded, reverse, fillOf, scrolls.Count > 0 ? scrolls.Peek().Clip : null);
+                nodePainted = PaintFill(viewport, arranged, index, pixel, rect, bg, mode, under, rounded, reverse, fillOf, scrolls.Count > 0 ? scrolls.Peek().Clip : null);
+                nodeFilled = true;
                 backgrounds.Push((arrangedNode.Depth, bg));
                 under = bg;
             }
+
+            recorder?.Node(arrangedNode.Depth, arrangedNode.Bounds, rect, node is Layout.Node.Leaf { Content: Layout.Content.Text },
+                nodeFilled, nodePainted);
 
             if (recorder is not null && HitOf(node) is { } regionHit)
             {
@@ -270,7 +276,7 @@ public static class CellLayout
                     break;
                 case Layout.Content.Box box when box.Color.Alpha > 0:
                     recorder?.Fill(rect, box.Color);
-                    PaintFill(viewport, arranged, index, pixel, rect, box.Color, mode, under, rounded, reverse, fillOf, scrolls.Count > 0 ? scrolls.Peek().Clip : null);
+                    recorder?.BoxFill(PaintFill(viewport, arranged, index, pixel, rect, box.Color, mode, under, rounded, reverse, fillOf, scrolls.Count > 0 ? scrolls.Peek().Clip : null));
                     break;
                 case Layout.Content.Icon icon:
                     DrawText(viewport, rect, IconGlyph(icon), mode, under, null, reverse, recorder);
@@ -785,7 +791,7 @@ public static class CellLayout
     /// cell is one glyph (fg the left colour, bg the right); next to anything else the other side is what is
     /// under. Anything else is FillCells. (The sub-cell path does not clip rounded corners.)
     /// </summary>
-    private static void PaintFill(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged, int index,
+    private static bool PaintFill(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged, int index,
         bool pixel, Rect<int> rect, RGBAColor32 color, ColorMode mode, RGBAColor32 under, bool rounded, bool reverse,
         Func<Layout.Node, RGBAColor32?> fillOf, Rect<int>? clip = null)
     {
@@ -799,8 +805,7 @@ public static class CellLayout
 
         if (!half && exact is null)
         {
-            FillCells(viewport, rect, color, mode, under, rounded, reverse);
-            return;
+            return FillCells(viewport, rect, color, mode, under, rounded, reverse);
         }
 
         var (vw, vh) = viewport.Size;
@@ -855,6 +860,7 @@ public static class CellLayout
             }
         }
 
+        var wrote = false;
         var rev = reverse ? VtStyle.ReverseOn : "";
         var pen = new VtStyle(color, under).Apply(mode) + rev;
         var solid = new VtStyle(color, color).Apply(mode) + rev;
@@ -864,6 +870,7 @@ public static class CellLayout
         {
             if (to > from)
             {
+                wrote = true;
                 viewport.SetCursorPosition(from, row);
                 viewport.Write(half
                     ? $"{VtStyle.Reset}{pen}{new string('▀', to - from)}{VtStyle.Reset}"
@@ -872,22 +879,26 @@ public static class CellLayout
 
             if (leadCell >= lo && leadCell < hi)
             {
+                wrote = true;
                 viewport.SetCursorPosition(leadCell, row);
                 viewport.Write($"{VtStyle.Reset}{leadPen}{(char)(0x2590 - leadEighths)}{VtStyle.Reset}");
             }
 
             if (trailCell >= lo && trailCell < hi)
             {
+                wrote = true;
                 viewport.SetCursorPosition(trailCell, row);
                 viewport.Write($"{VtStyle.Reset}{trailPen}{(char)(0x2590 - trailEighths)}{VtStyle.Reset}");
             }
         }
+
+        return wrote;
     }
 
     /// <param name="under">The background this fill sits on, needed only by the rounded-corner clip: the
     /// quadrant it omits has to show the enclosing colour, and a terminal cell cannot composite, so that
     /// colour must be stated rather than left to whatever the terminal currently has.</param>
-    private static void FillCells(ITerminalViewport viewport, Rect<int> rect, RGBAColor32 color, ColorMode mode,
+    private static bool FillCells(ITerminalViewport viewport, Rect<int> rect, RGBAColor32 color, ColorMode mode,
         RGBAColor32 under, bool rounded = false, bool reverse = false)
     {
         var (vw, vh) = viewport.Size;
@@ -895,7 +906,7 @@ public static class CellLayout
         var width = Math.Min(rect.Right, vw) - x;
         if (width <= 0)
         {
-            return;
+            return false;
         }
 
         var esc = new VtStyle(color, color).Apply(mode) + (reverse ? VtStyle.ReverseOn : "");
@@ -911,6 +922,8 @@ public static class CellLayout
         {
             ClipFilledCorners(viewport, rect, color, mode, under, x, width, yEnd);
         }
+
+        return yEnd > Math.Max(0, rect.Y);
     }
 
     /// <summary>
@@ -1092,6 +1105,7 @@ public static class CellLayout
                 _ => rect.X,
             };
             recorder.Text(rect, s, text.Value.Length, inkColumn, row, startCol);
+            recorder.TextFact(row, text.Value.Length, s.Length);
         }
 
         viewport.SetCursorPosition(startCol, row);

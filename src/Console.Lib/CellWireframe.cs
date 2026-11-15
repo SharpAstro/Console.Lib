@@ -43,24 +43,40 @@ public static class CellWireframe
     {
         var recorder = new Recorder(viewport.Size);
         CellLayout.Paint(viewport, arranged, drawFill, reverse, null, recorder);
-        return new CellWireframeFrame(recorder.Frame, []);
+        return new CellWireframeFrame(recorder.Frame, recorder.Facts);
     }
 
     /// <summary>DIR.Lib's rules plus the cell rules, reported side by side.</summary>
     public static CellWireframeResult CheckCells(CellWireframeFrame frame, CellWireframeOptions? options = null)
-        => new(Check(frame.Frame, options?.Pixel), []);
+        => new(Check(frame.Frame, options?.Pixel), CellRules.Judge(frame, options?.Rules ?? CellWireframeRules.All));
 
     /// <summary>One message for both kinds of finding.</summary>
     public static string Describe(CellWireframeResult result)
-        => Wireframe.Describe(result.Findings) + string.Concat(result.CellFindings.Select(f => $"
-{f.Rule} at {f.Where}: {f.Message}"));
+        => Wireframe.Describe(result.Findings) + string.Concat(result.CellFindings.Select(f => $"{System.Environment.NewLine}{f.Rule} at {f.Where}: {f.Message}"));
 
     internal sealed class Recorder((int Width, int Height) size)
     {
         private readonly List<WireframeText> _texts = [];
         private readonly List<WireframeFill> _fills = [];
         private readonly List<WireframeRegion> _regions = [];
+        private readonly List<CellFact> _facts = [];
         private int _order;
+
+        public ImmutableArray<CellFact> Facts => [.. _facts];
+
+        public void Node(int depth, Rect<int> bounds, Rect<int> clipped, bool isText, bool ownFill, bool fillPainted)
+            => _facts.Add(new CellFact(depth, bounds, clipped, isText, ownFill, fillPainted, -1, 0, 0));
+
+        /// <summary>A Box leaf's own fill, on the fact just recorded for it.</summary>
+        public void BoxFill(bool painted)
+        {
+            var last = _facts[^1];
+            _facts[^1] = last with { OwnFill = true, FillPainted = last.FillPainted || painted };
+        }
+
+        /// <summary>Where the text just recorded went, on the fact just recorded for its leaf.</summary>
+        public void TextFact(int row, int textLength, int paintedLength)
+            => _facts[^1] = _facts[^1] with { Row = row, TextLength = textLength, PaintedLength = paintedLength };
 
         public WireframeFrame Frame => new(
             new RectF32(0f, 0f, size.Width, size.Height), [.. _texts], [.. _fills], [.. _regions]);

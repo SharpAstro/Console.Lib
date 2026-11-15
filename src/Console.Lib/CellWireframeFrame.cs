@@ -31,8 +31,8 @@ public sealed record CellWireframeOptions
 
 /// <summary>What the recorder saw of one arranged leaf or filled node, beyond what <see cref="WireframeFrame"/> carries.</summary>
 public readonly record struct CellFact(
-    int Depth, Rect<int> Bounds, Rect<int> Clipped, bool IsLeaf, bool IsText, bool OwnFill, bool FillPainted,
-    int Row, int TextLength, int PaintedLength, int EnclosingIndex);
+    int Depth, Rect<int> Bounds, Rect<int> Clipped, bool IsText, bool OwnFill, bool FillPainted,
+    int Row, int TextLength, int PaintedLength);
 
 /// <summary>A DIR.Lib <see cref="WireframeFrame"/> plus the cell facts the cell rules need.</summary>
 public sealed record CellWireframeFrame(WireframeFrame Frame, ImmutableArray<CellFact> Facts);
