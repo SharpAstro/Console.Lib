@@ -160,4 +160,67 @@ public class CellLayoutBorderTests
         string.Concat(grid).Any(c => c is >= '─' and <= '╿').ShouldBeFalse();
         grid[1].ShouldBe(" Hi       ");
     }
+
+    private static Layout.Node Box(Layout.Node n, float? w = null, float? h = null)
+        => n with { Width = w is { } ww ? Layout.Sizing.Fixed(ww) : n.Width, Height = h is { } hh ? Layout.Sizing.Fixed(hh) : n.Height };
+
+    [Fact]
+    public void StackedItems_JoinIntoOneFrame_WithTeeSeparatorRows()
+    {
+        var first = Box(new Layout.Node.Stack([Label("a")]).Border(Red), h: 3);
+        var second = Box(new Layout.Node.Stack([Label("b")]).BorderLeft(Red).BorderRight(Red).BorderBottom(Red), h: 2);
+        var third = Box(new Layout.Node.Stack([Label("c")]).BorderLeft(Red).BorderRight(Red).BorderBottom(Red), h: 2);
+
+        var grid = Grid(Paint(new Layout.Node.Stack([first, second, third]), height: 7));
+
+        grid[0].ShouldBe("┌────────┐");
+        grid[2].ShouldBe("├────────┤");
+        grid[4].ShouldBe("├────────┤");
+        grid[6].ShouldBe("└────────┘");
+        grid[3][0].ShouldBe('│');
+        string.Concat(grid[1..6]).ShouldNotContain("┌");
+        string.Concat(grid[1..6]).ShouldNotContain("┘");
+    }
+
+    [Fact]
+    public void SideBySide_JoinWithTeeDownAndTeeUp_WhereTheyMeet()
+    {
+        var left = Box(new Layout.Node.Stack([Label("a")]).Border(Red), w: 5);
+        var right = Box(new Layout.Node.Stack([Label("b")]).BorderTop(Red).BorderRight(Red).BorderBottom(Red));
+
+        var grid = Grid(Paint(Layout.Builder.HStack(left, right), height: 3));
+
+        grid[0].ShouldBe("┌───┬────┐");
+        grid[2].ShouldBe("└───┴────┘");
+        grid[1][4].ShouldBe('│');
+    }
+
+    [Fact]
+    public void WhereFourArmsMeet_TheCellIsACross()
+    {
+        // a: Right|Bottom, b: Bottom, c: Right -> the separator row meets the column divider at (4,1).
+        var a = Box(new Layout.Node.Stack([Label("a")]).BorderRight(Red).BorderBottom(Red), w: 5, h: 2);
+        var b = Box(new Layout.Node.Stack([Label("b")]).BorderBottom(Red), h: 2);
+        var c = Box(new Layout.Node.Stack([Label("c")]).BorderRight(Red), w: 5, h: 2);
+        var d = Box(new Layout.Node.Stack([Label("d")]), h: 2);
+
+        var grid = Grid(Paint(Layout.Builder.VStack(Layout.Builder.HStack(a, b), Layout.Builder.HStack(c, d)), height: 4));
+
+        grid[1].ShouldBe("────┼─────");
+        grid[0][4].ShouldBe('│');
+        grid[2][4].ShouldBe('│');
+    }
+
+    [Fact]
+    public void RoundedCorner_StaysAnArc_UntilItBecomesAJunction()
+    {
+        var first = Box(new Layout.Node.Stack([Label("a")]).Border(Red, 1f, 4f), h: 3);
+        var second = Box(new Layout.Node.Stack([Label("b")]).BorderLeft(Red).BorderRight(Red).BorderBottom(Red), h: 2);
+
+        var grid = Grid(Paint(new Layout.Node.Stack([first, second]), height: 5));
+
+        grid[0][0].ShouldBe('╭');
+        grid[2][0].ShouldBe('├');
+        grid[2][9].ShouldBe('┤');
+    }
 }
