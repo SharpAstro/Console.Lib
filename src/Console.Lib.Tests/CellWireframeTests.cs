@@ -53,6 +53,30 @@ public class CellWireframeTests
         findings.Select(f => f.Rule).ShouldContain(WireframeRules.TextOverRegion, Wireframe.Describe(findings));
     }
 
+    [Theory]
+    [InlineData(TextTrim.Start)]
+    [InlineData(TextTrim.Middle)]
+    public void LabelEllipsizedAtStartOrMiddlePassesTheCutCheck(TextTrim trim)
+    {
+        var frame = Record(Arrange((Label("a long label", trim), new Rect<int>(0, 0, 6, 1))));
+
+        var findings = CellWireframe.Check(frame);
+
+        findings.ShouldBeEmpty(Wireframe.Describe(findings));
+    }
+
+    [Fact]
+    public void OptionsThatOnlySetIgnoreTextKeepToleranceZero()
+    {
+        var frame = Record(Arrange(
+            (Label("hello"), new Rect<int>(0, 0, 5, 1)),
+            (Label("world"), new Rect<int>(4, 0, 5, 1))));
+
+        var findings = CellWireframe.Check(frame, new WireframeOptions { IgnoreText = t => t.Text == "nothing" });
+
+        findings.Select(f => f.Rule).ShouldContain(WireframeRules.TextOverText, Wireframe.Describe(findings));
+    }
+
     [Fact]
     public void LabelCutWithNoEllipsisIsCutText()
     {
@@ -157,6 +181,19 @@ public class CellWireframeTests
             At(Label("a long label"), new Rect<int>(0, 0, 6, 1), 1)]));
 
         CellRules(result).ShouldContain(CellWireframeRules.CutWithRoom, CellWireframe.Describe(result));
+    }
+
+    [Fact]
+    public void CutLabelWithAPaintedBoxSiblingToItsRightIsNotCutWithRoom()
+    {
+        var container = new Layout.Node.Stack([]);
+        var swatch = Layout.Builder.Box(6f, 1f, new RGBAColor32(0xFF, 0, 0, 0xFF));
+        var result = CellWireframe.CheckCells(RecordCells([
+            At(container, new Rect<int>(0, 0, 12, 1), 0),
+            At(Label("a long label"), new Rect<int>(0, 0, 6, 1), 1),
+            At(swatch, new Rect<int>(6, 0, 6, 1), 1)]));
+
+        CellRules(result).ShouldNotContain(CellWireframeRules.CutWithRoom, CellWireframe.Describe(result));
     }
 
     [Fact]
