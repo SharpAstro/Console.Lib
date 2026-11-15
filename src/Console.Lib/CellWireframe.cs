@@ -37,6 +37,24 @@ public static class CellWireframe
     public static ImmutableArray<WireframeFinding> Check(WireframeFrame frame, WireframeOptions? options = null)
         => Wireframe.Check(frame, options ?? new WireframeOptions { Tolerance = 0f });
 
+    /// <summary>Like <see cref="Record"/>, but keeps the cell facts the cell rules need.</summary>
+    public static CellWireframeFrame RecordCells(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
+        Action<Layout.Content.Fill, Rect<int>>? drawFill = null, bool reverse = false)
+    {
+        var recorder = new Recorder(viewport.Size);
+        CellLayout.Paint(viewport, arranged, drawFill, reverse, null, recorder);
+        return new CellWireframeFrame(recorder.Frame, []);
+    }
+
+    /// <summary>DIR.Lib's rules plus the cell rules, reported side by side.</summary>
+    public static CellWireframeResult CheckCells(CellWireframeFrame frame, CellWireframeOptions? options = null)
+        => new(Check(frame.Frame, options?.Pixel), []);
+
+    /// <summary>One message for both kinds of finding.</summary>
+    public static string Describe(CellWireframeResult result)
+        => Wireframe.Describe(result.Findings) + string.Concat(result.CellFindings.Select(f => $"
+{f.Rule} at {f.Where}: {f.Message}"));
+
     internal sealed class Recorder((int Width, int Height) size)
     {
         private readonly List<WireframeText> _texts = [];
