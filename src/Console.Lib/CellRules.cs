@@ -32,11 +32,11 @@ internal static class CellRules
 
             if (rules.HasFlag(CellWireframeRules.EmptyRows) && !f.IsText && f.OwnFill && f.FillPainted
                 && SingleContentRow(facts, i) is { } contentRow
-                && f.Clipped.Height > 1 + f.PaddingRows)
+                && f.Clipped.Height > 1 + f.PaddingRows + f.BorderRows)
             {
-                var empty = f.Clipped.Height - 1;
+                var empty = f.Clipped.Height - 1 - f.BorderRows;
                 found.Add(new CellWireframeFinding(CellWireframeRules.EmptyRows,
-                    $"a filled container is arranged {f.Clipped.Height} rows tall but its content sits on row {contentRow} only; {empty} row(s) are empty inside its fill (own vertical padding {f.PaddingRows} row(s))",
+                    $"a filled container is arranged {f.Clipped.Height} rows tall but its content sits on row {contentRow} only; {empty} row(s) are empty inside its fill (own vertical padding {f.PaddingRows} row(s), visible border {f.BorderRows} row(s))",
                     // Where is the clipped rect (what a person sees), unlike the rules above that report the arranged box.
                     new RectF32(f.Clipped.X, f.Clipped.Y, f.Clipped.Width, f.Clipped.Height)));
             }

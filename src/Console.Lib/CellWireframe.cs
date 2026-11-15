@@ -142,8 +142,9 @@ public static class CellWireframe
             => _facts.Add(new CellFact(depth, bounds, clipped, isText, ownFill, fillPainted, -1, 0, 0, paintsContent) { PaddingRows = paddingRows, ThinFill = thinFill });
 
         /// <summary>A declared border painted on the fact just recorded: part of its node, so neither text nor a fill.</summary>
-        public void Border()
-            => _facts[^1] = _facts[^1] with { Bordered = true };
+        /// <param name="borderRows">How many of the border's Top/Bottom rows are visible in the clipped rect.</param>
+        public void Border(int borderRows = 0)
+            => _facts[^1] = _facts[^1] with { Bordered = true, BorderRows = borderRows };
 
         /// <summary>A Box leaf's own fill, on the fact just recorded for it.</summary>
         public void BoxFill(bool painted, bool thinFill = false)

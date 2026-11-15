@@ -266,7 +266,9 @@ public static class CellLayout
             if (node.BorderStyle is { Sides: not Layout.BorderSides.None, Width: > 0f, Color.Alpha: > 0 } border)
             {
                 PaintBorder(borderCells, viewport, arrangedNode.Bounds, scrolls.Count > 0 ? scrolls.Peek().Clip : null, border, mode, under, reverse);
-                recorder?.Border();
+                recorder?.Border(
+                    (border.Sides.HasFlag(Layout.BorderSides.Top) && rect.Y == arrangedNode.Bounds.Y ? 1 : 0)
+                    + (border.Sides.HasFlag(Layout.BorderSides.Bottom) && rect.Bottom == arrangedNode.Bounds.Bottom ? 1 : 0));
             }
 
             if (recorder is not null && HitOf(node) is { } regionHit)

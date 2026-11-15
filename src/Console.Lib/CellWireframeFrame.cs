@@ -51,6 +51,9 @@ public readonly record struct CellFact(
 
     /// <summary>The node painted a declared border on the outer ring of its rect. The border is the node's own and records no text or fill; this marks the cells it wrote as accounted for. An init property for the same reason as <see cref="PaddingRows"/>.</summary>
     public bool Bordered { get; init; }
+
+    /// <summary>How many of a declared border's Top and Bottom rows are visible in the clipped rect (a side counts only when declared and not cut off by the clip). Those rows are border, not empty rows inside the fill. An init property for the same reason as <see cref="PaddingRows"/>.</summary>
+    public int BorderRows { get; init; }
 }
 
 /// <summary>A DIR.Lib <see cref="WireframeFrame"/> plus the cell facts the cell rules need.</summary>
