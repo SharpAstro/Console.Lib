@@ -237,6 +237,10 @@ public sealed class VirtualTerminal : IVirtualTerminal
         Out.Write("\e[?1000h"); // VT200 mouse tracking (basic button press/release and wheel)
         Out.Write("\e[?1002h"); // Button-motion tracking (drag reports while a button is held)
         _anyMotionEnabled = MouseTracking == MouseTracking.AnyMotion;
+        if (_anyMotionEnabled)
+        {
+            Out.Write("\e[?1003h"); // Any-event tracking: motion with no button held, so hover works
+        }
         Out.Write("\e[?1006h"); // SGR extended tracking
         Flush();
 
@@ -795,6 +799,36 @@ public sealed class VirtualTerminal : IVirtualTerminal
     /// </summary>
     public ConsoleInputEvent TryReadInput()
     {
+        var evt = ReadOne();
+        if (!IsPlainMotion(evt)) return evt;
+
+        // Fold a run of motion reports into the last one. Only reads while bytes are already waiting,
+        // so it adds no latency; the first non-motion event is held for the next call.
+        while (MoreBytesAvailable())
+        {
+            var next = ReadOne();
+            if (IsPlainMotion(next))
+            {
+                evt = next;
+                continue;
+            }
+            _pending = next;
+            break;
+        }
+        return evt;
+    }
+
+    private static bool IsPlainMotion(ConsoleInputEvent e) =>
+        e.Mouse is { IsMotion: true, IsRelease: false, Button: < 64 };
+
+    private ConsoleInputEvent ReadOne()
+    {
+        if (_pending is { } held)
+        {
+            _pending = null;
+            return held;
+        }
+
 #if DEBUG
         // Injected events come first and never mix with the real stream — see Inject.
         if (_injected.TryDequeue(out var synthetic))
@@ -873,6 +907,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
         if (_alternateScreen)
         {
             Out.Write("\e[?1000l"); // Disable VT200 mouse tracking
+            if (_anyMotionEnabled) Out.Write("\e[?1003l"); // Disable any-event tracking
             Out.Write("\e[?1002l"); // Disable button-motion tracking
             Out.Write("\e[?1006l"); // Disable SGR extended tracking
 

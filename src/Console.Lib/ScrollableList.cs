@@ -349,7 +349,7 @@ public class ScrollableList<TItem> : Widget where TItem : IRowLayout
             return wasDragging;
         }
 
-        // Motion without a held button is ignored in mode 1002, but guard anyway.
+        // Motion with no button held arrives as hover under mode 1003, so it is ignored here.
         var isLeftButton = mouse.Button == 0;
         if (!isLeftButton) return false;
 
