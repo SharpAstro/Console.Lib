@@ -280,6 +280,7 @@ public class CellInputRouterTests
 
         host.Router.Handle(new InputEvent.PointerLeft());
         host.Router.Tooltip.ShouldBeNull();
+        host.Buffer.Resize(host.Width, host.Height); // a real host starts each frame from a cleared buffer
         host.Frame(tree);
         host.Buffer.BackAt(30, 0).Style.Background.ShouldBe(unlit);
     }
