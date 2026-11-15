@@ -24,10 +24,12 @@ public class CellPopoverClaimTests
             _buffer.Resize(Width, Height);
             _viewport = new CellBufferViewport(_buffer, Width, Height);
             Surface = new CellInputSurface(new WindowUiSettings());
-            Router = CellInputRouter.Create(Surface, new BackgroundTaskTracker(), () => { });
+            Router = CellInputRouter.Create(Surface, new BackgroundTaskTracker(), () => Redraws++);
             Surface.ListCursor.Open("rows", 0);
             Popover.Open();
         }
+
+        public int Redraws { get; private set; }
 
         public CellInputSurface Surface { get; }
 
@@ -120,6 +122,21 @@ public class CellPopoverClaimTests
         rig.Popover.IsOpen.ShouldBeFalse();
         rig.RowsFired.ShouldBeEmpty();
         rig.Surface.ListCursor.Index.ShouldBe(0);
+    }
+
+    [Fact]
+    public void AnOpenPopoversClaimSettlesSoAfterPaintAsksForNoFurtherFrame()
+    {
+        var rig = new Rig();
+
+        rig.Frame();
+        rig.Router.AfterPaint();
+        var afterFirst = rig.Redraws;
+        rig.Frame();
+        rig.Router.AfterPaint();
+
+        rig.Redraws.ShouldBe(afterFirst, "the second frame repeats the same claim and must not ask for another");
+        rig.Surface.Ui.PointerClaimSettled.ShouldBeTrue();
     }
 
     [Fact]
