@@ -20,6 +20,11 @@ and the other sides), on the cells the engine reserved for it. DIR.Lib and DIR.L
 - Painted after the fill, so an arc replaces the quadrant clip a rounded filled node puts on its corner cell.
 - The cell wireframe records the border as part of its node (`CellFact.Bordered`, an init property): no text, no
   fill, so a bordered node holding text checks clean, and a border-only frame is not `NothingRecorded`.
+- Bordered siblings that meet join into one frame. Each border cell carries the arms it draws (up, down, left,
+  right); a cell takes the arm toward a neighbour that draws the arm back at it, and the glyph for the union comes from
+  `BorderChars` (corner, run, tee or cross), all inside one `Paint` pass. A list whose first item has a full border and
+  the rest Left|Right|Bottom reads as one frame with `├───┤` separators; a rounded corner stays an arc until it becomes
+  a junction, which is the light tee or cross. A joined cell keeps the border colour of the node painted last.
 - No public member removed or renamed.
 
 ## 5.22
