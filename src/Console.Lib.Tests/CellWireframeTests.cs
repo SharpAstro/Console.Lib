@@ -139,6 +139,71 @@ public class CellWireframeTests
         CellRules(result).ShouldContain(CellWireframeRules.DoubledRow, CellWireframe.Describe(result));
     }
 
+    private static CellWireframeResult CheckSized(int width, int height, params Layout.ArrangedNode<int>[] arranged)
+    {
+        var buffer = new CellBuffer { ColorMode = ColorMode.TrueColor };
+        buffer.Resize(width, height);
+        var viewport = new CellBufferViewport(buffer, width, height);
+        return CellWireframe.CheckCells(CellWireframe.RecordCells(viewport, [.. arranged]));
+    }
+
+    [Fact]
+    public void FilledBarArrangedHalfTheScreenHoldingOneRowOfLabelsIsEmptyRows()
+    {
+        var bar = new Layout.Node.Stack([]) { Background = Paint };
+        var result = CheckSized(80, 24,
+            At(bar, new Rect<int>(0, 0, 80, 12), 0),
+            At(Label("Home"), new Rect<int>(0, 0, 4, 1), 1),
+            At(Label("Sessions"), new Rect<int>(5, 0, 8, 1), 1),
+            At(new Layout.Node.Stack([]), new Rect<int>(0, 12, 80, 12), 0));
+
+        CellRules(result).ShouldContain(CellWireframeRules.EmptyRows, CellWireframe.Describe(result));
+    }
+
+    [Fact]
+    public void OneRowFilledBarIsNotEmptyRows()
+    {
+        var bar = new Layout.Node.Stack([]) { Background = Paint };
+        var result = CheckSized(80, 24,
+            At(bar, new Rect<int>(0, 0, 80, 1), 0),
+            At(Label("Home"), new Rect<int>(0, 0, 4, 1), 1));
+
+        CellRules(result).ShouldNotContain(CellWireframeRules.EmptyRows, CellWireframe.Describe(result));
+    }
+
+    [Fact]
+    public void SparseVerticalPageWithLabelsOnTwoRowsIsNotEmptyRows()
+    {
+        var page = new Layout.Node.Stack([]) { Background = Paint };
+        var result = CheckSized(80, 24,
+            At(page, new Rect<int>(0, 0, 80, 12), 0),
+            At(Label("first"), new Rect<int>(0, 0, 5, 1), 1),
+            At(Label("second"), new Rect<int>(0, 1, 6, 1), 1));
+
+        CellRules(result).ShouldNotContain(CellWireframeRules.EmptyRows, CellWireframe.Describe(result));
+    }
+
+    [Fact]
+    public void BarWhoseExtraRowsAreItsOwnVerticalPaddingIsNotEmptyRows()
+    {
+        var bar = new Layout.Node.Stack([]) { Background = Paint, PaddingY = 1f };
+        var result = CheckSized(80, 24,
+            At(bar, new Rect<int>(0, 0, 80, 3), 0),
+            At(Label("Home"), new Rect<int>(0, 1, 4, 1), 1));
+
+        CellRules(result).ShouldNotContain(CellWireframeRules.EmptyRows, CellWireframe.Describe(result));
+    }
+
+    [Fact]
+    public void DoubledRowLeafIsNotAlsoEmptyRows()
+    {
+        var label = Label("name") with { Background = Paint };
+        var result = CheckSized(80, 24, At(label, new Rect<int>(0, 0, 10, 2), 0));
+
+        CellRules(result).ShouldContain(CellWireframeRules.DoubledRow);
+        CellRules(result).ShouldNotContain(CellWireframeRules.EmptyRows, CellWireframe.Describe(result));
+    }
+
     [Fact]
     public void PixelAuthored28UnitOneLineRowIsOneRowAndPasses()
     {
