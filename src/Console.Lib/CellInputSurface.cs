@@ -48,6 +48,7 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
         _painted.Clear();
         _fields.Clear();
         _fieldRects.Clear();
+        Ui.PointerOwner = null;
 
         _scrolledRows.Clear();
         var scrolls = new Stack<(int Depth, ListScrollController Scroll, Rect<int> Clip)>();
@@ -109,6 +110,14 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
                 var top = scrolls.Peek();
                 if (!CellLayout.Overlaps(top.Clip, r))
                 {
+                    if (pendingContentDepth >= 0 && depth <= pendingContentDepth)
+                    {
+                        // The popover's content was clipped away: it has none to claim, and a later sibling at
+                        // this depth is not it.
+                        pendingContentDepth = -1;
+                        claimed = true;
+                    }
+
                     // Off screen: nothing registered, so it cannot answer a press, but a list row is still a
                     // row of its list and is noted for the keyboard.
                     if (node.Hit is HitResult.ListItemHit clipped)
@@ -130,12 +139,14 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
             // The popover's content takes every press inside it, so the scrim under it (which dismisses) and the
             // list rows under that never see it, on the content's empty padding as much as on a child. Registered
             // before the content's own hit and its children, which therefore still win where they are. This is
-            // the cell surface's own claim: DIR.Lib's WindowUiSettings.ClaimPointer and NoteFrameBegin are
-            // internal, so PointerOwner (hover confinement, trigger-beneath) is not set from here.
+            // the cell surface's own claim. It also sets WindowUiSettings.PointerOwner (public), which is what
+            // the router reads to keep a press on the padding from choosing, or clearing, the declared list
+            // that owns the arrows.
             if (pendingContentDepth >= 0 && depth == pendingContentDepth && !claimed)
             {
                 claimed = true;
                 pendingContentDepth = -1;
+                Ui.PointerOwner = new RectF32(r.X, r.Y, r.Width, r.Height);
                 var claim = new ClickableRegion(r.X, r.Y, r.Width, r.Height, new HitResult.ChromeHit(), NoOp, CursorKind.Default);
                 _tracker.Register(ref claim);
             }

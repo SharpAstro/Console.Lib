@@ -17,7 +17,7 @@ activated (Enter) and revealed by DIR.Lib's `InputRouter`, which applies its own
 list, else the last pressed, else the only one); `CellInputSurface` gains `CollectClippedListRows` and
 `RevealListRow` so rows a `Scroll` viewport clips stay reachable, and `CellLayout.Paint` lights
 `Node.FocusBackground` from the nearest enclosing declared cursor, so the row the keys step is the row painted.
-A tree that declares no list keeps routing through `CellInputSurface.ListCursor` as before. The consumer loop,
+A tree that declares no list keeps routing through `CellInputSurface.ListCursor` as before, and is lit too: with no declared cursor in scope, `CellLayout.Paint` resolves `FocusBackground` against that surface cursor, so an undeclared tree now paints its cursor row where it did not before. An open popover's claim also sets `WindowUiSettings.PointerOwner`, so a press on its padding keeps, rather than clears, the declared list that owns the arrows. The consumer loop,
 with two widgets each owning a `ListCursor`:
 
 ```csharp

@@ -80,6 +80,18 @@ public class CellDeclaredListTests
         public RGBAColor32 BackgroundAt(int column, int row) => _buffer.BackAt(column, row).Style.Background;
     }
 
+    /// <summary>What the buffer stores for a row authored with <paramref name="colour"/> as its plain background.</summary>
+    private static RGBAColor32 PaintedAuthoredFill(RGBAColor32 colour)
+    {
+        var buffer = new CellBuffer { ColorMode = ColorMode.TrueColor };
+        buffer.Resize(10, 1);
+        var viewport = new CellBufferViewport(buffer, 10, 1);
+        var tree = Layout.Builder.Text("x", 1f).RowH(1).WStar().Bg(colour);
+        var arranged = Layout.Engine.Arrange(tree, new Rect<int>(0, 0, 10, 1), CellMeasureContext.CellAuthored);
+        CellLayout.Paint(viewport, arranged, new CellInputSurface(new WindowUiSettings()));
+        return buffer.BackAt(5, 0).Style.Background;
+    }
+
     [Fact]
     public void WithOneListDeclared_DownDownMovesItsCursorToIndexTwo()
     {
@@ -130,6 +142,7 @@ public class CellDeclaredListTests
         // rather than with the authored colour: only the cursor's row of the stepped list differs.
         var lit = host.BackgroundAt(20, 2);
         lit.Alpha.ShouldBe((byte)255);
+        lit.ShouldBe(PaintedAuthoredFill(Focus), "the lit row is FocusBackground, as the same pipeline stores it");
         host.BackgroundAt(20, 1).ShouldNotBe(lit);
         host.BackgroundAt(20, 3).ShouldNotBe(lit);
         host.BackgroundAt(0, 2).ShouldNotBe(lit);
