@@ -22,7 +22,16 @@ public static class CellWireframe
 
     /// <summary>Paints <paramref name="arranged"/> to <paramref name="viewport"/> as <see cref="CellLayout.Paint(ITerminalViewport, ImmutableArray{Layout.ArrangedNode{int}}, Action{Layout.Content.Fill, Rect{int}})"/> does, and returns what it recorded.</summary>
     public static WireframeFrame Record(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
-        Action<Layout.Content.Fill, Rect<int>>? drawFill = null, bool reverse = false, CellBuffer? buffer = null)
+        Action<Layout.Content.Fill, Rect<int>>? drawFill = null, bool reverse = false)
+        => Record(viewport, arranged, drawFill, reverse, buffer: null);
+
+    /// <summary>
+    /// Like the overload without a buffer, and observes <paramref name="buffer"/> for the paint. Without it, writes a hosted
+    /// widget makes from <c>drawFill</c> are not seen and <see cref="CellWireframeRules.NothingRecorded"/> has nothing to count,
+    /// so a caller that hosts widgets must pass the buffer its viewport writes to.
+    /// </summary>
+    public static WireframeFrame Record(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
+        Action<Layout.Content.Fill, Rect<int>>? drawFill, bool reverse, CellBuffer? buffer)
     {
         var recorder = new Recorder(viewport.Size);
         Paint(viewport, arranged, drawFill, reverse, recorder, buffer);
@@ -73,7 +82,12 @@ public static class CellWireframe
 
     /// <summary>Like <see cref="Record"/>, but keeps the cell facts the cell rules need.</summary>
     public static CellWireframeFrame RecordCells(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
-        Action<Layout.Content.Fill, Rect<int>>? drawFill = null, bool reverse = false, CellBuffer? buffer = null)
+        Action<Layout.Content.Fill, Rect<int>>? drawFill = null, bool reverse = false)
+        => RecordCells(viewport, arranged, drawFill, reverse, buffer: null);
+
+    /// <summary>Like <see cref="RecordCells(ITerminalViewport, ImmutableArray{Layout.ArrangedNode{int}}, Action{Layout.Content.Fill, Rect{int}}, bool)"/>, observing <paramref name="buffer"/> (see <see cref="Record(ITerminalViewport, ImmutableArray{Layout.ArrangedNode{int}}, Action{Layout.Content.Fill, Rect{int}}, bool, CellBuffer)"/>).</summary>
+    public static CellWireframeFrame RecordCells(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
+        Action<Layout.Content.Fill, Rect<int>>? drawFill, bool reverse, CellBuffer? buffer)
     {
         var recorder = new Recorder(viewport.Size);
         Paint(viewport, arranged, drawFill, reverse, recorder, buffer);

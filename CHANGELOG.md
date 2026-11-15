@@ -17,7 +17,14 @@ The cell wireframe recorder sees every write, not only `CellLayout.Paint`'s own 
 throw. Cells a hosted widget writes from the `drawFill` callback through its own `TerminalViewport` are recorded as
 text and opaque fills at the write, so a label overlapping a hosted widget now fails the check. A new
 `CellWireframeRules.NothingRecorded` (on in `All`) fails a frame that wrote cells but recorded no text, fill or
-region, instead of letting it pass unjudged; an empty frame that wrote nothing still passes.
+region, instead of letting it pass unjudged; an empty frame that wrote nothing still passes. The buffer is a separate overload, so the 5.18 signatures keep
+their binary shape; recording a hosted widget, and `NothingRecorded`, only work when the caller passes `buffer:`.
+
+Known limits, left as ideas: a hosted widget that redraws the same cells twice in one paint records two overlapping
+texts (`Visible` is not computed per write), so it could report a `TextOverText` the terminal never shows, and a padded
+run is recorded whole, spaces included, as ink. Regions are recorded by `CellLayout.Paint` only for a node that carries a `Hit`, and the sweep reported 0 for all six
+tianwen tabs; the likely reason is that their hosted widgets own their own input and the arranged trees declare no hit
+(not verified per tab), so the non-zero texts and fills are the evidence there and regions are not expected.
 
 ## 5.18
 
