@@ -240,6 +240,9 @@ public sealed class VirtualTerminal : IVirtualTerminal
         if (_anyMotionEnabled)
         {
             Out.Write("\e[?1003h"); // Any-event tracking: motion with no button held, so hover works
+            // Focus reporting: a terminal sends no leave report under SGR tracking, so focus-out (ESC[O) is the
+            // signal that the pointer is gone and hover must clear. Same gate as 1003, which is what needs it.
+            Out.Write("\e[?1004h");
         }
         Out.Write("\e[?1006h"); // SGR extended tracking
         Flush();
@@ -907,7 +910,11 @@ public sealed class VirtualTerminal : IVirtualTerminal
         if (_alternateScreen)
         {
             Out.Write("\e[?1000l"); // Disable VT200 mouse tracking
-            if (_anyMotionEnabled) Out.Write("\e[?1003l"); // Disable any-event tracking
+            if (_anyMotionEnabled)
+            {
+                Out.Write("\e[?1004l"); // Disable focus reporting
+                Out.Write("\e[?1003l"); // Disable any-event tracking
+            }
             Out.Write("\e[?1002l"); // Disable button-motion tracking
             Out.Write("\e[?1006l"); // Disable SGR extended tracking
 
@@ -1046,6 +1053,14 @@ public sealed class VirtualTerminal : IVirtualTerminal
             }
 
             sb.Append((char)ch);
+
+            // Focus reports (mode 1004): ESC[O focus-out is the pointer leaving; ESC[I focus-in carries nothing.
+            if (sb.Length == 2 && sb[0] == '[' && sb[1] is 'O' or 'I')
+            {
+                return sb[1] == 'O'
+                    ? new ConsoleInputEvent(null, ConsoleKey.None, ConsoleModifiers.None) { PointerLeft = true }
+                    : default;
+            }
 
             // CSI sequences: \e[ ...
             if (sb[0] == '[' && TryParseCsiKey(sb, out var csiKey, out var csiMods))

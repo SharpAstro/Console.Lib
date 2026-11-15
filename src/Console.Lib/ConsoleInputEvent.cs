@@ -16,4 +16,12 @@ public readonly record struct ConsoleInputEvent(
     MouseEvent? Mouse,
     ConsoleKey Key,
     ConsoleModifiers Modifiers,
-    Rune? KeyChar = null);
+    Rune? KeyChar = null)
+{
+    /// <summary>
+    /// The terminal reported focus-out (<c>ESC[O</c>, mode 1004), which is the only leave signal an SGR-tracking
+    /// terminal gives. Maps to <c>InputEvent.PointerLeft</c>. An init property, not a positional parameter, so the
+    /// constructor and <c>Deconstruct</c> consumers compiled against stay as they were.
+    /// </summary>
+    public bool PointerLeft { get; init; }
+}
