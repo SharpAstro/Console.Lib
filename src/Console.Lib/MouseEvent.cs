@@ -3,7 +3,7 @@ namespace Console.Lib;
 /// <summary>
 /// Represents a mouse button event with pixel position and press/release state.
 /// <see cref="IsMotion"/> is set when the terminal emits a drag report
-/// (xterm mode 1002: button-held-while-moving), in which case <see cref="Button"/>
+/// (xterm mode 1002: button-held-while-moving; with mode 1003 it also arrives with no button held, Button 3 (none)), in which case <see cref="Button"/>
 /// is the button held during the motion and <see cref="IsRelease"/> is false.
 /// </summary>
 public readonly record struct MouseEvent(int Button, int X, int Y, bool IsRelease)
