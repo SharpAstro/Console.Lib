@@ -42,7 +42,8 @@ public sealed class CellMeasureContext(float designUnitsPerColumn = 1f, float de
     /// Set for a pixel-authored mapping: <see cref="MapExtent"/> then keeps one row for one line of content
     /// (a Fixed height takes the content's rows, vertical padding rounds down, an empty spacer under a cell
     /// adds nothing, a filled node thinner than a cell keeps one row) and gives horizontal padding at most
-    /// one cell a side. Off, as in <see cref="CellAuthored"/>, an extent is today's plain rounding.
+    /// one cell a side. A border is one cell a side too (one row for Top/Bottom, one column for Left/Right),
+    /// whatever the node holds. Off, as in <see cref="CellAuthored"/>, an extent is today's plain rounding.
     /// </summary>
     private bool KeepsRowPerLine { get; init; }
 
@@ -52,6 +53,11 @@ public sealed class CellMeasureContext(float designUnitsPerColumn = 1f, float de
         if (!KeepsRowPerLine)
         {
             return request.Axis == Layout.Axis.Horizontal ? ToSurfaceX(request.Value) : ToSurfaceY(request.Value);
+        }
+
+        if (request.Kind == Layout.ExtentKind.Border)
+        {
+            return request.Value > 0f ? 1 : 0;
         }
 
         if (request.Axis == Layout.Axis.Horizontal)
