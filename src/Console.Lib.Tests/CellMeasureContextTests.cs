@@ -41,7 +41,7 @@ public class CellMeasureContextTests
             Width = Layout.Sizing.Fixed(80),
             Padding = 6,
         };
-        var arranged = Arrange(button, CellMeasureContext.PixelAuthored);
+        var arranged = Arrange(new Layout.Node.Stack(Kids(button)), CellMeasureContext.PixelAuthored);
 
         var outer = arranged.Single(a => ReferenceEquals(a.Node, button)).Bounds;
         var inner = arranged.Single(a => ReferenceEquals(a.Node, label)).Bounds;
