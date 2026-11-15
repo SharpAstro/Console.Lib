@@ -62,6 +62,11 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
         var claimed = false;
         PopoverState? openPopover = null;
 
+        var modalDepth = -1;
+        Layout.Node.Overlay? modalOverlay = null;
+        ModalClaim? modalClaim = null;
+        var modalCardDepth = -1;
+
         foreach (var an in arranged)
         {
             var node = an.Node;
@@ -131,6 +136,37 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
                 }
 
                 r = CellLayout.Intersect(top.Clip, r);
+            }
+
+            // A declared modal is recorded as DIR.Lib's PixelWidgetBase records it: when Top begins, before it
+            // registers anything, so the counts are what lay beneath; an Anchored Top's card is its next-depth child.
+            if (modalDepth >= 0 && depth <= modalDepth)
+            {
+                modalDepth = -1;
+                modalOverlay = null;
+                modalClaim = null;
+                modalCardDepth = -1;
+            }
+
+            if (modalClaim is { } pendingCard && modalCardDepth >= 0 && depth == modalCardDepth)
+            {
+                pendingCard.Card = new RectF32(r.X, r.Y, r.Width, r.Height);
+                modalCardDepth = -1;
+            }
+
+            if (node is Layout.Node.Overlay { Modal: true } declaredModal)
+            {
+                modalDepth = depth;
+                modalOverlay = declaredModal;
+            }
+            else if (modalOverlay is not null && modalClaim is null && ReferenceEquals(node, modalOverlay.Top))
+            {
+                modalClaim = Ui.NoteModalPainted(this, _tracker.Regions.Length, _painted.Count,
+                    new RectF32(r.X, r.Y, r.Width, r.Height), modalOverlay.OnDismiss);
+                if (node is Layout.Node.Anchored)
+                {
+                    modalCardDepth = depth + 1;
+                }
             }
 
             _painted.Add(new Layout.ArrangedNode<float>(node, new Rect<float>(r.X, r.Y, r.Width, r.Height))

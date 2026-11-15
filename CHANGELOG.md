@@ -9,6 +9,12 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.24
+Pins DIR.Lib and DIR.Lib.Debug at 11.69 (declared modal routing). `CellInputSurface` now records a painted
+`Builder.Modal` (a `Layout.Node.Overlay` with `Modal: true`) through `Ui.NoteModalPainted` when its Top begins, as
+DIR.Lib's pixel painter does, so a cell host gets modal routing (the card and nothing beneath, a press outside or
+Escape runs `OnDismiss`) with no call of its own. Closes #79.
+
 ## 5.23
 
 `CellLayout` paints the border a node declares (DIR.Lib 11.68, `Node.BorderStyle`, set with `Border`, `BorderTop`
