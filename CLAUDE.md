@@ -112,8 +112,11 @@ has the pixel-surface `PixelMenuWidget<TSurface>`. Console.Lib supplies the **ce
   + `MenuLayout` via `CellLayout`.
 - `CellInputSurface` + `CellInputRouter.Create` (5.13): the cell host's `IPixelWidget`. `CellLayout.Paint(viewport, arranged, surface, ...)`
   registers the tree's click regions, fields, shortcuts, list rows and `Scroll` viewports in cells (as float units), and
-  the `InputRouter` it builds routes keys, Tab, focus, clicks and the wheel with no host routing. Its list-key half mirrors
-  DIR.Lib's `PixelWidgetBase`; keep the two in step.
+  the `InputRouter` it builds routes keys, Tab, focus, clicks and the wheel with no host routing. A list that declares
+  its cursor (`Node.ListOf(cursor, listId)`, DIR.Lib 11.61) is stepped, activated and revealed by DIR.Lib's router itself
+  (its `DeclaredList.Active` rule, not a copy here); the surface only answers `CollectClippedListRows` and `RevealListRow`,
+  and `CellLayout.Paint` resolves `FocusBackground` against the nearest enclosing declared cursor, so two widgets' lists in
+  one tree need no per-page glue. `CellInputSurface.ListCursor` (`HandleListKey`) remains the path for a tree that declares nothing.
 - `TerminalLayout` — now delegates the edge arithmetic to `DockLayout<int>` (cells), keeping
   only the terminal-specific safety clamp (a strip never exceeds remaining cells) + viewport wiring.
 

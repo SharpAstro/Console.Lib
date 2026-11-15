@@ -11,7 +11,21 @@ changed and why.
 
 ## 5.16
 
-Additive (no public API change): DIR.Lib pin 11.40 to 11.60 (DIR.Lib.Debug with it), and an open popover claims
+Additive: a list that declares its own cursor works on the cell surface with no host code (#57). DIR.Lib pin
+11.40 to 11.61 (DIR.Lib.Debug with it). A list declared with `Node.ListOf(cursor, listId)` is stepped (Up/Down),
+activated (Enter) and revealed by DIR.Lib's `InputRouter`, which applies its own active-list rule (the focused
+list, else the last pressed, else the only one); `CellInputSurface` gains `CollectClippedListRows` and
+`RevealListRow` so rows a `Scroll` viewport clips stay reachable, and `CellLayout.Paint` lights
+`Node.FocusBackground` from the nearest enclosing declared cursor, so the row the keys step is the row painted.
+A tree that declares no list keeps routing through `CellInputSurface.ListCursor` as before. The consumer loop,
+with two widgets each owning a `ListCursor`:
+
+```csharp
+var router = CellInputRouter.Create(surface, tasks, redraw);
+while (reading) { CellLayout.Paint(viewport, arranged, surface); router.Handle(evt.ToCellInputEvent(cell)); }
+```
+
+Earlier in 5.16: DIR.Lib pin 11.40 to 11.60 (DIR.Lib.Debug with it), and an open popover claims
 the pointer for its content on the cell surface (#57). `CellInputSurface.Declare` registers a region over the
 popover content's rect (the first child of its anchored node), so a press on the content's empty padding is
 no longer the dismissing scrim's and never reaches a list row painted under it, nor moves the list cursor;
