@@ -105,6 +105,11 @@ public static class ConsoleInputMapping
             {
                 var modifiers = evt.Modifiers.ToInputModifier;
 
+                if (evt.PointerLeft)
+                {
+                    return new InputEvent.PointerLeft();
+                }
+
                 if (evt.Mouse is { } mouse)
                 {
                     // Scroll wheel: button 64 = up, 65 = down

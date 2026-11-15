@@ -115,7 +115,7 @@ public static class CellLayout
     public static void Paint(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
         CellInputSurface surface, Action<Layout.Content.Fill, Rect<int>>? drawFill = null, bool reverse = false)
     {
-        Paint(viewport, arranged, drawFill, reverse, surface.ListCursor, null);
+        Paint(viewport, arranged, drawFill, reverse, surface.ListCursor, null, surface.Pointer);
         surface.Declare(arranged);
     }
 
@@ -143,7 +143,7 @@ public static class CellLayout
     // null is the normal path and allocates nothing for it.
     internal static void Paint(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
         Action<Layout.Content.Fill, Rect<int>>? drawFill, bool reverse, ListCursor? surfaceCursor,
-        CellWireframe.Recorder? recorder)
+        CellWireframe.Recorder? recorder, (float X, float Y)? pointer = null)
     {
         var declared = new Stack<(int Depth, ListCursor Cursor)>();
         var mode = viewport.ColorMode;
@@ -238,7 +238,9 @@ public static class CellLayout
             Func<Layout.Node, RGBAColor32?> fillOf = n => ResolveFill(n, focusCursor);
             var nodeFill = node.FocusBackground is { } focus && focusCursor is not null && focusCursor.IsOn(node.Hit)
                 ? focus
-                : node.Background;
+                : node.HoverBackground is { } hover && Layout.LayoutDamage.Contains(new Rect<float>(rect.X, rect.Y, rect.Width, rect.Height), pointer)
+                    ? hover
+                    : node.Background;
             if (nodeFill is { } bg)
             {
                 recorder?.Fill(rect, bg);
