@@ -302,6 +302,8 @@ public static class CellLayout
                     break;
             }
         }
+
+        FlushBorders(borderCells, viewport);
     }
 
     /// <summary>The directions a border cell draws toward, as flags, so a junction is the union of its arms.</summary>
@@ -382,8 +384,6 @@ public static class CellLayout
             if (cells.Cells.TryGetValue((x, y + 1), out var down) && down.Arms.HasFlag(Arms.Up)) arms |= Arms.Down;
             if (cells.Cells.TryGetValue((x - 1, y), out var left) && left.Arms.HasFlag(Arms.Right)) arms |= Arms.Left;
             if (cells.Cells.TryGetValue((x + 1, y), out var right) && right.Arms.HasFlag(Arms.Left)) arms |= Arms.Right;
-            // The set to join over is every arm a neighbour points back at, but only toward a neighbour that is
-            // itself part of the frame line, so an unconnected corner keeps its own two arms.
             var glyphs = cell.Rounded ? arc : light;
             var glyph = arms switch
             {
