@@ -9,6 +9,19 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.17
+
+PixelAuthored cells (#60). `CellMeasureContext.PixelAuthored` now keeps one row for one line of content: a
+Fixed height over one-line content takes the content's rows, vertical padding rounds down, horizontal padding
+gives at most one cell a side, an empty spacer under a cell adds nothing and a filled node thinner than a
+cell keeps one row. This needs DIR.Lib's `IMeasureContext.MapExtent` hook, so the `DIR.Lib` and
+`DIR.Lib.Debug` pins move to 11.63.6591. `CellAuthored` and every cell-scale layout are unchanged.
+
+`CellLayout.Paint` no longer drops or snaps a fill thinner or narrower than a cell, at a pixel-authored
+scale: a fill under half a row (by design height) paints upper half blocks, and a Star child of a horizontal
+stack ends in one eighth-block glyph (U+258F..U+2589, fg the fill, bg the colour under it), so a meter shows
+its fraction to 1/8 cell.
+
 ## 5.16
 
 Additive: a list that declares its own cursor works on the cell surface with no host code (#57). DIR.Lib pin
