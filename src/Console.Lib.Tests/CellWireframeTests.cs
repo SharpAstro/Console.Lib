@@ -254,7 +254,7 @@ public class CellWireframeTests
         var fill = Layout.Builder.Fill(1f, 1f);
         var frame = CellWireframe.RecordCells(viewport,
             Arrange((fill, new Rect<int>(0, 0, 20, 1)), (Label("label"), new Rect<int>(4, 0, 8, 1))),
-            (_, rect) =>
+            drawFill: (_, rect) =>
             {
                 hosted.UpdateGeometry(rect.X, rect.Y, rect.Width, rect.Height);
                 bar.Render();
@@ -274,7 +274,7 @@ public class CellWireframeTests
         // A host that blanks its slot with the default pen: cells are written, but there is no text and no opaque fill to judge.
         var fill = Layout.Builder.Fill(1f, 1f);
         var frame = CellWireframe.RecordCells(viewport, Arrange((fill, new Rect<int>(0, 0, 10, 1))),
-            (_, rect) =>
+            drawFill: (_, rect) =>
             {
                 viewport.SetCursorPosition(rect.X, rect.Y);
                 viewport.Write(new string(' ', rect.Width));
