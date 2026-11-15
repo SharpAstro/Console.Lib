@@ -9,6 +9,21 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.22
+
+Hover works in a terminal without a held button, and cannot stick.
+
+- `VirtualTerminal` enables any-event mouse tracking (`?1003h`) beside `?1000`/`?1002`/`?1006` and turns it off on
+  dispose. `VirtualTerminal.MouseTracking = MouseTracking.ButtonMotion` opts out (drag reports only).
+- A run of motion reports already waiting in one read batch is folded into the last one; the first non-motion event
+  is held for the next `TryReadInput`, so no latency is added.
+- Focus reporting (`?1004h`, same gate): focus-out (`ESC[O`) is read as `ConsoleInputEvent.PointerLeft` (an init
+  property, so the record's constructor is unchanged) and maps to `InputEvent.PointerLeft`; focus-in (`ESC[I`) is
+  swallowed. A terminal sends no leave report under SGR tracking, so this is what clears hover and the tooltip.
+- `CellLayout.Paint(viewport, arranged, surface, ...)` lights a node's `BgHover` at the surface's pointer.
+- Debug inspector: a `hover` verb moves the unheld pointer to a cell (motion with no button, once per cell);
+  `move` stays the held half of a drag.
+
 ## 5.21
 
 - `CellWireframeRules.SolidStrip` (included in `All`): a filled node one row tall that spans its container's full clipped width, holds no text or painted content and is painted with whole cells is a finding. A rule drawn as a grey bar (pilot's `Spacer().Bg(Faint).WStar().RowH(16f)`) lands here. A pixel-authored fill under 8 design units is painted as upper half blocks, a thin line, and is exempt, so the fix for a finding is `RowH(4f)`-style thin rules. `Where` is the clipped rect. `CellFact.ThinFill` (an init property, so the constructor keeps its 5.20 shape) records how the fill was painted. Console.Lib #70, found by pilot #1065 / PIL1049.

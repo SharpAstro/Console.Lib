@@ -127,6 +127,7 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
         "drag" => Drag(p),
         "press" => Press(p),
         "move" => Move(p),
+        "hover" => Hover(p),
         "release" => Release(p),
         _ => null,
     };
@@ -337,10 +338,8 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
     /// So asking for more steps than the path has cells yields the cells, not repeats -- a duplicate report
     /// is an event no terminal emits, and a consumer that coalesces motion would swallow the difference
     /// until something downstream counted them.</para>
-    /// <para>There is deliberately NO bare <c>move</c> verb here, though the SDL/Vulkan inspector has one.
-    /// Mode 1002 is BUTTON-motion tracking: a terminal reports movement only while a button is held, so
-    /// hover is not something a terminal app can receive. A synthetic hover would let behaviour pass a test
-    /// on input that cannot reach it in production.</para>
+    /// <para>Motion with no button held is <see cref="Hover"/>: <see cref="VirtualTerminal"/> enables any-event
+    /// tracking (mode 1003) by default, so a terminal does report it, as button 3 (none) with the motion bit.</para>
     /// </remarks>
     private string Drag(JsonElement p)
     {
@@ -375,18 +374,16 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
 
     /// <summary>Motion to a cell, reported once per cell crossed from wherever the button went down.</summary>
     /// <remarks>
-    /// Refused when no button is held, rather than sent anyway. Mode 1002 is BUTTON-motion tracking: a
-    /// terminal reports movement only during a drag, so a hover report is an event no terminal emits.
-    /// Injecting one would let hover-driven behaviour pass a test through a door that is nailed shut in
-    /// production -- the failure this refusal prevents is a GREEN test, not a red one.
+    /// Refused when no button is held: this verb is the held half of a drag, and its motion carries the
+    /// held button. Unheld motion is <see cref="Hover"/>, a different report (button none).
     /// </remarks>
     private string Move(JsonElement p)
     {
         if (_held is not { } held)
         {
             throw new InvalidOperationException(
-                "no button is held, and a terminal reports motion only while one is (mode 1002 is " +
-                "button-motion tracking, not any-event tracking). Send 'press' first.");
+                "no button is held, so there is nothing to drag. Send 'press' first, or use 'hover' " +
+                "to move the unheld pointer.");
         }
 
         var column = Int(p, "column", held.Column);
@@ -395,6 +392,42 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
         var (x, y) = CellCentre(column, row);
         return $"{{\"ok\":true,\"motion\":{motion},\"x\":{x},\"y\":{y}}}";
     }
+
+    /// <summary>
+    /// Moves the UNHELD pointer to a cell: motion with no button, once per cell crossed from where the last hover
+    /// left it (or one report when there is no earlier position). A hover on the cell it is already on reports nothing,
+    /// which is what any-event tracking does (a terminal reports a position only when it changes).
+    /// </summary>
+    private string Hover(JsonElement p)
+    {
+        var column = Int(p, "column", 0);
+        var row = Int(p, "row", 0);
+        var (fromColumn, fromRow) = _hoverAt ?? (column, row);
+        var steps = Steps(p, fromColumn, fromRow, column, row);
+        var (lastColumn, lastRow) = _hoverAt ?? (-1, -1);
+        var motion = 0;
+
+        for (var i = 1; i <= steps; i++)
+        {
+            var t = (double)i / steps;
+            var stepColumn = (int)Math.Round(fromColumn + (column - fromColumn) * t);
+            var stepRow = (int)Math.Round(fromRow + (row - fromRow) * t);
+            if (stepColumn == lastColumn && stepRow == lastRow) continue;
+
+            var (sx, sy) = CellCentre(stepColumn, stepRow);
+            _terminal.Inject(new ConsoleInputEvent(
+                new MouseEvent(3, sx, sy, IsRelease: false) { IsMotion = true }, ConsoleKey.None, 0));
+            (lastColumn, lastRow) = (stepColumn, stepRow);
+            motion++;
+        }
+
+        _hoverAt = (column, row);
+        var (x, y) = CellCentre(column, row);
+        return $"{{\"ok\":true,\"motion\":{motion},\"x\":{x},\"y\":{y}}}";
+    }
+
+    /// <summary>The cell the unheld pointer was last hovered to, or null before the first hover.</summary>
+    private (int Column, int Row)? _hoverAt;
 
     /// <summary>Releases the held button, at the cell it is on unless another is named.</summary>
     private string Release(JsonElement p)
@@ -472,8 +505,8 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
 
     /// <summary>
     /// The cell the held button is on, or null when nothing is pressed. This is a POINTER cursor, not a
-    /// gesture state machine: it exists so <c>move</c> knows where it is moving FROM and can refuse to
-    /// report motion that no terminal would send.
+    /// gesture state machine: it exists so <c>move</c> knows where it is moving FROM and can refuse when
+    /// nothing is held.
     /// </summary>
     private (int Column, int Row)? _held;
 

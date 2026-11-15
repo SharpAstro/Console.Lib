@@ -150,7 +150,7 @@ public sealed class InspectorTools
         => (await s.SendAsync(await Resolve(d, instance, ct), "click",
             $"{{\"column\":{column},\"row\":{row}}}", ct)).GetRawText();
 
-    [McpServerTool, Description("Drag from one CELL to another: a press at the first, motion while the button is held, a release at the second. Motion is reported once per cell crossed, which is what a real terminal does (mode 1002 reports on change, at cell resolution). There is no hover verb because a terminal only reports motion while a button is held.")]
+    [McpServerTool, Description("Drag from one CELL to another: a press at the first, motion while the button is held, a release at the second. Motion is reported once per cell crossed, which is what a real terminal does (mode 1002 reports on change, at cell resolution). For motion with no button held use hover.")]
     public static async Task<string> drag(InspectorDiscoveryClient d, InspectorSocketClient s,
         [Description("Start column, 0-based.")] int column1,
         [Description("Start row, 0-based.")] int row1,
@@ -176,13 +176,22 @@ public sealed class InspectorTools
         => (await s.SendAsync(await Resolve(d, instance, ct), "press",
             $"{{\"column\":{column},\"row\":{row}}}", ct)).GetRawText();
 
-    [McpServerTool, Description("Move the held pointer to a CELL, reporting once per cell crossed. REFUSED unless a button is held: a terminal reports motion only during a drag (mode 1002), so there is no hover to synthesize.")]
+    [McpServerTool, Description("Move the held pointer to a CELL, reporting once per cell crossed. REFUSED unless a button is held (this is the held half of a drag); for the unheld pointer use hover.")]
     public static async Task<string> move(InspectorDiscoveryClient d, InspectorSocketClient s,
         [Description("Column, 0-based.")] int column,
         [Description("Row, 0-based.")] int row,
         [Description("Target instance pid (0 = the only running instance).")] int instance = 0,
         CancellationToken ct = default)
         => (await s.SendAsync(await Resolve(d, instance, ct), "move",
+            $"{{\"column\":{column},\"row\":{row}}}", ct)).GetRawText();
+
+    [McpServerTool, Description("Hover: move the UNHELD pointer to a CELL (motion with no button, mode 1003 any-event tracking), reporting once per cell crossed from the last hover; hovering the cell it is already on reports nothing. Lights BgHover and raises a tooltip after its delay.")]
+    public static async Task<string> hover(InspectorDiscoveryClient d, InspectorSocketClient s,
+        [Description("Column, 0-based.")] int column,
+        [Description("Row, 0-based.")] int row,
+        [Description("Target instance pid (0 = the only running instance).")] int instance = 0,
+        CancellationToken ct = default)
+        => (await s.SendAsync(await Resolve(d, instance, ct), "hover",
             $"{{\"column\":{column},\"row\":{row}}}", ct)).GetRawText();
 
     [McpServerTool, Description("Release the held mouse button, where it is unless a cell is named.")]

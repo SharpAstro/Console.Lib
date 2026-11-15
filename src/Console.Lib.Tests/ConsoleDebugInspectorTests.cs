@@ -374,19 +374,36 @@ public sealed class ConsoleDebugInspectorTests
     }
 
     /// <summary>
-    /// Motion with no button held is REFUSED, not injected. Mode 1002 is button-motion tracking, so a
-    /// terminal never sends a hover report; synthesizing one would let hover behaviour pass a test through
-    /// a door that is nailed shut in production. The failure being prevented is a GREEN test.
+    /// Hover is motion with no button held, injected as the report any-event tracking (mode 1003) sends: the
+    /// motion bit with button 3 (none), which maps to a MouseMove with MouseButton.None. Once per cell, so a
+    /// hover on the cell it is already on reports nothing.
     /// </summary>
     [Fact]
-    public void Move_WithNoButtonHeld_IsRefusedRatherThanInjected()
+    public void Hover_WithNoButtonHeld_IsInjectedAsMouseMoveWithNoButton()
+    {
+        var (inspector, screen) = Detached();
+
+        Call(inspector, "hover", "{\"column\":4,\"row\":1}").GetProperty("motion").GetInt32().ShouldBe(1);
+        var moved = DrainEvents(screen);
+        moved.Count.ShouldBe(1);
+        moved[0].Mouse!.Value.IsMotion.ShouldBeTrue();
+        moved[0].Mouse!.Value.Button.ShouldBe(3);
+        moved[0].ToInputEvent.ShouldBeOfType<DIR.Lib.InputEvent.MouseMove>().Button.ShouldBe(DIR.Lib.MouseButton.None);
+
+        Call(inspector, "hover", "{\"column\":4,\"row\":1}").GetProperty("motion").GetInt32().ShouldBe(0);
+        DrainEvents(screen).ShouldBeEmpty("the same cell again is no new report");
+    }
+
+    /// <summary>Move is the held half of a drag, so with nothing pressed it is refused and leaves no half gesture.</summary>
+    [Fact]
+    public void Move_WithNoButtonHeld_IsRefusedAndPointsAtHover()
     {
         var (inspector, screen) = Detached();
 
         var refusal = Should.Throw<InvalidOperationException>(
             () => Call(inspector, "move", "{\"column\":4,\"row\":1}"));
 
-        refusal.Message.ShouldContain("press");
+        refusal.Message.ShouldContain("hover");
         DrainEvents(screen).ShouldBeEmpty("a refused verb must not leave half a gesture in the queue");
     }
 
