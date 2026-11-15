@@ -79,7 +79,7 @@ public static class CellLayout
     public static void Paint(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
         CellInputSurface surface, Action<Layout.Content.Fill, Rect<int>>? drawFill = null, bool reverse = false)
     {
-        Paint(viewport, arranged, drawFill, reverse);
+        Paint(viewport, arranged, drawFill, reverse, surface.ListCursor);
         surface.Declare(arranged);
     }
 
@@ -98,7 +98,15 @@ public static class CellLayout
     /// </remarks>
     public static void Paint(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
         Action<Layout.Content.Fill, Rect<int>>? drawFill, bool reverse)
+        => Paint(viewport, arranged, drawFill, reverse, null);
+
+    // A node's FocusBackground resolves against the NEAREST enclosing declared list's cursor (Node.ListOf),
+    // so the row a router steps is the row lit; a row under no declaration falls back to the surface's own
+    // cursor when one is given.
+    private static void Paint(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
+        Action<Layout.Content.Fill, Rect<int>>? drawFill, bool reverse, ListCursor? surfaceCursor)
     {
+        var declared = new Stack<(int Depth, ListCursor Cursor)>();
         var mode = viewport.ColorMode;
 
         // The background each node is painted OVER, resolved from the tree. Text is drawn foreground-only so
@@ -159,6 +167,16 @@ public static class CellLayout
                 links.Pop();
             }
 
+            while (declared.Count > 0 && declared.Peek().Depth >= arrangedNode.Depth)
+            {
+                declared.Pop();
+            }
+
+            if (node.DeclaredList is { } list)
+            {
+                declared.Push((arrangedNode.Depth, list.Cursor));
+            }
+
             if (node.Hit is HitResult.LinkHit linkHit)
             {
                 links.Push((arrangedNode.Depth, linkHit.Url));
@@ -172,7 +190,11 @@ public static class CellLayout
             // rect wants quadrant blocks where a bordered one would want the arc glyphs.
             var rounded = node.CornerRadius > 0f;
 
-            if (node.Background is { } bg)
+            var focusCursor = declared.Count > 0 ? declared.Peek().Cursor : surfaceCursor;
+            var nodeFill = node.FocusBackground is { } focus && focusCursor is not null && focusCursor.IsOn(node.Hit)
+                ? focus
+                : node.Background;
+            if (nodeFill is { } bg)
             {
                 FillCells(viewport, rect, bg, mode, under, rounded, reverse);
                 backgrounds.Push((arrangedNode.Depth, bg));

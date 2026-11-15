@@ -11,10 +11,13 @@ namespace Console.Lib;
 /// <see cref="InputRouter"/> routes keys, shortcuts, focus, Tab and clicks for a terminal host with no
 /// host-side routing. Filled per frame by <c>CellLayout.Paint(viewport, arranged, surface, ...)</c>.
 /// <para>
-/// The list-cursor half (<see cref="MoveListCursor"/>, <see cref="ActivateListCursor"/>,
-/// <see cref="HandleListKey"/>) mirrors the logic of DIR.Lib's <c>PixelWidgetBase</c>, whose members are
-/// instance members of an abstract renderer-bound class and so cannot be reused by a cell host.
-/// Keep the two in step.
+/// A list that declares its own cursor (<c>Node.ListOf(cursor, listId)</c>) needs nothing here: DIR.Lib's
+/// <see cref="InputRouter"/> reads the declaration from the painted nodes, applies its one active-list rule
+/// (<see cref="DeclaredList.Active"/>) and steps that cursor, and this surface only answers what the router asks
+/// of a widget (the painted regions, <see cref="CollectClippedListRows"/>, <see cref="RevealListRow"/>). The
+/// cell paint lights the row from the same cursor. The surface's own <see cref="ListCursor"/>
+/// (<see cref="MoveListCursor"/>, <see cref="ActivateListCursor"/>, <see cref="HandleListKey"/>) is the
+/// fallback for a tree that declares no list, and behaves as it did before declarations existed.
 /// </para>
 /// </summary>
 public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
@@ -286,11 +289,41 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
             isDisabled ? null : node.OnActivate ?? node.OnClick));
     }
 
-    private void RevealListCursor()
+    /// <summary>
+    /// The rows of list <paramref name="listId"/> a scrolled viewport arranged but clipped out, so a router stepping
+    /// a DECLARED list (<c>Node.ListOf</c>) can step through rows that are reachable but not on screen.
+    /// </summary>
+    public void CollectClippedListRows(string listId, List<ListCursor.PaintedRow> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+        if (!Current)
+        {
+            return;
+        }
+
+        foreach (var row in _scrolledRows)
+        {
+            if (row.IsClipped && string.Equals(row.Hit.ListId, listId, StringComparison.Ordinal))
+            {
+                into.Add(new ListCursor.PaintedRow(row.Hit.Index, row.IsDisabled));
+            }
+        }
+    }
+
+    /// <summary>Scrolls the viewport holding <paramref name="cursor"/>'s row to show it, after a router stepped a declared list.</summary>
+    public void RevealListRow(ListCursor cursor)
+    {
+        ArgumentNullException.ThrowIfNull(cursor);
+        RevealListCursor(cursor);
+    }
+
+    private void RevealListCursor() => RevealListCursor(ListCursor);
+
+    private void RevealListCursor(ListCursor cursor)
     {
         foreach (var row in _scrolledRows)
         {
-            if (ListCursor.IsOn(row.Hit))
+            if (cursor.IsOn(row.Hit))
             {
                 row.Scroll.RevealExtent(row.Start, row.End);
                 return;
