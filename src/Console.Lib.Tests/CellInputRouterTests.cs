@@ -263,12 +263,14 @@ public class CellInputRouterTests
         host.Router.Clock = clock;
         var hover = new RGBAColor32(0x30, 0x60, 0x90, 0xff);
         var tree = Layout.Builder.VStack(
-            Layout.Builder.Text("row", 1f).RowH(1).WStar().BgHover(hover).WithTooltip("tip"));
+            Layout.Builder.HStack(Layout.Builder.Text("row", 1f).RowH(1).WStar())
+                .RowH(1).WStar().BgHover(hover).WithTooltip("tip"));
         host.Frame(tree);
         host.Buffer.BackAt(30, 0).Style.Background.ShouldNotBe(hover);
 
         host.Router.Handle(new InputEvent.MouseMove(30, 0, MouseButton.None, InputModifier.None));
         host.Router.Tooltip.ShouldBeNull();
+        host.Surface.Pointer.ShouldNotBeNull();
         host.Frame(tree);
         host.Buffer.BackAt(30, 0).Style.Background.ShouldBe(hover);
 
