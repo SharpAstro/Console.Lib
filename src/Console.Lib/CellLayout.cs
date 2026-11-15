@@ -230,12 +230,13 @@ public static class CellLayout
             var rounded = node.CornerRadius > 0f;
 
             var focusCursor = declared.Count > 0 ? declared.Peek().Cursor : surfaceCursor;
+            Func<Layout.Node, RGBAColor32?> fillOf = n => ResolveFill(n, focusCursor);
             var nodeFill = node.FocusBackground is { } focus && focusCursor is not null && focusCursor.IsOn(node.Hit)
                 ? focus
                 : node.Background;
             if (nodeFill is { } bg)
             {
-                PaintFill(viewport, arranged, index, pixel, rect, bg, mode, under, rounded, reverse, scrolls.Count > 0 ? scrolls.Peek().Clip : null);
+                PaintFill(viewport, arranged, index, pixel, rect, bg, mode, under, rounded, reverse, fillOf, scrolls.Count > 0 ? scrolls.Peek().Clip : null);
                 backgrounds.Push((arrangedNode.Depth, bg));
                 under = bg;
             }
@@ -259,7 +260,7 @@ public static class CellLayout
                     DrawText(viewport, rect, text, mode, under, links.Count > 0 ? links.Peek().Url : null, reverse);
                     break;
                 case Layout.Content.Box box when box.Color.Alpha > 0:
-                    PaintFill(viewport, arranged, index, pixel, rect, box.Color, mode, under, rounded, reverse, scrolls.Count > 0 ? scrolls.Peek().Clip : null);
+                    PaintFill(viewport, arranged, index, pixel, rect, box.Color, mode, under, rounded, reverse, fillOf, scrolls.Count > 0 ? scrolls.Peek().Clip : null);
                     break;
                 case Layout.Content.Icon icon:
                     DrawText(viewport, rect, IconGlyph(icon), mode, under, null, reverse);
@@ -659,6 +660,10 @@ public static class CellLayout
     private static RGBAColor32? OwnFill(Layout.Node n) => n.Background is { } bg ? bg
         : n is Layout.Node.Leaf { Content: Layout.Content.Box { Color.Alpha: > 0 } box } ? box.Color : null;
 
+    // What Paint itself would fill the node with: its FocusBackground when the cursor is on it, else its own fill.
+    private static RGBAColor32? ResolveFill(Layout.Node n, ListCursor? cursor)
+        => n.FocusBackground is { } focus && cursor is not null && cursor.IsOn(n.Hit) ? focus : OwnFill(n);
+
     private static bool IsPlainStar(Layout.Node n)
     {
         var w = n.Width;
@@ -670,7 +675,7 @@ public static class CellLayout
     /// the exact widths of the siblings before it (so adjacent filled siblings tile with no gap), its width its
     /// share of what the fixed and auto siblings leave. Null when the node is not one or it is not derivable.
     /// </summary>
-    private static StarSpan? ExactStarSpan(ImmutableArray<Layout.ArrangedNode<int>> arranged, int index)
+    private static StarSpan? ExactStarSpan(ImmutableArray<Layout.ArrangedNode<int>> arranged, int index, Func<Layout.Node, RGBAColor32?> fillOf)
     {
         var self = arranged[index];
         if (!IsPlainStar(self.Node))
@@ -754,8 +759,12 @@ public static class CellLayout
             x += width;
         }
 
-        RGBAColor32? next = selfK + 1 < kids.Count && IsPlainStar(kids[selfK + 1].Node) ? OwnFill(kids[selfK + 1].Node) : null;
-        var prevFilled = selfK > 0 && IsPlainStar(kids[selfK - 1].Node) && OwnFill(kids[selfK - 1].Node) is not null;
+        // A neighbour only shares the boundary cell when it touches: a Stack gap between them is cells of what is
+        // under, so the gap cell must not take the neighbour's colour.
+        RGBAColor32? next = selfK + 1 < kids.Count && IsPlainStar(kids[selfK + 1].Node)
+            && kids[selfK + 1].Bounds.X <= kids[selfK].Bounds.Right ? fillOf(kids[selfK + 1].Node) : null;
+        var prevFilled = selfK > 0 && IsPlainStar(kids[selfK - 1].Node)
+            && kids[selfK].Bounds.X <= kids[selfK - 1].Bounds.Right && fillOf(kids[selfK - 1].Node) is not null;
         return new StarSpan(start, end, next, prevFilled);
     }
 
@@ -767,14 +776,15 @@ public static class CellLayout
     /// under. Anything else is FillCells. (The sub-cell path does not clip rounded corners.)
     /// </summary>
     private static void PaintFill(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged, int index,
-        bool pixel, Rect<int> rect, RGBAColor32 color, ColorMode mode, RGBAColor32 under, bool rounded, bool reverse, Rect<int>? clip = null)
+        bool pixel, Rect<int> rect, RGBAColor32 color, ColorMode mode, RGBAColor32 under, bool rounded, bool reverse,
+        Func<Layout.Node, RGBAColor32?> fillOf, Rect<int>? clip = null)
     {
         var half = false;
         StarSpan? exact = null;
         if (pixel)
         {
             half = rect.Height == 1 && DesignHeight(arranged, index) is { } h && h < 8f;
-            exact = ExactStarSpan(arranged, index);
+            exact = ExactStarSpan(arranged, index, fillOf);
         }
 
         if (!half && exact is null)
@@ -805,7 +815,8 @@ public static class CellLayout
             {
                 from = (int)Math.Max(lo, (sE + 7) / 8);
                 to = (int)Math.Min(hi, eE / 8);
-                if (sE % 8 != 0 && !span.PrevFilled)
+                // sE > 0: a start in (-1, 0) cells rounds toward zero to cell 0 with a negative remainder.
+                if (sE > 0 && sE % 8 != 0 && !span.PrevFilled)
                 {
                     leadCell = (int)(sE / 8);
                     leadEighths = (int)(sE % 8);
@@ -820,7 +831,16 @@ public static class CellLayout
 
                 if (leadCell == trailCell)
                 {
-                    leadCell = -1;
+                    // The fill sits inside one cell and no eighth-block glyph shows both edges: keep the edge
+                    // nearer its cell side, so the offset survives to the nearer eighth rather than vanishing.
+                    if (leadEighths <= 8 - trailEighths)
+                    {
+                        leadCell = -1;
+                    }
+                    else
+                    {
+                        trailCell = -1;
+                    }
                 }
             }
         }
