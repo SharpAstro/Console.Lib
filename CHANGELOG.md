@@ -9,6 +9,22 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.18
+
+Additive. Wireframe checks for a cell frame: `CellLayout.Paint` can record what it painted, in cells, and
+DIR.Lib's own `Wireframe.Check` judges it at a tolerance of 0 cells, so text over text, text half over a control
+and a cut label with no ellipsis fail on the cell surface as on a pixel one. Three cell-only rules sit beside
+those, because the pixel rules cannot see them: `DoubledRow` (one-line text arranged taller than one row with an
+empty row inside its own fill), `VanishedFill` (a filled node that is arranged but paints no cell) and
+`CutWithRoom` (text cut while its row has free cells to its right in the same container). They have their own
+flags enum and finding record (`CellWireframeRules`, `CellWireframeFinding`); `WireframeRules` is not extended.
+
+```csharp
+var frame = CellWireframe.RecordCells(viewport, arranged);
+var result = CellWireframe.CheckCells(frame);   // DIR.Lib findings + cell findings, tolerance 0
+result.IsEmpty.ShouldBeTrue(CellWireframe.Describe(result));
+```
+
 ## 5.17
 
 PixelAuthored cells (#60). `CellMeasureContext.PixelAuthored` now keeps one row for one line of content: a
