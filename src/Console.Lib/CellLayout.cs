@@ -238,7 +238,7 @@ public static class CellLayout
             Func<Layout.Node, RGBAColor32?> fillOf = n => ResolveFill(n, focusCursor);
             var nodeFill = node.FocusBackground is { } focus && focusCursor is not null && focusCursor.IsOn(node.Hit)
                 ? focus
-                : node.HoverBackground is { } hover && Layout.LayoutDamage.Contains(new Rect<float>(rect.X, rect.Y, rect.Width, rect.Height), pointer)
+                : node.HoverBackground is { } hover && pointer is { } at && at.X >= rect.X && at.X < rect.X + rect.Width && at.Y >= rect.Y && at.Y < rect.Y + rect.Height
                     ? hover
                     : node.Background;
             if (nodeFill is { } bg)
