@@ -9,6 +9,14 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.25
+
+- **A border is one cell a side under `CellMeasureContext.PixelAuthored` (#82).** `MapExtent` now handles
+  `ExtentKind.Border` explicitly: one row for Top/Bottom and one column for Left/Right whatever the node
+  holds. Before, a border on a node holding text read its design units as a content extent and inset the
+  content by the node's line count and no column, so a bordered block of N lines grew to far more than N+2
+  rows and a `BorderBottom` rule landed well below the text. pilot's empty-node border workaround can go.
+
 ## 5.24
 Pins DIR.Lib and DIR.Lib.Debug at 11.69 (declared modal routing). `CellInputSurface` now records a painted
 `Builder.Modal` (a `Layout.Node.Overlay` with `Modal: true`) through `Ui.NoteModalPainted` when its Top begins, as
