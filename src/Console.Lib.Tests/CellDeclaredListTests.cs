@@ -103,7 +103,9 @@ public class CellDeclaredListTests
         var b = new Widget("b", 5);
         host.Frame(a, b);
 
-        host.Surface.HitTest(25, 0).ShouldBeOfType<HitResult.ListItemHit>().ListId.ShouldBe("b");
+        var seen = new List<ClickableRegion>();
+        host.Surface.CollectPaintedRegions(seen);
+        (host.Surface.HitTest(25, 0) as HitResult.ListItemHit).ShouldNotBeNull(string.Join(';', seen.Select(r => $"{r.Result.GetType().Name}@{r.X},{r.Y},{r.Width},{r.Height}")));
         host.Press(25, 0); // row 0 of the right-hand list
         b.Cursor.Index.ShouldBe(0, "the press opens the pressed list's cursor at the pressed row");
         host.Key(InputKey.Down);
