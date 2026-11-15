@@ -162,7 +162,7 @@ public class CellLayoutBorderTests
     }
 
     private static Layout.Node Box(Layout.Node n, float? w = null, float? h = null)
-        => n with { Width = w is { } ww ? Layout.Sizing.Fixed(ww) : n.Width, Height = h is { } hh ? Layout.Sizing.Fixed(hh) : n.Height };
+        => n with { Width = w is { } ww ? Layout.Sizing.Fixed(ww) : Layout.Sizing.Star(), Height = h is { } hh ? Layout.Sizing.Fixed(hh) : n.Height };
 
     [Fact]
     public void StackedItems_JoinIntoOneFrame_WithTeeSeparatorRows()
