@@ -9,6 +9,19 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.23
+
+`CellLayout` paints the border a node declares (DIR.Lib 11.68, `Node.BorderStyle`, set with `Border`, `BorderTop`
+and the other sides), on the cells the engine reserved for it. DIR.Lib and DIR.Lib.Debug pin 11.68.6951.
+
+- Light box glyphs, arc corners (`╭╮╰╯`) when the radius is above zero, in the border colour over the node's own
+  fill (else the enclosing background). A single side is a rule; a corner glyph needs both its sides, otherwise the
+  run of the side present continues to the edge. A transparent colour paints nothing.
+- Painted after the fill, so an arc replaces the quadrant clip a rounded filled node puts on its corner cell.
+- The cell wireframe records the border as part of its node (`CellFact.Bordered`, an init property): no text, no
+  fill, so a bordered node holding text checks clean, and a border-only frame is not `NothingRecorded`.
+- No public member removed or renamed.
+
 ## 5.22
 
 Hover works in a terminal without a held button, and cannot stick.
