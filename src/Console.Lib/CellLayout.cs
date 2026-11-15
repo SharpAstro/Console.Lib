@@ -251,7 +251,8 @@ public static class CellLayout
             recorder?.Node(arrangedNode.Depth, arrangedNode.Bounds, rect, node is Layout.Node.Leaf { Content: Layout.Content.Text },
                 nodeFilled, nodePainted, node is Layout.Node.Leaf { Content: Layout.Content.Icon or Layout.Content.TextInput or Layout.Content.Fill },
                 // Top plus bottom padding in cells, as the arrangement rounded it (a pixel-authored tree floors to whole rows).
-                2 * (pixel ? (int)MathF.Floor(node.PadDown / 16f) : (int)MathF.Round(node.PadDown)));
+                2 * (pixel ? (int)MathF.Floor(node.PadDown / 16f) : (int)MathF.Round(node.PadDown)),
+                thinFill: nodeFilled && IsThinFill(arranged, index, pixel, rect));
 
             if (recorder is not null && HitOf(node) is { } regionHit)
             {
@@ -278,7 +279,8 @@ public static class CellLayout
                     break;
                 case Layout.Content.Box box when box.Color.Alpha > 0:
                     recorder?.Fill(rect, box.Color);
-                    recorder?.BoxFill(PaintFill(viewport, arranged, index, pixel, rect, box.Color, mode, under, rounded, reverse, fillOf, scrolls.Count > 0 ? scrolls.Peek().Clip : null));
+                    recorder?.BoxFill(PaintFill(viewport, arranged, index, pixel, rect, box.Color, mode, under, rounded, reverse, fillOf, scrolls.Count > 0 ? scrolls.Peek().Clip : null),
+                        IsThinFill(arranged, index, pixel, rect));
                     break;
                 case Layout.Content.Icon icon:
                     DrawText(viewport, rect, IconGlyph(icon), mode, under, null, reverse, recorder);
@@ -786,6 +788,10 @@ public static class CellLayout
         return new StarSpan(start, end, next, prevFilled);
     }
 
+    /// <summary>True when a fill is painted as a row of upper half blocks (a thin line): pixel-authored, one row, under 8 design units tall.</summary>
+    private static bool IsThinFill(ImmutableArray<Layout.ArrangedNode<int>> arranged, int index, bool pixel, Rect<int> rect)
+        => pixel && rect.Height == 1 && DesignHeight(arranged, index) is { } h && h < 8f;
+
     /// <summary>
     /// Paints a fill. At a pixel-authored scale a fill under half a row (by design height) is a row of upper
     /// half blocks, and a Star child of a horizontal stack covers its exact span to 1/8 cell: whole cells, plus an
@@ -797,11 +803,10 @@ public static class CellLayout
         bool pixel, Rect<int> rect, RGBAColor32 color, ColorMode mode, RGBAColor32 under, bool rounded, bool reverse,
         Func<Layout.Node, RGBAColor32?> fillOf, Rect<int>? clip = null)
     {
-        var half = false;
+        var half = IsThinFill(arranged, index, pixel, rect);
         StarSpan? exact = null;
         if (pixel)
         {
-            half = rect.Height == 1 && DesignHeight(arranged, index) is { } h && h < 8f;
             exact = ExactStarSpan(arranged, index, fillOf);
         }
 
