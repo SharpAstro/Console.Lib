@@ -121,4 +121,52 @@ public class CellPopoverClaimTests
         rig.RowsFired.ShouldBeEmpty();
         rig.Surface.ListCursor.Index.ShouldBe(0);
     }
+
+    [Fact]
+    public void APressOnThePopoversPaddingKeepsTheListThatOwnsTheArrows()
+    {
+        var surface = new CellInputSurface(new WindowUiSettings());
+        var router = CellInputRouter.Create(surface, new BackgroundTaskTracker(), () => { });
+        var buffer = new CellBuffer { ColorMode = ColorMode.TrueColor };
+        buffer.Resize(Rig.Width, Rig.Height);
+        var viewport = new CellBufferViewport(buffer, Rig.Width, Rig.Height);
+        var popover = new PopoverState();
+        var a = new ListCursor();
+        var b = new ListCursor();
+
+        Layout.Node ListNode(string id, ListCursor cursor)
+        {
+            var rows = new Layout.Node[4];
+            for (var i = 0; i < rows.Length; i++)
+            {
+                rows[i] = Layout.Builder.Text($"{id}{i}", 1f).RowH(1).WStar()
+                    .Clickable(new HitResult.ListItemHit(id, i));
+            }
+
+            return Layout.Builder.VStack(rows).ListOf(cursor, id);
+        }
+
+        void Frame()
+        {
+            var child = Layout.Builder.Text("ok", 1f).RowH(1).WFixed(8).Clickable(new HitResult.ButtonHit("ok"));
+            var content = Layout.Builder.VStack(child).Pad(2, 1).Bg(new RGBAColor32(10, 10, 10, 255));
+            var tree = Layout.Builder.Overlay(
+                Layout.Builder.HStack(ListNode("a", a).WStar(), ListNode("b", b).WStar()),
+                Layout.Builder.Popover(new RectF32(0, 0, 12, 1), content, popover));
+            CellLayout.Paint(viewport, Layout.Engine.Arrange(tree, new Rect<int>(0, 0, Rig.Width, Rig.Height), CellMeasureContext.CellAuthored), surface);
+        }
+
+        Frame();
+        router.Handle(new InputEvent.MouseDown(30, 1, MouseButton.Left, InputModifier.None, 1));
+        popover.Open();
+        Frame();
+        var painted = new List<ClickableRegion>();
+        surface.CollectPaintedRegions(painted);
+        var ok = painted.Single(p => p.Result is HitResult.ButtonHit);
+        router.Handle(new InputEvent.MouseDown((int)ok.X - 1, (int)ok.Y, MouseButton.Left, InputModifier.None, 1));
+
+        router.Handle(new InputEvent.KeyDown(InputKey.Down, InputModifier.None)).ShouldBeTrue("list b still owns the arrows");
+        b.Index.ShouldBe(1);
+        a.IsOpen.ShouldBeFalse();
+    }
 }
