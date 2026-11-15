@@ -115,7 +115,7 @@ public static class CellLayout
     public static void Paint(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
         CellInputSurface surface, Action<Layout.Content.Fill, Rect<int>>? drawFill = null, bool reverse = false)
     {
-        Paint(viewport, arranged, drawFill, reverse, surface.ListCursor);
+        Paint(viewport, arranged, drawFill, reverse, surface.ListCursor, null);
         surface.Declare(arranged);
     }
 
@@ -134,13 +134,16 @@ public static class CellLayout
     /// </remarks>
     public static void Paint(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
         Action<Layout.Content.Fill, Rect<int>>? drawFill, bool reverse)
-        => Paint(viewport, arranged, drawFill, reverse, null);
+        => Paint(viewport, arranged, drawFill, reverse, null, null);
 
     // A node's FocusBackground resolves against the NEAREST enclosing declared list's cursor (Node.ListOf),
     // so the row a router steps is the row lit; a row under no declaration falls back to the surface's own
     // cursor when one is given.
-    private static void Paint(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
-        Action<Layout.Content.Fill, Rect<int>>? drawFill, bool reverse, ListCursor? surfaceCursor)
+    // A non-null recorder (CellWireframe.Record) is told each fill, region and text run in paint order;
+    // null is the normal path and allocates nothing for it.
+    internal static void Paint(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
+        Action<Layout.Content.Fill, Rect<int>>? drawFill, bool reverse, ListCursor? surfaceCursor,
+        CellWireframe.Recorder? recorder)
     {
         var declared = new Stack<(int Depth, ListCursor Cursor)>();
         var mode = viewport.ColorMode;
@@ -236,9 +239,15 @@ public static class CellLayout
                 : node.Background;
             if (nodeFill is { } bg)
             {
+                recorder?.Fill(rect, bg);
                 PaintFill(viewport, arranged, index, pixel, rect, bg, mode, under, rounded, reverse, fillOf, scrolls.Count > 0 ? scrolls.Peek().Clip : null);
                 backgrounds.Push((arrangedNode.Depth, bg));
                 under = bg;
+            }
+
+            if (recorder is not null && HitOf(node) is { } regionHit)
+            {
+                recorder.Region(arrangedNode.Bounds, rect, regionHit);
             }
 
             if (node.Scroll is { } scrolled)
@@ -257,13 +266,14 @@ public static class CellLayout
             switch (leaf.Content)
             {
                 case Layout.Content.Text text:
-                    DrawText(viewport, rect, text, mode, under, links.Count > 0 ? links.Peek().Url : null, reverse);
+                    DrawText(viewport, rect, text, mode, under, links.Count > 0 ? links.Peek().Url : null, reverse, recorder);
                     break;
                 case Layout.Content.Box box when box.Color.Alpha > 0:
+                    recorder?.Fill(rect, box.Color);
                     PaintFill(viewport, arranged, index, pixel, rect, box.Color, mode, under, rounded, reverse, fillOf, scrolls.Count > 0 ? scrolls.Peek().Clip : null);
                     break;
                 case Layout.Content.Icon icon:
-                    DrawText(viewport, rect, IconGlyph(icon), mode, under, null, reverse);
+                    DrawText(viewport, rect, IconGlyph(icon), mode, under, null, reverse, recorder);
                     break;
                 case Layout.Content.TextInput field:
                     DrawTextInput(viewport, rect, field, mode, under, rounded);
@@ -1025,7 +1035,7 @@ public static class CellLayout
     /// as part of the link draws a hyperlink stretching across gaps the reader cannot see any text in.
     /// </param>
     private static void DrawText(ITerminalViewport viewport, Rect<int> rect, Layout.Content.Text text, ColorMode mode,
-        RGBAColor32 under, string? link = null, bool reverse = false)
+        RGBAColor32 under, string? link = null, bool reverse = false, CellWireframe.Recorder? recorder = null)
     {
         var (vw, vh) = viewport.Size;
         if (rect.Width <= 0 || rect.Height <= 0)
@@ -1072,6 +1082,17 @@ public static class CellLayout
         // escapes at all, so it gets no link either -- a plain-text dump stays plain text.
         var open = link is not null && mode != ColorMode.None ? Osc8.Open(link) : "";
         var close = open.Length > 0 ? Osc8.Close : "";
+
+        if (recorder is not null)
+        {
+            var inkColumn = text.HAlign switch
+            {
+                TextAlign.Center => rect.X + (maxW - text.Value.Length) / 2,
+                TextAlign.Far => rect.X + (maxW - text.Value.Length),
+                _ => rect.X,
+            };
+            recorder.Text(rect, s, text.Value.Length, inkColumn, row, startCol);
+        }
 
         viewport.SetCursorPosition(startCol, row);
         var attribute = reverse ? VtStyle.ReverseOn : "";
