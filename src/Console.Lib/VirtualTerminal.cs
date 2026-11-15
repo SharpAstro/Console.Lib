@@ -24,6 +24,23 @@ public sealed class VirtualTerminal : IVirtualTerminal
 
     private TextWriter Out => _outOverride ?? System.Console.Out;
 
+    /// <summary>Test seam: when set, input bytes come from this stream and "more bytes available" is answered
+    /// by it (Position &lt; Length) instead of the console.</summary>
+    private readonly Stream? _inputOverride;
+
+    /// <summary>
+    /// Which motion reports to ask the terminal for. <see cref="MouseTracking.AnyMotion"/> (the default)
+    /// enables mode 1003 so hover works with no button held; hosts that do not want motion set
+    /// <see cref="MouseTracking.ButtonMotion"/>. Read once, at <see cref="EnterAlternateScreen"/>.
+    /// </summary>
+    public MouseTracking MouseTracking { get; init; } = MouseTracking.AnyMotion;
+
+    /// <summary>What <see cref="EnterAlternateScreen"/> enabled, so <see cref="DisposeAsync"/> disables only that.</summary>
+    private bool _anyMotionEnabled;
+
+    /// <summary>A parsed event held back because it ended a run of coalesced motion; returned first by the next read.</summary>
+    private ConsoleInputEvent? _pending;
+
     public VirtualTerminal()
     {
     }
@@ -39,6 +56,15 @@ public sealed class VirtualTerminal : IVirtualTerminal
         _fixedColorMode = colorMode;
         _lastSize = (width, height);
         _initialized = true;
+    }
+
+    /// <summary>Test constructor with an input stream: bytes are read from <paramref name="input"/>, and
+    /// <see cref="EnterAlternateScreen"/> writes its mode escapes to <paramref name="output"/> and marks the
+    /// terminal in alternate screen with no console calls.</summary>
+    internal VirtualTerminal(TextWriter output, int width, int height, ColorMode colorMode, Stream input)
+        : this(output, width, height, colorMode)
+    {
+        _inputOverride = input;
     }
 
     /// <summary>The terminal answered DECRQM for mode 2026 (synchronized output) with "supported" (1 or 2).</summary>
@@ -198,22 +224,23 @@ public sealed class VirtualTerminal : IVirtualTerminal
     /// </summary>
     public void EnterAlternateScreen()
     {
-        if (s_isInputRedirected) return; // No alternate screen when stdin is redirected
+        if (_inputOverride is null && s_isInputRedirected) return; // No alternate screen when stdin is redirected
 
-        if (OperatingSystem.IsWindows())
+        if (_outOverride is null && OperatingSystem.IsWindows())
         {
             WindowsConsoleInput.EnableVirtualTerminalIO();
         }
 
-        System.Console.Write("\e[?1049h"); // Enter alternate buffer
-        System.Console.Write(HideCursorEscape); // Hide cursor
+        Out.Write("\e[?1049h"); // Enter alternate buffer
+        Out.Write(HideCursorEscape); // Hide cursor
         _caretShown = false;
-        System.Console.Write("\e[?1000h"); // VT200 mouse tracking (basic button press/release and wheel)
-        System.Console.Write("\e[?1002h"); // Button-motion tracking (drag reports while a button is held)
-        System.Console.Write("\e[?1006h"); // SGR extended tracking
+        Out.Write("\e[?1000h"); // VT200 mouse tracking (basic button press/release and wheel)
+        Out.Write("\e[?1002h"); // Button-motion tracking (drag reports while a button is held)
+        _anyMotionEnabled = MouseTracking == MouseTracking.AnyMotion;
+        Out.Write("\e[?1006h"); // SGR extended tracking
         Flush();
 
-        _stdIn = System.Console.OpenStandardInput();
+        _stdIn = _inputOverride ?? System.Console.OpenStandardInput();
         _alternateScreen = true;
     }
 
@@ -748,11 +775,18 @@ public sealed class VirtualTerminal : IVirtualTerminal
     public void Inject(ConsoleInputEvent evt) => _injected.Enqueue(evt);
 #endif
 
+    /// <summary>Whether more input bytes are waiting: the override stream when a test gave one, else the console.</summary>
+    private bool MoreBytesAvailable() =>
+        _inputOverride is { } input
+            ? input.Position < input.Length
+            : (s_isInputRedirected ? System.Console.In.Peek() != -1 : System.Console.KeyAvailable);
+
     public bool HasInput() =>
 #if DEBUG
         !_injected.IsEmpty ||
 #endif
-        (s_isInputRedirected ? System.Console.In.Peek() != -1 : System.Console.KeyAvailable);
+        _pending is not null ||
+        MoreBytesAvailable();
 
     /// <summary>
     /// Attempts to read input from the terminal.
@@ -827,31 +861,32 @@ public sealed class VirtualTerminal : IVirtualTerminal
     {
         if (_caretShape is not null)
         {
-            System.Console.Write(ResetCaretShapeEscape);
+            Out.Write(ResetCaretShapeEscape);
             // In normal-buffer mode there is no unconditional show below, and the caret machinery may have
             // left the cursor retracted mid-paint — hand the user's shell a visible cursor back.
-            if (!_alternateScreen) System.Console.Write(ShowCursorEscape);
+            if (!_alternateScreen) Out.Write(ShowCursorEscape);
         }
 
         var restoreTitle = TitleRestoreEscape(_titlePushed);
-        if (restoreTitle.Length > 0) System.Console.Write(restoreTitle);
+        if (restoreTitle.Length > 0) Out.Write(restoreTitle);
 
         if (_alternateScreen)
         {
-            System.Console.Write("\e[?1000l"); // Disable VT200 mouse tracking
-            System.Console.Write("\e[?1002l"); // Disable button-motion tracking
-            System.Console.Write("\e[?1006l"); // Disable SGR extended tracking
+            Out.Write("\e[?1000l"); // Disable VT200 mouse tracking
+            Out.Write("\e[?1002l"); // Disable button-motion tracking
+            Out.Write("\e[?1006l"); // Disable SGR extended tracking
 
-            System.Console.Write(ShowCursorEscape); // Show cursor
-            System.Console.Write("\e[?1049l"); // Leave alternate buffer
+            Out.Write(ShowCursorEscape); // Show cursor
+            Out.Write("\e[?1049l"); // Leave alternate buffer
         }
 
-        if (OperatingSystem.IsWindows())
+        if (_outOverride is null && OperatingSystem.IsWindows())
         {
             WindowsConsoleInput.RestoreConsoleMode();
         }
 
-        OutputStream.Dispose();
+        if (_outOverride is null) OutputStream.Dispose();
+        else Out.Flush();
 
         if (_stdIn is { } stdIn)
         {
@@ -944,7 +979,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
             return new(null, key, modifiers, keyChar);
         }
 
-        while (s_isInputRedirected ? System.Console.In.Peek() != -1 : System.Console.KeyAvailable)
+        while (MoreBytesAvailable())
         {
             var ch = stdIn.ReadByte();
             if (ch == -1)
