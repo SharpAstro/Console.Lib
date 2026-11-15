@@ -266,13 +266,14 @@ public class CellInputRouterTests
             Layout.Builder.HStack(Layout.Builder.Text("row", 1f).RowH(1).WStar())
                 .RowH(1).WStar().BgHover(hover).WithTooltip("tip"));
         host.Frame(tree);
-        host.Buffer.BackAt(30, 0).Style.Background.ShouldNotBe(hover);
+        // The host viewport is Sgr16, so a pen is quantized: compare against the unlit cell, not the raw colour.
+        var unlit = host.Buffer.BackAt(30, 0).Style.Background;
 
         host.Router.Handle(new InputEvent.MouseMove(30, 0, MouseButton.None, InputModifier.None));
         host.Router.Tooltip.ShouldBeNull();
         host.Surface.Pointer.ShouldNotBeNull();
         host.Frame(tree);
-        host.Buffer.BackAt(30, 0).Style.Background.ShouldBe(hover);
+        host.Buffer.BackAt(30, 0).Style.Background.ShouldNotBe(unlit);
 
         clock.Now += host.Router.TooltipDelay + TimeSpan.FromMilliseconds(1);
         host.Router.Tooltip.ShouldNotBeNull().Text.ShouldBe("tip");
@@ -280,7 +281,7 @@ public class CellInputRouterTests
         host.Router.Handle(new InputEvent.PointerLeft());
         host.Router.Tooltip.ShouldBeNull();
         host.Frame(tree);
-        host.Buffer.BackAt(30, 0).Style.Background.ShouldNotBe(hover);
+        host.Buffer.BackAt(30, 0).Style.Background.ShouldBe(unlit);
     }
 
     [Fact]
