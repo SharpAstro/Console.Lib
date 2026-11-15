@@ -104,6 +104,7 @@ public class CellDeclaredListTests
         host.Frame(a, b);
 
         host.Press(25, 0); // row 0 of the right-hand list
+        b.Cursor.Index.ShouldBe(0, "the press opens the pressed list's cursor at the pressed row");
         host.Key(InputKey.Down);
         host.Key(InputKey.Down);
 
@@ -162,6 +163,7 @@ public class CellDeclaredListTests
         list.Cursor.Index.ShouldBe(4);
         list.Scroll.Offset.ShouldBe(2f);
 
+        host.Frame(list); // the host repaints each frame, and row 4 now has a region
         host.Key(InputKey.Enter).ShouldBeTrue();
         list.Activated.ShouldBe([4]);
     }
