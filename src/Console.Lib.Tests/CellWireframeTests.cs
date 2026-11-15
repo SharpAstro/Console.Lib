@@ -196,6 +196,32 @@ public class CellWireframeTests
         CellRules(result).ShouldNotContain(CellWireframeRules.CutWithRoom, CellWireframe.Describe(result));
     }
 
+    [Theory]
+    [InlineData(TextTrim.Start)]
+    [InlineData(TextTrim.End)]
+    [InlineData(TextTrim.Middle)]
+    public void LabelTrimmedToOneCellIsNotReportedAsCutWithNoEllipsis(TextTrim trim)
+    {
+        var frame = Record(Arrange((Label("a long label", trim), new Rect<int>(0, 0, 1, 1))));
+
+        var findings = CellWireframe.Check(frame);
+
+        findings.ShouldBeEmpty(Wireframe.Describe(findings));
+    }
+
+    [Fact]
+    public void CutLabelWithAHostPaintedFillLeafToItsRightIsNotCutWithRoom()
+    {
+        var container = new Layout.Node.Stack([]);
+        var hostPainted = Layout.Builder.Fill(6f, 1f);
+        var result = CellWireframe.CheckCells(RecordCells([
+            At(container, new Rect<int>(0, 0, 12, 1), 0),
+            At(Label("a long label"), new Rect<int>(0, 0, 6, 1), 1),
+            At(hostPainted, new Rect<int>(6, 0, 6, 1), 1)]));
+
+        CellRules(result).ShouldNotContain(CellWireframeRules.CutWithRoom, CellWireframe.Describe(result));
+    }
+
     [Fact]
     public void LabelCutFlushAgainstItsContainersEdgeIsNotCutWithRoom()
     {

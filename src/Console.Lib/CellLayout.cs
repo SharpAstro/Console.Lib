@@ -249,7 +249,7 @@ public static class CellLayout
             }
 
             recorder?.Node(arrangedNode.Depth, arrangedNode.Bounds, rect, node is Layout.Node.Leaf { Content: Layout.Content.Text },
-                nodeFilled, nodePainted, node is Layout.Node.Leaf { Content: Layout.Content.Icon or Layout.Content.TextInput });
+                nodeFilled, nodePainted, node is Layout.Node.Leaf { Content: Layout.Content.Icon or Layout.Content.TextInput or Layout.Content.Fill });
 
             if (recorder is not null && HitOf(node) is { } regionHit)
             {

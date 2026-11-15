@@ -39,23 +39,21 @@ internal static class CellRules
         return found.ToImmutable();
     }
 
-    /// <summary>True when fact <paramref name="j"/> encloses fact <paramref name="index"/>: it precedes it and every fact between is deeper.</summary>
-    private static bool IsAncestor(ImmutableArray<CellFact> facts, int j, int index)
+    /// <summary>The indices of the facts enclosing fact <paramref name="index"/>: walking back, each strictly shallower fact is an ancestor.</summary>
+    private static HashSet<int> AncestorsOf(ImmutableArray<CellFact> facts, int index)
     {
-        if (j >= index || facts[j].Depth >= facts[index].Depth)
+        var ancestors = new HashSet<int>();
+        var depth = facts[index].Depth;
+        for (var j = index - 1; j >= 0 && depth > 0; j--)
         {
-            return false;
-        }
-
-        for (var k = j + 1; k < index; k++)
-        {
-            if (facts[k].Depth <= facts[j].Depth)
+            if (facts[j].Depth < depth)
             {
-                return false;
+                ancestors.Add(j);
+                depth = facts[j].Depth;
             }
         }
 
-        return true;
+        return ancestors;
     }
 
     /// <summary>The free cells right of text on its row inside the nearest enclosing container, or null when there are none.</summary>
@@ -87,9 +85,10 @@ internal static class CellRules
         // Any other arranged thing that paints in the span takes the room: text, a painted fill (a Box
         // swatch or a node's own background), or a non-text leaf such as an icon or a text input. Ancestors
         // are skipped (the container's own fill is the ground the label sits on, not a neighbour).
+        var ancestors = AncestorsOf(facts, index);
         for (var j = 0; j < facts.Length; j++)
         {
-            if (j == index || IsAncestor(facts, j, index))
+            if (j == index || ancestors.Contains(j))
             {
                 continue;
             }
