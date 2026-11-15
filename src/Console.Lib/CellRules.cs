@@ -37,6 +37,7 @@ internal static class CellRules
                 var empty = f.Clipped.Height - 1;
                 found.Add(new CellWireframeFinding(CellWireframeRules.EmptyRows,
                     $"a filled container is arranged {f.Clipped.Height} rows tall but its content sits on row {contentRow} only; {empty} row(s) are empty inside its fill (own vertical padding {f.PaddingRows} row(s))",
+                    // Where is the clipped rect (what a person sees), unlike the rules above that report the arranged box.
                     new RectF32(f.Clipped.X, f.Clipped.Y, f.Clipped.Width, f.Clipped.Height)));
             }
 
@@ -69,6 +70,12 @@ internal static class CellRules
             int top, bottom;
             if (d.IsText)
             {
+                if (d.Row < 0)
+                {
+                    // The text leaf never painted (TextFact was not called), so it has no row: it is not content.
+                    continue;
+                }
+
                 top = d.Row;
                 bottom = d.Row + 1;
             }
