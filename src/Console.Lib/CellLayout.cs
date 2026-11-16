@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Immutable;
 using System.Text;
 using DIR.Lib;
@@ -248,7 +248,8 @@ public static class CellLayout
                 : node.HoverBackground is { } hover && pointer is { } at && at.X >= rect.X && at.X < rect.X + rect.Width && at.Y >= rect.Y && at.Y < rect.Y + rect.Height
                     ? hover
                     : node.Background;
-            if (nodeFill is { } bg)
+            // A fill of alpha 0 is transparent: it writes no cell and records no fill, so what is beneath stays.
+            if (nodeFill is { Alpha: > 0 } bg)
             {
                 recorder?.Fill(rect, bg);
                 nodePainted = PaintFill(viewport, arranged, index, pixel, rect, bg, mode, under, rounded, reverse, fillOf, scrolls.Count > 0 ? scrolls.Peek().Clip : null);
