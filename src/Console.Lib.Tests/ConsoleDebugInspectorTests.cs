@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using DIR.Lib;
+using DIR.Lib.Diagnostics;
 using Shouldly;
 using Xunit;
 
@@ -494,7 +495,7 @@ public sealed class ConsoleDebugInspectorTests
     [Fact]
     public void Attach_WithTheOptInAbsent_StartsNothing()
     {
-        using var _ = new EnvironmentScope(null, null);
+        using var env = new EnvironmentScope(null, null);
         using var inspector = ConsoleDebugInspector.Attach("Inert", new FakeScreen(12, 2));
 
         inspector.Port.ShouldBe(-1, "no listener may be bound without the opt-in");
@@ -504,7 +505,7 @@ public sealed class ConsoleDebugInspectorTests
     [Fact]
     public void Attach_WithTheOptInButNoToken_StartsNothing()
     {
-        using var _ = new EnvironmentScope("1", null);
+        using var env = new EnvironmentScope("1", null);
         using var inspector = ConsoleDebugInspector.Attach("NoToken", new FakeScreen(12, 2));
 
         inspector.Port.ShouldBe(-1);
@@ -528,7 +529,7 @@ public sealed class ConsoleDebugInspectorTests
     [Trait("Category", "Functional")]
     public void OverTheWire_WithTheOptIn_ATokenlessClientIsRefusedAndOneWithTheTokenGetsPing()
     {
-        using var _ = new EnvironmentScope("1", Token);
+        using var env = new EnvironmentScope("1", Token);
         using var inspector = ConsoleDebugInspector.Attach("WireTest", new FakeScreen(12, 2));
         inspector.Port.ShouldBeGreaterThan(0);
 
