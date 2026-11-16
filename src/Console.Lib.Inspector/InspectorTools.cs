@@ -24,7 +24,8 @@ public sealed class InspectorTools
         {
             sb.AppendLine("No debuggable terminal apps found. The app must have the inspector attached and, in a Release build, "
                  + "opted in with DIR_INSPECTOR=1 and DIR_INSPECTOR_TOKEN set to a secret of your choosing "
-                 + "(the same token must be set for this sidecar). With them unset the app listens on nothing.");
+                 + "(the same token must be set for this sidecar). With them unset the app listens on nothing. A trimmed or NativeAOT "
+                 + "publish also drops the inspector unless it was published with -p:DirInspectorSupport=true.");
         }
         foreach (var i in all)
         {
@@ -219,7 +220,8 @@ public sealed class InspectorTools
         {
             throw new InvalidOperationException(
                 "No debuggable terminal app found. It must have the inspector attached and, in a Release build, "
-                + "be started with DIR_INSPECTOR=1 and DIR_INSPECTOR_TOKEN.");
+                + "be started with DIR_INSPECTOR=1 and DIR_INSPECTOR_TOKEN. A trimmed or NativeAOT publish drops the inspector "
+                + "unless it was published with -p:DirInspectorSupport=true.");
         }
 
         if (pid != 0)
