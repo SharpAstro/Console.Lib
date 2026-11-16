@@ -554,6 +554,12 @@ while (!menu.IsConfirmed)
 int chosen = menu.SelectedIndex;
 ```
 
+**`RenderPanel()`** draws the same menu as a card (DIR.Lib's `MenuLayout.BuildPanel`) centred over whatever the host painted first. The viewport is not cleared, and the scrim is transparent by default: a fill of alpha 0 writes no cell, so every cell outside the card is left untouched (a cell viewport cannot read cells back, so there is no dimming). The card is a box-drawing border (`PanelStyle`, in cells: 24 to 60 wide, 2-cell margin, one-cell border; a portrait viewport gets full width less the margins). Mouse and keys work as with `Render()`, and `HandleMouse` consumes a press outside the card (returns `true`, confirms nothing); a press on a row confirms it.
+
+```csharp
+menu.RenderPanel();   // after drawing the page beneath it
+```
+
 Use `MenuWidget` when you want an in-layout menu surface (it owns one viewport like any other widget); use [`MenuBase<T>`](#menubaset) for a fullscreen, await-driven prompt with normal-mode fallback.
 
 ## Sixel graphics
