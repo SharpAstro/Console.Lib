@@ -23,6 +23,9 @@ public class MenuTests
             => ShowMenuAsync("Title", "Pick one:", items, cancellationToken);
     }
 
+    /// <summary>A panel test must fail with a message, not wait for ever on the clock below: cancel after a few seconds.</summary>
+    private static CancellationToken Deadline() => new CancellationTokenSource(TimeSpan.FromSeconds(5)).Token;
+
     /// <summary>Time that never advances by itself: a panel test with queued input must never reach a delay.</summary>
     private sealed class FakeClock : TimeProvider;
 
@@ -63,7 +66,7 @@ public class MenuTests
         public void EnterAlternateScreen() => IsAlternateScreen = true;
         public bool IsAlternateScreen { get; private set; }
         public void Clear() => ClearCount++;
-        public bool HasInput() => _inputs.Count > 0;
+        public bool HasInput() => _inputs.Count > 0 ? true : throw new InvalidOperationException("input exhausted before the menu returned");
         public ConsoleInputEvent TryReadInput() => _inputs.Dequeue();
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
@@ -91,7 +94,7 @@ public class MenuTests
     {
         var t = PanelTerminal(Key(ConsoleKey.DownArrow), Key(ConsoleKey.Enter));
 
-        (await new PanelMenu(t, TestItems).ShowAsync(CancellationToken.None)).ShouldBe(1);
+        (await new PanelMenu(t, TestItems).ShowAsync(Deadline())).ShouldBe(1);
 
         t.ClearCount.ShouldBe(0);
         RowText(t.Buffer, 0).ShouldBe(new string('.', 60));
@@ -104,7 +107,7 @@ public class MenuTests
     {
         var t = PanelTerminal(Key(ConsoleKey.D3));
 
-        (await new PanelMenu(t, TestItems).ShowAsync(CancellationToken.None)).ShouldBe(2);
+        (await new PanelMenu(t, TestItems).ShowAsync(Deadline())).ShouldBe(2);
     }
 
     [Fact]
@@ -117,9 +120,9 @@ public class MenuTests
         widget.RenderPanel();
         var gamma = Enumerable.Range(0, 24).First(r => RowText(probe.Buffer, r).Contains("Gamma"));
 
-        var t = PanelTerminal(Press(2, 2), Press(30, gamma));
+        var t = PanelTerminal(Press(2, 2), Press(23, gamma));
 
-        (await new PanelMenu(t, TestItems).ShowAsync(CancellationToken.None)).ShouldBe(2);
+        (await new PanelMenu(t, TestItems).ShowAsync(Deadline())).ShouldBe(2);
     }
 
     private static readonly string[] TestItems = ["Alpha", "Beta", "Gamma"];
