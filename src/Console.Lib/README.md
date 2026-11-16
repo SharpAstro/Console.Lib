@@ -828,6 +828,10 @@ In panel mode the header shows a "< Back" and a close mark for the actions given
 every mode (panel, alternate rows, normal) Esc returns Back when the step has it, else Close when it has it, else is
 ignored. The int-returning `ShowMenuAsync` is unchanged.
 
+Override `protected virtual void OnIdle()` (5.31) to run code on every wait-loop pass with no input waiting, in every
+mode, on the menu's thread. A host can call its debug inspector's `Pump()` there so the inspector stays live while a
+menu is up; `MenuBase` itself knows nothing of the inspector. Keep it short, it delays the next input check.
+
 ## Console size
 
 ```csharp

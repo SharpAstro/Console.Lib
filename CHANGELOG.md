@@ -9,6 +9,11 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.31
+
+- `MenuBase<T>.OnIdle()` (#94): a protected virtual hook (empty by default) called on every pass of the wait loop with no
+  input waiting, in normal, alternate rows and panel modes, so a host can pump `ConsoleDebugInspector` while a menu is up.
+
 ## 5.30
 
 - `MenuWidget.Back` / `MenuWidget.Close` (#92): the panel's header controls. `RenderPanel()` shows a "< Back" control at the

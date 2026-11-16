@@ -37,6 +37,57 @@ public class MenuTests
     /// <summary>Time that never advances by itself: a panel test with queued input must never reach a delay.</summary>
     private sealed class FakeClock : TimeProvider;
 
+    /// <summary>A clock whose timers fire at once (off the calling thread), so a menu's idle delay costs no wall time.</summary>
+    private sealed class InstantClock : TimeProvider
+    {
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            ThreadPool.QueueUserWorkItem(_ => callback(state));
+            return new NullTimer();
+        }
+
+        private sealed class NullTimer : ITimer
+        {
+            public bool Change(TimeSpan dueTime, TimeSpan period) => true;
+            public void Dispose() { }
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
+    /// <summary>Counts <see cref="MenuBase{T}.OnIdle"/> and, on the Nth call, queues the key that chooses row 2.</summary>
+    private sealed class IdleMenu(BufferTerminal terminal, bool panel, int chooseOnCall) : MenuBase<int>(terminal, new InstantClock())
+    {
+        public int IdleCalls { get; private set; }
+        protected override bool UsePanel => panel;
+        protected override void OnIdle()
+        {
+            IdleCalls++;
+            if (IdleCalls == chooseOnCall) terminal.Enqueue(Key(ConsoleKey.D2));
+        }
+        protected override Task<int> ShowAsyncCore(CancellationToken cancellationToken)
+            => ShowMenuAsync("Title", "Pick one:", ["Alpha", "Beta", "Gamma"], cancellationToken);
+    }
+
+    private static async Task AssertIdleHook(bool alternate, bool panel)
+    {
+        var t = new BufferTerminal(new Queue<ConsoleInputEvent>(), 60, 24) { IdleWhenEmpty = true };
+        if (alternate) t.EnterAlternateScreen();
+        var menu = new IdleMenu(t, panel, chooseOnCall: 3);
+
+        (await menu.ShowAsync(Deadline())).ShouldBe(1);
+
+        menu.IdleCalls.ShouldBe(3);
+    }
+
+    [Fact]
+    public Task OnIdle_NormalMode_RunsWhileNoInputWaiting() => AssertIdleHook(alternate: false, panel: false);
+
+    [Fact]
+    public Task OnIdle_AlternateRows_RunsWhileNoInputWaiting() => AssertIdleHook(alternate: true, panel: false);
+
+    [Fact]
+    public Task OnIdle_Panel_RunsWhileNoInputWaiting() => AssertIdleHook(alternate: true, panel: true);
+
     /// <summary>A terminal whose cells land in a <see cref="CellBuffer"/>, so a test can read the screen back.</summary>
     private sealed class BufferTerminal : IVirtualTerminal
     {
@@ -74,7 +125,10 @@ public class MenuTests
         public void EnterAlternateScreen() => IsAlternateScreen = true;
         public bool IsAlternateScreen { get; private set; }
         public void Clear() => ClearCount++;
-        public bool HasInput() => _inputs.Count > 0 ? true : throw new InvalidOperationException("input exhausted before the menu returned");
+        /// <summary>When true, an empty queue means "no input waiting" instead of a failure (idle-hook tests).</summary>
+        public bool IdleWhenEmpty { get; init; }
+        public void Enqueue(ConsoleInputEvent e) => _inputs.Enqueue(e);
+        public bool HasInput() => _inputs.Count > 0 ? true : IdleWhenEmpty ? false : throw new InvalidOperationException("input exhausted before the menu returned");
         public ConsoleInputEvent TryReadInput() => _inputs.Dequeue();
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
