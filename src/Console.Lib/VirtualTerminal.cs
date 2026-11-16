@@ -1,3 +1,4 @@
+using System.Threading;
 using System.Text;
 
 namespace Console.Lib;
@@ -7,11 +8,9 @@ namespace Console.Lib;
 /// and provides platform-aware mouse input reading.
 /// </summary>
 public sealed class VirtualTerminal : IVirtualTerminal
-#if DEBUG
     // Satisfied by members that already exist; declaring it is what lets the debug inspector be driven
     // against a fake screen in a test instead of only against a real console.
     , IInspectableTerminal
-#endif
 {
     private bool _initialized;
     private bool _noConsole;
@@ -763,24 +762,23 @@ public sealed class VirtualTerminal : IVirtualTerminal
 
     public Stream OutputStream { get; } = System.Console.OpenStandardOutput();
 
-#if DEBUG
     /// <summary>
     /// Input injected by a driver rather than typed — the debug inspector's `key` and `click`. Kept
     /// separate from the real stream and drained FIRST, so a synthetic event cannot be interleaved into
     /// the middle of an escape sequence the parser is midway through reading.
     /// <para>
-    /// DEBUG-only, like the inspector that feeds it: a release build carries neither the queue nor the
-    /// check for it, so the input path costs exactly what it did before.
+    /// Created lazily, on the first <see cref="Inject"/>, which only an opted-in inspector ever calls: a
+    /// process that never opts in allocates nothing and the input path pays one null check.
     /// </para>
     /// </summary>
-    private readonly System.Collections.Concurrent.ConcurrentQueue<ConsoleInputEvent> _injected = new();
+    private System.Collections.Concurrent.ConcurrentQueue<ConsoleInputEvent>? _injected;
 
     /// <summary>
     /// Queues a synthetic input event, to be returned by the next <see cref="TryReadInput"/> as though it
     /// had been typed. Thread-safe: the inspector's socket thread enqueues, the app's loop thread drains.
     /// </summary>
-    public void Inject(ConsoleInputEvent evt) => _injected.Enqueue(evt);
-#endif
+    public void Inject(ConsoleInputEvent evt)
+        => (_injected ?? Interlocked.CompareExchange(ref _injected, new(), null) ?? _injected).Enqueue(evt);
 
     /// <summary>Whether more input bytes are waiting: the override stream when a test gave one, else the console.</summary>
     private bool MoreBytesAvailable() =>
@@ -789,9 +787,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
             : (s_isInputRedirected ? System.Console.In.Peek() != -1 : System.Console.KeyAvailable);
 
     public bool HasInput() =>
-#if DEBUG
-        !_injected.IsEmpty ||
-#endif
+        _injected is { IsEmpty: false } ||
         _pending is not null ||
         MoreBytesAvailable();
 
@@ -832,13 +828,11 @@ public sealed class VirtualTerminal : IVirtualTerminal
             return held;
         }
 
-#if DEBUG
         // Injected events come first and never mix with the real stream — see Inject.
-        if (_injected.TryDequeue(out var synthetic))
+        if (_injected is not null && _injected.TryDequeue(out var synthetic))
         {
             return synthetic;
         }
-#endif
 
         // only in alternate screen we enabled SGR mouse tracking, so we only attempt to parse it there
         if (_alternateScreen)
