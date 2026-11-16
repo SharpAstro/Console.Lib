@@ -1,13 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Published NuGet MCP-server package: a standalone stdio bridge that discovers running Debug-build
-    Console.Lib TUI apps (in DIR.Lib's per-user file registry, then over UDP multicast) and drives them
-    over TCP.
+    Published NuGet MCP-server package: a standalone stdio bridge that discovers running Console.Lib
+    TUI apps with the inspector on (in DIR.Lib's per-user file registry, then over UDP multicast) and
+    drives them over TCP.
 
     It references NOTHING from Console.Lib — it speaks the JSON protocol. That is deliberate: the
-    in-process inspector half is #if DEBUG and never ships, so a sidecar that linked the library would
-    be coupled to a build configuration it cannot see.
+    in-process inspector half runs inside the app (always in Debug; in Release only when the app opts in
+    with DIR_INSPECTOR=1 and DIR_INSPECTOR_TOKEN), so a sidecar that linked the library would be coupled
+    to a build the target app may not share. The sidecar sends DIR_INSPECTOR_TOKEN with each request.
 
     Run during development:  dotnet run, from this project directory (add `selftest` for a headless check).
     Consume from NuGet:      dnx Console.Lib.Inspector (with the dnx auto-confirm flag).
@@ -29,7 +30,7 @@
          separately versioned, but CI's solution-wide -p:Version overrode it on every
          run, so nuget.org only ever saw lockstep versions and the literal just made
          local packs disagree. See the props comment before reinstating it. -->
-    <Description>MCP server that discovers running Debug-build terminal apps (built on Console.Lib) and lets an AI agent read their screen as text, inspect app state, and drive them with injected keys and clicks.</Description>
+    <Description>MCP server that discovers running terminal apps (built on Console.Lib) that have the inspector on and lets an AI agent read their screen as text, inspect app state, and drive them with injected keys and clicks.</Description>
     <PackageTags>mcp;ai;terminal;tui;console;debugging;inspector</PackageTags>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <PackageReadmeFile>README.md</PackageReadmeFile>
