@@ -181,7 +181,7 @@ public class MenuWidgetTests
         widget.IsConfirmed.ShouldBeFalse();
 
         var beta = Enumerable.Range(0, 24).First(r => RowText(buffer, r).Contains("Beta"));
-        widget.HandleMouse(new MouseEvent(0, 30 * 10 + 5, beta * 20 + 5, IsRelease: false)).ShouldBeTrue();
+        widget.HandleMouse(new MouseEvent(0, 23 * 10 + 5, beta * 20 + 5, IsRelease: false)).ShouldBeTrue();
         widget.IsConfirmed.ShouldBeTrue();
         widget.SelectedIndex.ShouldBe(1);
     }
