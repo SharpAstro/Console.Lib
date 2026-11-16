@@ -1,4 +1,3 @@
-#if DEBUG
 using System;
 using System.Text;
 using System.Text.Json;
@@ -40,7 +39,10 @@ public interface IInspectableTerminal
 /// <c>cell</c> — glyph plus pen at a position, <c>appState</c> — the host's own snapshot, <c>key</c>,
 /// <c>click</c>, <c>drag</c>, <c>size</c>, <c>inputLog</c> — the last N events with the state they changed.</para>
 ///
-/// <para>DEBUG only, loopback only.</para>
+/// <para>Compiled into every configuration, inert unless the process opts in at run time: <see cref="Attach"/>
+/// starts the command server only when <c>DIR_INSPECTOR=1</c> and <c>DIR_INSPECTOR_TOKEN</c> are set
+/// (see <see cref="DebugInspectorCore.StartIfOptedIn(IDebugInspectorHost, DebugInspectorDiscovery)"/>), and
+/// every request must then carry the token. Loopback only.</para>
 /// </summary>
 public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
 {
@@ -60,7 +62,7 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
     /// instance invisible.</summary>
     public string SurfaceKind => "tui";
 
-    /// <summary>The command server's port; -1 when <see cref="Detached"/>.</summary>
+    /// <summary>The command server's port; -1 when <see cref="Detached"/> or not opted in.</summary>
     public int Port => _core?.Port ?? -1;
 
     /// <param name="appName">Names the app in the banner.</param>
@@ -75,11 +77,14 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
         AppName = appName;
         _terminal = terminal;
         _appState = appState;
-        _core = withTransport ? DebugInspectorCore.Start(this) : null;
+        _core = withTransport ? DebugInspectorCore.StartIfOptedIn(this) : null;
     }
 
-    /// <summary>Starts the inspector and its command server. The caller must call <see cref="Pump"/> from
-    /// its loop, or no command will ever run.</summary>
+    /// <summary>Starts the inspector and its command server when the process opted in
+    /// (<c>DIR_INSPECTOR=1</c> and <c>DIR_INSPECTOR_TOKEN</c>); otherwise returns an inert inspector (no
+    /// listener, no registry descriptor, <see cref="Port"/> -1, <see cref="Pump"/> a no-op), so an app can
+    /// call this unconditionally. The caller must call <see cref="Pump"/> from its loop, or no command will
+    /// ever run.</summary>
     public static ConsoleDebugInspector Attach(string appName, IInspectableTerminal terminal, Func<string>? appState = null)
         => new(appName, terminal, appState, withTransport: true);
 
@@ -512,4 +517,3 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
 
     public void Dispose() => _core?.Dispose();
 }
-#endif

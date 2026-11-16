@@ -1,4 +1,3 @@
-#if DEBUG
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -22,6 +21,7 @@ namespace Console.Lib.Tests;
 /// every one of them depend on port availability and on joining a multicast group, which has nothing to do
 /// with what is being checked. The transport gets ONE functional test, at the bottom, marked as such.</para>
 /// </summary>
+[Collection(InspectorEnvironmentCollection.Name)]
 public sealed class ConsoleDebugInspectorTests
 {
     /// <summary>A screen and an input queue, with no console behind them.</summary>
@@ -466,38 +466,101 @@ public sealed class ConsoleDebugInspectorTests
     }
 
     // ------------------------------------------------------------------------------------------------
-    // Transport. ONE test, because the wire contract does deserve covering — a driver has to be able to
-    // connect, get its id echoed, and see an error rather than a silent empty result. Everything above is
-    // socket-free precisely so this is the only test that can be flaky about ports.
+    // The run-time opt-in (DIR_INSPECTOR=1 + DIR_INSPECTOR_TOKEN) and the transport. These set process
+    // environment, so the class is in a non-parallel collection and every test restores the variables.
     // ------------------------------------------------------------------------------------------------
+
+    private const string Token = "console-lib-test-token";
+    private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(10);
+
+    private sealed class EnvironmentScope : IDisposable
+    {
+        private readonly string? _optIn = System.Environment.GetEnvironmentVariable(DebugInspectorCore.OptInVariable);
+        private readonly string? _token = System.Environment.GetEnvironmentVariable(DebugInspectorCore.TokenVariable);
+
+        public EnvironmentScope(string? optIn, string? token)
+        {
+            System.Environment.SetEnvironmentVariable(DebugInspectorCore.OptInVariable, optIn);
+            System.Environment.SetEnvironmentVariable(DebugInspectorCore.TokenVariable, token);
+        }
+
+        public void Dispose()
+        {
+            System.Environment.SetEnvironmentVariable(DebugInspectorCore.OptInVariable, _optIn);
+            System.Environment.SetEnvironmentVariable(DebugInspectorCore.TokenVariable, _token);
+        }
+    }
+
+    [Fact]
+    public void Attach_WithTheOptInAbsent_StartsNothing()
+    {
+        using var _ = new EnvironmentScope(null, null);
+        using var inspector = ConsoleDebugInspector.Attach("Inert", new FakeScreen(12, 2));
+
+        inspector.Port.ShouldBe(-1, "no listener may be bound without the opt-in");
+        inspector.Pump(); // a no-op, not a throw
+    }
+
+    [Fact]
+    public void Attach_WithTheOptInButNoToken_StartsNothing()
+    {
+        using var _ = new EnvironmentScope("1", null);
+        using var inspector = ConsoleDebugInspector.Attach("NoToken", new FakeScreen(12, 2));
+
+        inspector.Port.ShouldBe(-1);
+    }
+
+    [Fact]
+    public void TheInjectedQueue_IsNotAllocatedUntilFirstInject()
+    {
+        var terminal = new VirtualTerminal();
+        var field = typeof(VirtualTerminal).GetField("_injected", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        field.ShouldNotBeNull();
+
+        field.GetValue(terminal).ShouldBeNull("a process that never opts in allocates no queue");
+
+        terminal.Inject(new ConsoleInputEvent(null, ConsoleKey.A, 0));
+        field.GetValue(terminal).ShouldNotBeNull();
+        terminal.HasInput().ShouldBeTrue();
+    }
 
     [Fact]
     [Trait("Category", "Functional")]
-    public void OverTheWire_ARequestIsAnsweredAndAnUnknownVerbIsAnError()
+    public void OverTheWire_WithTheOptIn_ATokenlessClientIsRefusedAndOneWithTheTokenGetsPing()
     {
-        var screen = new FakeScreen(12, 2);
-        using var inspector = ConsoleDebugInspector.Attach("WireTest", screen);
+        using var _ = new EnvironmentScope("1", Token);
+        using var inspector = ConsoleDebugInspector.Attach("WireTest", new FakeScreen(12, 2));
+        inspector.Port.ShouldBeGreaterThan(0);
 
-        using var stop = new CancellationTokenSource();
+        using var stop = new CancellationTokenSource(Deadline);
         var pump = new Thread(() =>
         {
-            while (!stop.IsCancellationRequested) { inspector.Pump(); Thread.Sleep(2); }
+            // A timer wait on the stop token, never a spin; the deadline ends it with its owner.
+            while (!stop.IsCancellationRequested) { inspector.Pump(); stop.Token.WaitHandle.WaitOne(2); }
         }) { IsBackground = true };
         pump.Start();
 
         try
         {
-            using var tcp = new TcpClient("127.0.0.1", inspector.Port);
+            using var tcp = new TcpClient();
+            tcp.ConnectAsync("127.0.0.1", inspector.Port, stop.Token).AsTask().Wait(Deadline).ShouldBeTrue();
             using var stream = tcp.GetStream();
+            stream.ReadTimeout = (int)Deadline.TotalMilliseconds;
             using var reader = new StreamReader(stream, Encoding.UTF8);
             using var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true };
 
-            writer.WriteLine("{\"id\":7,\"method\":\"ping\",\"params\":{}}");
+            writer.WriteLine("{\"id\":6,\"method\":\"ping\",\"params\":{}}");
+            var refused = JsonDocument.Parse(reader.ReadLine().ShouldNotBeNull()).RootElement;
+            refused.GetProperty("id").GetInt32().ShouldBe(6);
+            refused.TryGetProperty("result", out _).ShouldBeFalse("a request without the token must not run");
+            refused.GetProperty("error").GetString().ShouldNotBeNull();
+
+            writer.WriteLine("{\"id\":7,\"method\":\"ping\",\"token\":\"" + Token + "\",\"params\":{}}");
             var pong = JsonDocument.Parse(reader.ReadLine().ShouldNotBeNull()).RootElement;
             pong.GetProperty("id").GetInt32().ShouldBe(7, "the id must be echoed so replies can be matched");
             pong.GetProperty("result").GetProperty("app").GetString().ShouldBe("WireTest");
 
-            writer.WriteLine("{\"id\":8,\"method\":\"nope\",\"params\":{}}");
+            writer.WriteLine("{\"id\":8,\"method\":\"nope\",\"token\":\"" + Token + "\",\"params\":{}}");
             var err = JsonDocument.Parse(reader.ReadLine().ShouldNotBeNull()).RootElement;
             err.GetProperty("id").GetInt32().ShouldBe(8);
             err.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("nope");
@@ -508,4 +571,10 @@ public sealed class ConsoleDebugInspectorTests
         }
     }
 }
-#endif
+
+/// <summary>Tests that set the inspector's process environment never run beside one another.</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class InspectorEnvironmentCollection
+{
+    public const string Name = "InspectorEnvironment";
+}
