@@ -18,9 +18,8 @@ namespace Console.Lib.Inspector;
 /// armed on the driver side too.
 /// </para>
 /// <para>
-/// It cannot borrow <c>DebugInspectorCore.Quote</c>: that lives behind <c>#if DEBUG</c>, so a published
-/// DIR.Lib does not contain it. A local copy is also consistent with this project referencing nothing from
-/// the framework.
+/// It does not borrow <c>DebugInspectorCore.Quote</c>: this project references nothing from the framework
+/// (see the csproj), so a local copy is the consistent choice.
 /// </para>
 /// </summary>
 internal static class Json
@@ -274,14 +273,26 @@ public sealed class InspectorDiscoveryClient(IPAddress group, int port)
 /// Sends one command over the app's TCP command server: newline-delimited JSON, one object each way.
 /// A connection per call — the exchanges are tiny and infrequent, and a pooled connection would have to
 /// survive the app exiting and restarting between tool calls, which is the common case while debugging.
+/// <para>
+/// A Release app that opted in (<c>DIR_INSPECTOR=1</c>) refuses any request that does not carry its per-run
+/// secret as a top-level <c>token</c> string. The client sends one when it has one: the explicit
+/// <c>token</c> argument, else the <c>DIR_INSPECTOR_TOKEN</c> variable of this process. An app that was not
+/// started with a token ignores the field.
+/// </para>
 /// </summary>
 public sealed class InspectorSocketClient
 {
+    /// <summary>The variable the token is read from by default; the same name the app reads.</summary>
+    public const string TokenVariable = "DIR_INSPECTOR_TOKEN";
+
     private int _id;
 
     public async Task<JsonElement> SendAsync(
-        InspectorInstance target, string method, string? paramsJson, CancellationToken ct = default)
+        InspectorInstance target, string method, string? paramsJson, CancellationToken ct = default,
+        string? token = null)
     {
+        token = string.IsNullOrEmpty(token) ? Environment.GetEnvironmentVariable(TokenVariable) : token;
+        var tokenField = string.IsNullOrEmpty(token) ? "" : $"\"token\":{Json.Quote(token)},";
         using var tcp = new TcpClient();
 
         // Loopback, NOT the address the discovery reply came from. The app's command server binds
@@ -296,7 +307,7 @@ public sealed class InspectorSocketClient
 
         var id = Interlocked.Increment(ref _id);
         await writer.WriteLineAsync(
-            $"{{\"id\":{id},\"method\":\"{method}\",\"params\":{paramsJson ?? "{}"}}}".AsMemory(), ct);
+            $"{{{tokenField}\"id\":{id},\"method\":\"{method}\",\"params\":{paramsJson ?? "{}"}}}".AsMemory(), ct);
 
         var line = await reader.ReadLineAsync(ct)
             ?? throw new InvalidOperationException("the app closed the connection without replying");
@@ -305,7 +316,14 @@ public sealed class InspectorSocketClient
         var root = doc.RootElement;
         if (root.TryGetProperty("error", out var err))
         {
-            throw new InvalidOperationException($"{method}: {err.GetString()}");
+            var message = err.GetString();
+            if (message == "!unauthorized")
+            {
+                throw new InvalidOperationException(string.IsNullOrEmpty(token)
+                    ? $"{method}: the app refused the request because it needs a token. Start the sidecar with {TokenVariable} set to the token the app was started with."
+                    : $"{method}: the app refused the request because the token is wrong. {TokenVariable} (or the token given) must equal the {TokenVariable} the app was started with.");
+            }
+            throw new InvalidOperationException($"{method}: {message}");
         }
         return root.GetProperty("result").Clone();
     }

@@ -22,8 +22,9 @@ public sealed class InspectorTools
         var sb = new StringBuilder();
         if (all.Count == 0)
         {
-            sb.AppendLine("No debuggable terminal apps found. The app must be a DEBUG build with the inspector attached "
-                 + "(for chess: CHESS_INSPECTOR=1 and `dotnet run -c Debug`). The inspector is compiled out of Release entirely.");
+            sb.AppendLine("No debuggable terminal apps found. The app must have the inspector attached and, in a Release build, "
+                 + "opted in with DIR_INSPECTOR=1 and DIR_INSPECTOR_TOKEN set to a secret of your choosing "
+                 + "(the same token must be set for this sidecar). With them unset the app listens on nothing.");
         }
         foreach (var i in all)
         {
@@ -217,7 +218,8 @@ public sealed class InspectorTools
         if (all.Count == 0)
         {
             throw new InvalidOperationException(
-                "No debuggable terminal app found. It must be a DEBUG build with the inspector attached.");
+                "No debuggable terminal app found. It must have the inspector attached and, in a Release build, "
+                + "be started with DIR_INSPECTOR=1 and DIR_INSPECTOR_TOKEN.");
         }
 
         if (pid != 0)

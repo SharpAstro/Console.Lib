@@ -73,10 +73,12 @@ builder.Services
     .AddMcpServer(options =>
     {
         options.ServerInstructions = """
-            Console.Lib live TUI inspector — discover and drive running Debug-build terminal apps.
+            Console.Lib live TUI inspector — discover and drive running terminal apps.
 
-            The target app must be a DEBUG build with the inspector attached; it is compiled out of Release
-            entirely. For chess: CHESS_INSPECTOR=1 with `dotnet run --project Chess.Console -c Debug`.
+            The target app must have the inspector attached. A Debug build starts it as before; a Release
+            build starts it only when launched with DIR_INSPECTOR=1 and DIR_INSPECTOR_TOKEN set to a secret.
+            Set the same DIR_INSPECTOR_TOKEN for this sidecar, which sends it with every request; with it
+            unset the app listens on nothing. For chess: CHESS_INSPECTOR=1 with `dotnet run --project Chess.Console -c Debug`.
 
             Start with list_instances. Then:
               - screen / row / cell  read the terminal as TEXT. Assert on words, not pixels.
