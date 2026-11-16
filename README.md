@@ -70,6 +70,10 @@ dotnet run --project src/MdCat -- README.md   # build & run the mdcat CLI in pla
 `Console.Lib` too, from 5.27. It is inert: set `DIR_INSPECTOR=1` and `DIR_INSPECTOR_TOKEN=<a secret>` in the app's
 environment to start it, and run the sidecar with the same `DIR_INSPECTOR_TOKEN`, which it sends with every request.
 With them unset nothing listens, and `DIR_INSPECTOR=1` without a token refuses to start.
+A trimmed or NativeAOT published app has no inspector at all unless it was published with
+`-p:DirInspectorSupport=true` (DIR.Lib's feature switch, `DebugInspectorCore.IsSupported`): the default publish drops
+the verbs and the command server, and `DIR_INSPECTOR=1` then only prints one `trimmed out of this build` line on stderr.
+`tools/inspector-aot-probe` is the proof.
 
 `Console.Lib.Debug` is the same library at the same version, built Debug, and it depends on `DIR.Lib.Debug`; other
 `#if DEBUG` types are only in it. Reference one or the other by configuration (Visual Studio needs a

@@ -68,6 +68,10 @@ only and fails if its restore pulled the plain DIR.Lib
 (`dotnet build tools/debug-twin-check/DebugTwinCheck.csproj -c Debug`, after a twin pack into
 `artifacts/debug-twin`; CI passes `-p:ConsoleLibDebugVersion=<stamped version>`).
 
+A **published** (trimmed or NativeAOT) app has no inspector unless it was published with `-p:DirInspectorSupport=true`: DIR.Lib's
+feature switch (`DebugInspectorCore.IsSupported`, 11.73) guards `ConsoleDebugInspector` and the injected-input queue, with no
+second switch here. `tools/inspector-aot-probe` (manual, not in the solution) proves it; it needs the VS Installer folder on PATH.
+
 ## DIR.Lib local-project reference
 
 `Console.Lib.csproj` uses a conditional reference for **DIR.Lib**: if the sibling working copy `../DIR.Lib/src/DIR.Lib/DIR.Lib.csproj` exists on disk, MSBuild picks it up as a `ProjectReference` (great for in-tree iteration). Otherwise it falls back to the NuGet `PackageReference`. The switch is controlled by the `UseLocalDirLib` MSBuild property, which can also be set explicitly (e.g., `-p:UseLocalDirLib=false`) to force the package path.

@@ -9,6 +9,24 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.28
+
+- `ConsoleDebugInspector` and `VirtualTerminal`'s injected-input queue are now trimmed out of a trimmed or NativeAOT
+  publish by default (#88), on DIR.Lib's inspector feature switch (`DebugInspectorCore.IsSupported`, DIR.Lib 11.73):
+  no second switch or property. An app that wants the inspector in a published build passes
+  `-p:DirInspectorSupport=true`. Run-time behaviour of a non-trimmed build is unchanged (still `DIR_INSPECTOR=1` plus
+  `DIR_INSPECTOR_TOKEN`).
+- Pins DIR.Lib and DIR.Lib.Debug at 11.73.7261.
+- `tools/inspector-aot-probe` (manual, outside the solution) is a minimal NativeAOT app that attaches the inspector.
+  Measured with `dotnet publish -c Release -r win-x64`: the default publish is 1,184,768 bytes, and with
+  `-p:DirInspectorSupport=true` it is 2,531,840 bytes. The default ILC map keeps only the shell the app's own `Attach`
+  call references (constructor, `Attach`, `Dispose`); every verb (`Invoke`, `Screen`, `Key`, `Click` and the rest) is
+  gone, against 24 methods in the `=true` map. Neither publish has an IL2xxx or IL3xxx warning. Run with
+  `DIR_INSPECTOR=1` and a token, the default build prints DIR.Lib's one `trimmed out of this build` line on stderr and
+  starts nothing; the `=true` build prints the command-server banner.
+- The `Console.Lib.Inspector` sidecar's "no debuggable terminal app found" messages now name a trimmed or NativeAOT
+  publish without `-p:DirInspectorSupport=true` as a likely cause.
+
 ## 5.27
 
 - The live inspector (`ConsoleDebugInspector`, `IInspectableTerminal`, `VirtualTerminal`'s injected-input queue)
