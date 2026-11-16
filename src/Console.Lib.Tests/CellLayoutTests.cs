@@ -337,6 +337,6 @@ public class CellLayoutTests
                 buffer.BackAt(x, y).Glyph.ShouldBe('.');
 
         var frame = CellWireframe.RecordCells(viewport, arranged);
-        CellWireframe.CheckCells(frame).CellFindings.Where(f => f.Rule == CellRules.VanishedFill).ShouldBeEmpty();
+        CellWireframe.CheckCells(frame).CellFindings.Where(f => f.Rule == CellWireframeRules.VanishedFill).ShouldBeEmpty();
     }
 }
