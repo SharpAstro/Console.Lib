@@ -23,6 +23,14 @@ public class MenuTests
             => ShowMenuAsync("Title", "Pick one:", items, cancellationToken);
     }
 
+    private sealed class ActionMenu(IVirtualTerminal terminal, MenuActions actions, bool panel)
+        : MenuBase<MenuChoice>(terminal, new FakeClock())
+    {
+        protected override bool UsePanel => panel;
+        protected override Task<MenuChoice> ShowAsyncCore(CancellationToken cancellationToken)
+            => ShowMenuAsync("Title", "Pick one:", ["Alpha", "Beta", "Gamma"], actions, cancellationToken);
+    }
+
     /// <summary>A panel test must fail with a message, not wait for ever on the clock below: cancel after a few seconds.</summary>
     private static CancellationToken Deadline() => new CancellationTokenSource(TimeSpan.FromSeconds(5)).Token;
 
@@ -123,6 +131,96 @@ public class MenuTests
         var t = PanelTerminal(Press(2, 2), Press(23, gamma));
 
         (await new PanelMenu(t, TestItems).ShowAsync(Deadline())).ShouldBe(2);
+    }
+
+    /// <summary>Finds the cell of a header control by rendering the same panel on a scratch terminal.</summary>
+    private static (int Col, int Row) FindInPanel(string text)
+    {
+        var probe = PanelTerminal();
+        var widget = new MenuWidget(probe) { Back = () => { }, Close = () => { } };
+        widget.Reset("Title", "Pick one:", [.. TestItems]);
+        widget.RenderPanel();
+        for (var r = 0; r < 24; r++)
+        {
+            var col = RowText(probe.Buffer, r).IndexOf(text, StringComparison.Ordinal);
+            if (col >= 0) return (col, r);
+        }
+        throw new InvalidOperationException($"'{text}' not drawn");
+    }
+
+    private const MenuActions Both = MenuActions.Back | MenuActions.Close;
+
+    [Fact]
+    public async Task Panel_PressBack_ReturnsBack()
+    {
+        var (c, r) = FindInPanel("Back");
+        var t = PanelTerminal(Press(c, r));
+        (await new ActionMenu(t, Both, true).ShowAsync(Deadline())).IsBack.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Panel_PressClose_ReturnsClose()
+    {
+        var (c, r) = FindInPanel("×");
+        var t = PanelTerminal(Press(c, r));
+        (await new ActionMenu(t, Both, true).ShowAsync(Deadline())).IsClose.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Panel_EscWithBackAndClose_ReturnsBack()
+    {
+        var t = PanelTerminal(Key(ConsoleKey.Escape));
+        (await new ActionMenu(t, Both, true).ShowAsync(Deadline())).IsBack.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Panel_EscWithCloseOnly_ReturnsClose()
+    {
+        var t = PanelTerminal(Key(ConsoleKey.Escape));
+        (await new ActionMenu(t, MenuActions.Close, true).ShowAsync(Deadline())).IsClose.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Panel_EscWithNeither_IsIgnored_ThenDigitReturnsRow()
+    {
+        var t = PanelTerminal(Key(ConsoleKey.Escape), Key(ConsoleKey.D2));
+        (await new ActionMenu(t, MenuActions.None, true).ShowAsync(Deadline())).ShouldBe(MenuChoice.Row(1));
+    }
+
+    [Fact]
+    public async Task Alternate_Esc_MapsBackThenCloseThenIgnored()
+    {
+        var a = new FakeTerminal(new Queue<ConsoleInputEvent>([Key(ConsoleKey.Escape)]));
+        a.EnterAlternateScreen();
+        (await new ActionMenu(a, Both, false).ShowAsync(Deadline())).IsBack.ShouldBeTrue();
+
+        var b = new FakeTerminal(new Queue<ConsoleInputEvent>([Key(ConsoleKey.Escape)]));
+        b.EnterAlternateScreen();
+        (await new ActionMenu(b, MenuActions.Close, false).ShowAsync(Deadline())).IsClose.ShouldBeTrue();
+
+        var c = new FakeTerminal(new Queue<ConsoleInputEvent>([Key(ConsoleKey.Escape), Key(ConsoleKey.D3)]));
+        c.EnterAlternateScreen();
+        (await new ActionMenu(c, MenuActions.None, false).ShowAsync(Deadline())).ShouldBe(MenuChoice.Row(2));
+    }
+
+    [Fact]
+    public async Task Normal_Esc_MapsBackThenCloseThenIgnored()
+    {
+        var a = new FakeTerminal(new Queue<ConsoleInputEvent>([Key(ConsoleKey.Escape)]));
+        (await new ActionMenu(a, Both, false).ShowAsync(Deadline())).IsBack.ShouldBeTrue();
+
+        var b = new FakeTerminal(new Queue<ConsoleInputEvent>([Key(ConsoleKey.Escape)]));
+        (await new ActionMenu(b, MenuActions.Close, false).ShowAsync(Deadline())).IsClose.ShouldBeTrue();
+
+        var c = new FakeTerminal(new Queue<ConsoleInputEvent>([Key(ConsoleKey.Escape), Key(ConsoleKey.D1)]));
+        (await new ActionMenu(c, MenuActions.None, false).ShowAsync(Deadline())).ShouldBe(MenuChoice.Row(0));
+    }
+
+    [Fact]
+    public async Task IntOverload_StillReturnsRowIndex_AndIgnoresEsc()
+    {
+        var t = PanelTerminal(Key(ConsoleKey.Escape), Key(ConsoleKey.D2));
+        (await new PanelMenu(t, TestItems).ShowAsync(Deadline())).ShouldBe(1);
     }
 
     private static readonly string[] TestItems = ["Alpha", "Beta", "Gamma"];

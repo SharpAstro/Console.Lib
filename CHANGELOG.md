@@ -9,6 +9,17 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.30
+
+- `MenuWidget.Back` / `MenuWidget.Close` (#92): the panel's header controls. `RenderPanel()` shows a "< Back" control at the
+  left and a close mark at the right of a header row when the action is set; a press runs the action and confirms no row.
+  `MenuWidget.CloseMark` swaps the default U+00D7 for an ASCII mark such as `[x]`. DIR.Lib pin is 11.76.7571.
+- `MenuBase<T>` (#92): additive `ShowMenuAsync(title, prompt, items, MenuActions actions, ct)` returning a `MenuChoice`
+  (`Index`, `Action`, `IsRow`/`IsBack`/`IsClose`). In panel mode it sets the widget's Back and Close, so a press returns
+  that choice. The int overload is unchanged (it is the new one with `MenuActions.None`).
+- Esc in `MenuBase<T>` (#92), in panel, alternate-rows and normal mode: Back when the step has it, else Close when it has
+  it, else ignored.
+
 ## 5.29
 
 - `MenuWidget.RenderPanel()` (#89): the menu as DIR.Lib's `MenuLayout.BuildPanel` card, painted through `CellLayout`

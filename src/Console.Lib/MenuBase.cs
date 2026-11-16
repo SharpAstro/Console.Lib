@@ -2,6 +2,32 @@ using DIR.Lib;
 
 namespace Console.Lib;
 
+/// <summary>The header actions a menu step offers besides its rows.</summary>
+[Flags]
+public enum MenuActions
+{
+    /// <summary>Rows only.</summary>
+    None = 0,
+    /// <summary>The step can go back.</summary>
+    Back = 1,
+    /// <summary>The step can be closed.</summary>
+    Close = 2,
+}
+
+/// <summary>What a menu step returned: a row, or one of the header actions.</summary>
+/// <param name="Index">The chosen row, or -1 for Back and Close.</param>
+/// <param name="Action"><see cref="MenuActions.Back"/> or <see cref="MenuActions.Close"/> when a header action was
+/// taken (a press on its control, or Esc), else <see cref="MenuActions.None"/>.</param>
+public readonly record struct MenuChoice(int Index, MenuActions Action)
+{
+    public bool IsBack => Action == MenuActions.Back;
+    public bool IsClose => Action == MenuActions.Close;
+    public bool IsRow => Action == MenuActions.None;
+    public static MenuChoice Row(int index) => new(index, MenuActions.None);
+    public static MenuChoice OfBack => new(-1, MenuActions.Back);
+    public static MenuChoice OfClose => new(-1, MenuActions.Close);
+}
+
 /// <summary>
 /// Abstract base class for terminal menus with arrow-key navigation,
 /// digit shortcuts, and mouse support in alternate screen mode.
@@ -33,15 +59,25 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
 
     protected async Task<int> ShowMenuAsync(
         string title, string prompt, string[] items, CancellationToken cancellationToken)
+        => (await ShowMenuAsync(title, prompt, items, MenuActions.None, cancellationToken)).Index;
+
+    /// <summary>
+    /// Shows a step that may also have Back and/or close, and says which was taken. In panel mode
+    /// (<see cref="UsePanel"/>) the header shows the controls for <paramref name="actions"/>; a press on one returns it.
+    /// In every mode Esc returns Back when the step has it, else Close when it has it, else is ignored.
+    /// With <see cref="MenuActions.None"/> this is the row-only menu.
+    /// </summary>
+    protected async Task<MenuChoice> ShowMenuAsync(
+        string title, string prompt, string[] items, MenuActions actions, CancellationToken cancellationToken)
     {
         if (terminal.IsAlternateScreen && UsePanel)
         {
-            return await ShowMenuPanelAsync(title, prompt, items, cancellationToken);
+            return await ShowMenuPanelAsync(title, prompt, items, actions, cancellationToken);
         }
 
         if (terminal.IsAlternateScreen)
         {
-            return await ShowMenuAlternateAsync(title, prompt, items, cancellationToken);
+            return await ShowMenuAlternateAsync(title, prompt, items, actions, cancellationToken);
         }
 
         terminal.WriteLine();
@@ -63,21 +99,36 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
 
             var input = terminal.TryReadInput();
 
+            if (input.Key == ConsoleKey.Escape && EscChoice(actions) is { } esc)
+            {
+                terminal.WriteLine();
+                return esc;
+            }
+
             var digit = input.Key - ConsoleKey.D1;
             if (digit >= 0 && digit < items.Length)
             {
                 terminal.WriteLine($"{digit + 1}) {items[digit]}");
-                return digit;
+                return MenuChoice.Row(digit);
             }
         }
 
-        return 0;
+        return MenuChoice.Row(0);
     }
 
-    private async Task<int> ShowMenuPanelAsync(
-        string title, string prompt, string[] items, CancellationToken cancellationToken)
+    /// <summary>Esc: Back if the step has it, else Close if it has it, else nothing.</summary>
+    private static MenuChoice? EscChoice(MenuActions actions) =>
+        actions.HasFlag(MenuActions.Back) ? MenuChoice.OfBack
+        : actions.HasFlag(MenuActions.Close) ? MenuChoice.OfClose
+        : null;
+
+    private async Task<MenuChoice> ShowMenuPanelAsync(
+        string title, string prompt, string[] items, MenuActions actions, CancellationToken cancellationToken)
     {
         var widget = new MenuWidget(terminal);
+        MenuChoice? header = null;
+        if (actions.HasFlag(MenuActions.Back)) widget.Back = () => header = MenuChoice.OfBack;
+        if (actions.HasFlag(MenuActions.Close)) widget.Close = () => header = MenuChoice.OfClose;
         widget.Reset(title, prompt, [.. items]);
 
         void Draw()
@@ -109,10 +160,17 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
             if (input.Mouse is { } mouse)
             {
                 // Acts on the press, as MenuWidget does; a release is ignored.
-                if (widget.HandleMouse(mouse) && widget.IsConfirmed)
+                if (widget.HandleMouse(mouse))
                 {
-                    return widget.SelectedIndex;
+                    if (header is { } h) return h;
+                    if (widget.IsConfirmed) return MenuChoice.Row(widget.SelectedIndex);
                 }
+                continue;
+            }
+
+            if (input.Key == ConsoleKey.Escape)
+            {
+                if (EscChoice(actions) is { } esc) return esc;
                 continue;
             }
 
@@ -120,17 +178,17 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
             {
                 if (widget.IsConfirmed)
                 {
-                    return widget.SelectedIndex;
+                    return MenuChoice.Row(widget.SelectedIndex);
                 }
                 Draw();
             }
         }
 
-        return 0;
+        return MenuChoice.Row(0);
     }
 
-    private async Task<int> ShowMenuAlternateAsync(
-        string title, string prompt, string[] items, CancellationToken cancellationToken)
+    private async Task<MenuChoice> ShowMenuAlternateAsync(
+        string title, string prompt, string[] items, MenuActions actions, CancellationToken cancellationToken)
     {
         // Force a full redraw when entering a new menu (clears stale lines from previous menu)
         _lastWindowWidth = null;
@@ -162,7 +220,7 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
                 var clickedItem = row - menuStartRow;
                 if (clickedItem >= 0 && clickedItem < items.Length)
                 {
-                    return clickedItem;
+                    return MenuChoice.Row(clickedItem);
                 }
                 continue;
             }
@@ -178,18 +236,21 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
                     menuStartRow = DrawMenuAlternateScreen(title, prompt, items, selected);
                     break;
                 case ConsoleKey.Enter:
-                    return selected;
+                    return MenuChoice.Row(selected);
+                case ConsoleKey.Escape:
+                    if (EscChoice(actions) is { } esc) return esc;
+                    break;
                 default:
                     var digit = input.Key - ConsoleKey.D1;
                     if (digit >= 0 && digit < items.Length)
                     {
-                        return digit;
+                        return MenuChoice.Row(digit);
                     }
                     break;
             }
         }
 
-        return 0;
+        return MenuChoice.Row(0);
     }
 
     /// <returns>The row of the first menu item (for mouse hit testing).</returns>

@@ -556,6 +556,10 @@ int chosen = menu.SelectedIndex;
 
 **`RenderPanel()`** draws the same menu as a card (DIR.Lib's `MenuLayout.BuildPanel`) centred over whatever the host painted first. The viewport is not cleared, and the scrim is transparent by default: a fill of alpha 0 writes no cell, so every cell outside the card is left untouched (a cell viewport cannot read cells back, so there is no dimming). The card is a box-drawing border (`PanelStyle`, in cells: 24 to 60 wide, 2-cell margin, one-cell border; a portrait viewport gets full width less the margins). Mouse and keys work as with `Render()`, and `HandleMouse` consumes a press outside the card (returns `true`, confirms nothing); a press on a row confirms it.
 
+Set `Back` and/or `Close` (5.30) and the card gets a header row: "< Back" at the left, a close mark at the right
+(`CloseMark`, default U+00D7; use `[x]` where the font lacks it). A press on either runs its action and confirms no row.
+`Render()` has no header.
+
 ```csharp
 menu.RenderPanel();   // after drawing the page beneath it
 ```
@@ -812,6 +816,17 @@ public class MyMenu(IVirtualTerminal terminal, TimeProvider timeProvider)
 Override `protected virtual bool UsePanel => true;` (5.29) to show the alternate-screen menu as `MenuWidget.RenderPanel`,
 a card over whatever the host drew first, with no `Clear()`. A press outside the card is consumed; a press on a row
 returns that row. Default is the full-screen rows path.
+
+A step that can go back or be closed (5.30) calls the overload that names its header actions and reads which was taken:
+
+```csharp
+MenuChoice c = await ShowMenuAsync("Title", "Pick one:", items, MenuActions.Back | MenuActions.Close, ct);
+if (c.IsBack) { /* previous step */ } else if (c.IsClose) { /* leave */ } else { /* c.Index is the row */ }
+```
+
+In panel mode the header shows a "< Back" and a close mark for the actions given, and a press on either returns it. In
+every mode (panel, alternate rows, normal) Esc returns Back when the step has it, else Close when it has it, else is
+ignored. The int-returning `ShowMenuAsync` is unchanged.
 
 ## Console size
 
