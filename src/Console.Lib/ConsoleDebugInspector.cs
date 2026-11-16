@@ -72,12 +72,13 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
     /// is the highest-value verb by a distance — a snapshot naming the selected square, the side to move
     /// and the mode turns "the piece selected itself" from a manual hunt into one request.</param>
     private ConsoleDebugInspector(
-        string appName, IInspectableTerminal terminal, Func<string>? appState, bool withTransport)
+        string appName, IInspectableTerminal terminal, Func<string>? appState,
+        Func<ConsoleDebugInspector, DebugInspectorCore?>? start)
     {
         AppName = appName;
         _terminal = terminal;
         _appState = appState;
-        _core = withTransport ? DebugInspectorCore.StartIfOptedIn(this) : null;
+        _core = start?.Invoke(this);
     }
 
     /// <summary>Starts the inspector and its command server when the process opted in
@@ -86,7 +87,13 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
     /// call this unconditionally. The caller must call <see cref="Pump"/> from its loop, or no command will
     /// ever run.</summary>
     public static ConsoleDebugInspector Attach(string appName, IInspectableTerminal terminal, Func<string>? appState = null)
-        => new(appName, terminal, appState, withTransport: true);
+        => new(appName, terminal, appState, static self => DebugInspectorCore.StartIfOptedIn(self));
+
+    /// <summary>Test seam: <see cref="Attach"/> with the starter swapped, so a test can stand in for
+    /// DIR.Lib's switch-off answer (null) without touching process-wide AppContext or environment state.</summary>
+    internal static ConsoleDebugInspector AttachWith(
+        string appName, IInspectableTerminal terminal, Func<ConsoleDebugInspector, DebugInspectorCore?> start)
+        => new(appName, terminal, null, start);
 
     /// <summary>
     /// The same verbs with NO transport: no TCP listener, no multicast bind. <see cref="Invoke"/> is called
@@ -100,7 +107,7 @@ public sealed class ConsoleDebugInspector : IDebugInspectorHost, IDisposable
     /// </para>
     /// </summary>
     public static ConsoleDebugInspector Detached(string appName, IInspectableTerminal terminal, Func<string>? appState = null)
-        => new(appName, terminal, appState, withTransport: false);
+        => new(appName, terminal, appState, start: null);
 
     /// <summary>Runs queued commands on the calling thread. Call once per loop iteration. No-op when
     /// <see cref="Detached"/>, since nothing can enqueue.</summary>
