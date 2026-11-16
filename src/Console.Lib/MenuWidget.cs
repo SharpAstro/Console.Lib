@@ -48,6 +48,43 @@ public sealed class MenuWidget(ITerminalViewport viewport, MenuColors? colors = 
     }
 
     /// <summary>
+    /// Look and sizing of <see cref="RenderPanel"/>, in cells: card 24..60 wide (full width less the side margin on
+    /// a portrait viewport), 2 cells of margin, a one-cell light border, and a transparent scrim.
+    /// </summary>
+    public MenuPanelStyle PanelStyle { get; init; } = new()
+    {
+        MinWidth = 24f,
+        MaxWidth = 60f,
+        SideMargin = 2f,
+        Border = new Layout.BorderStyle { Color = new RGBAColor32(0x60, 0x70, 0xa0, 0xff), Width = 1f, Radius = 0f },
+        Scrim = new RGBAColor32(0, 0, 0, 0),
+    };
+
+    /// <summary>
+    /// Renders the menu as a card (<see cref="MenuLayout.BuildPanel"/>) centred over whatever the host drew first.
+    /// The viewport is NOT cleared. The scrim is transparent by default and a fill of alpha 0 writes no cell, so
+    /// every cell outside the card is left exactly as it was: a cell viewport cannot read cells back, so there is
+    /// no dimming. A press anywhere outside the card is still consumed by <see cref="HandleMouse"/>.
+    /// The font is planned as one cell, so rows are as <see cref="MenuLayout.BuildTree"/> has them at size 1.
+    /// </summary>
+    public void RenderPanel()
+    {
+        var (w, h) = Viewport.Size;
+        if (w <= 0 || h <= 0) return;
+
+        var style = PanelStyle;
+        var portrait = h > w * style.PortraitAspect;
+        var room = MathF.Max(1f, w - 2f * style.SideMargin);
+        var maxW = portrait ? room : MathF.Min(style.MaxWidth, room);
+        // The planner starts the font at maxW * FontToCard; make that one cell (it is capped further to fit).
+        style = style with { FontToCard = 1f / maxW };
+
+        var tree = MenuLayout.BuildPanel(_model, _colors, style, CellFloatMeasureContext.Instance, w, h);
+        _arranged = Layout.Engine.Arrange(tree, new Rect<int>(0, 0, w, h), CellMeasureContext.CellAuthored);
+        CellLayout.Paint(Viewport, _arranged);
+    }
+
+    /// <summary>
     /// Routes an <see cref="InputKey"/> (e.g., Up/Down/Enter/D1..D9) to <see cref="MenuModel.HandleKey"/>.
     /// Returns <c>true</c> when the key was consumed.
     /// </summary>

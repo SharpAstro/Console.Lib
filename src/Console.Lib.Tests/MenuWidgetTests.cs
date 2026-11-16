@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Linq;
 using Console.Lib;
 using DIR.Lib;
 using Shouldly;
@@ -122,6 +123,83 @@ public class MenuWidgetTests
         widget.Reset("New Title", "Pick again:", ThreeItems);
         widget.IsConfirmed.ShouldBeFalse();
         widget.SelectedIndex.ShouldBe(0);
+    }
+
+    private static (CellBuffer Buffer, CellBufferViewport Viewport) Backdrop(int w, int h)
+    {
+        var buffer = new CellBuffer { ColorMode = ColorMode.Sgr16 };
+        buffer.Resize(w, h);
+        var viewport = new CellBufferViewport(buffer, w, h);
+        for (var y = 0; y < h; y++)
+        {
+            viewport.SetCursorPosition(0, y);
+            viewport.Write(new string('.', w));
+        }
+        return (buffer, viewport);
+    }
+
+    private static string RowText(CellBuffer b, int row)
+        => string.Concat(Enumerable.Range(0, b.Width).Select(x => b.BackAt(x, row).Glyph));
+
+    [Fact]
+    public void RenderPanel_PaintsCardOverUntouchedBackdrop()
+    {
+        var (buffer, vp) = Backdrop(60, 24);
+        var widget = new MenuWidget(vp);
+        widget.Reset("Title", "Pick:", ThreeItems);
+
+        widget.RenderPanel();
+
+        var top = Enumerable.Range(0, 24).First(r => RowText(buffer, r).Contains('┌'));
+        var left = RowText(buffer, top).IndexOf('┌');
+        var right = RowText(buffer, top).IndexOf('┐');
+        left.ShouldBe(18);
+        right.ShouldBe(41);
+        buffer.BackAt(left + 1, top).Glyph.ShouldBe('─');
+        var bottom = Enumerable.Range(top + 1, 23 - top).First(r => RowText(buffer, r).Contains('└'));
+        buffer.BackAt(left, bottom).Glyph.ShouldBe('└');
+        buffer.BackAt(right, bottom).Glyph.ShouldBe('┘');
+        buffer.BackAt(left, top + 1).Glyph.ShouldBe('│');
+        Enumerable.Range(top, bottom - top + 1).Any(r => RowText(buffer, r).Contains("Beta")).ShouldBeTrue();
+
+        // The scrim is transparent: every cell outside the card is still the backdrop.
+        for (var y = 0; y < 24; y++)
+            for (var x = 0; x < 60; x++)
+                if (x < left || x > right || y < top || y > bottom)
+                    buffer.BackAt(x, y).Glyph.ShouldBe('.', $"cell ({x},{y}) is outside the card");
+    }
+
+    [Fact]
+    public void RenderPanel_PressOnScrimIsConsumed_PressOnRowConfirms()
+    {
+        var (buffer, vp) = Backdrop(60, 24);
+        var widget = new MenuWidget(vp);
+        widget.Reset("Title", "Pick:", ThreeItems);
+        widget.RenderPanel();
+
+        widget.HandleMouse(new MouseEvent(0, 5 * 10 + 5, 2 * 20 + 5, IsRelease: false)).ShouldBeTrue();
+        widget.IsConfirmed.ShouldBeFalse();
+
+        var beta = Enumerable.Range(0, 24).First(r => RowText(buffer, r).Contains("Beta"));
+        widget.HandleMouse(new MouseEvent(0, 30 * 10 + 5, beta * 20 + 5, IsRelease: false)).ShouldBeTrue();
+        widget.IsConfirmed.ShouldBeTrue();
+        widget.SelectedIndex.ShouldBe(1);
+    }
+
+    [Fact]
+    public void RenderPanel_PortraitViewport_CardIsFullWidthLessSideMargins()
+    {
+        var (buffer, vp) = Backdrop(30, 60);
+        var widget = new MenuWidget(vp);
+        widget.Reset("Title", "Pick:", ThreeItems);
+
+        widget.RenderPanel();
+
+        var top = Enumerable.Range(0, 60).First(r => RowText(buffer, r).Contains('┌'));
+        var line = RowText(buffer, top);
+        var margin = (int)widget.PanelStyle.SideMargin;
+        line.IndexOf('┌').ShouldBe(margin);
+        (line.IndexOf('┐') - line.IndexOf('┌') + 1).ShouldBe(30 - 2 * margin);
     }
 
     private static MenuModel BuildModel(string title, string prompt, ImmutableArray<string> items)

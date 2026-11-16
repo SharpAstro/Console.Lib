@@ -1,4 +1,4 @@
-﻿using System.Collections.Immutable;
+using System.Collections.Immutable;
 using System.Linq;
 using Console.Lib;
 using DIR.Lib;
@@ -308,5 +308,35 @@ public class CellLayoutTests
             .Where(t => t == "▙" || t == "▛" || t == "▜" || t == "▟")
             .ToList();
         corners.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Paint_FillOfAlphaZero_WritesNoCell_AndRecordsNoFill()
+    {
+        var buffer = new CellBuffer { ColorMode = ColorMode.Sgr16 };
+        buffer.Resize(10, 3);
+        var viewport = new CellBufferViewport(buffer, 10, 3);
+        for (var y = 0; y < 3; y++)
+        {
+            viewport.SetCursorPosition(0, y);
+            viewport.Write("..........");
+        }
+
+        var tree = new Layout.Node.Leaf(new Layout.Content.Box(0, 0))
+        {
+            Width = Layout.Sizing.Star(),
+            Height = Layout.Sizing.Star(),
+            Background = new RGBAColor32(0, 0, 0, 0),
+            Hit = new HitResult.ChromeHit(),
+        };
+        var arranged = Layout.Engine.Arrange(tree, new Rect<int>(0, 0, 10, 3), new CellMeasureContext());
+        CellLayout.Paint(viewport, arranged);
+
+        for (var y = 0; y < 3; y++)
+            for (var x = 0; x < 10; x++)
+                buffer.BackAt(x, y).Glyph.ShouldBe('.');
+
+        var frame = CellWireframe.RecordCells(viewport, arranged);
+        CellWireframe.CheckCells(frame).CellFindings.Where(f => f.Rule == CellRules.VanishedFill).ShouldBeEmpty();
     }
 }
