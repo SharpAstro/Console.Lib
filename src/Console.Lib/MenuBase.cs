@@ -50,6 +50,13 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
     /// </summary>
     protected virtual bool UsePanel => false;
 
+    /// <summary>
+    /// Called on the menu's thread on every pass of the wait loop with no input waiting, in every mode (normal,
+    /// alternate rows and panel), just before the loop waits. A host can pump its debug inspector here so it
+    /// stays responsive while a menu is up. Keep it short: it delays the next input check. Empty by default.
+    /// </summary>
+    protected virtual void OnIdle() { }
+
     public async Task<T> ShowAsync(CancellationToken cancellationToken)
     {
         return await ShowAsyncCore(cancellationToken);
@@ -93,6 +100,7 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
         {
             if (!terminal.HasInput())
             {
+                OnIdle();
                 await Task.Delay(TimeSpan.FromMilliseconds(25), timeProvider, cancellationToken);
                 continue;
             }
@@ -151,6 +159,7 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
                     Draw();
                 }
 
+                OnIdle();
                 await Task.Delay(TimeSpan.FromMilliseconds(25), timeProvider, cancellationToken);
                 continue;
             }
@@ -208,6 +217,7 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
                     menuStartRow = DrawMenuAlternateScreen(title, prompt, items, selected);
                 }
 
+                OnIdle();
                 await Task.Delay(TimeSpan.FromMilliseconds(25), timeProvider, cancellationToken);
                 continue;
             }
