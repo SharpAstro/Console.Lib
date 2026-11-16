@@ -403,6 +403,93 @@ public class MenuWidgetTests
         }
     }
 
+    // ---- Console.Lib #96: one terminal line per row ----
+
+    private static (CellBuffer Buffer, int W, int H) SizedPanel(int w, int h, string title, string prompt, string[] items, bool back = false)
+    {
+        var (buffer, vp) = Backdrop(w, h);
+        var widget = new MenuWidget(vp);
+        widget.Reset(title, prompt, [.. items]);
+        if (back) widget.Back = () => { };
+        widget.RenderPanel();
+        return (buffer, w, h);
+    }
+
+    private static string Picture(CellBuffer b, int h) => string.Join(Environment.NewLine, Enumerable.Range(0, h).Select(r => RowText(b, r)));
+
+    private static (int Top, int Bottom) CardRows(CellBuffer b, int h)
+    {
+        var rows = Enumerable.Range(0, h).Where(r => RowText(b, r).Contains('┌') || RowText(b, r).Contains('└')).ToArray();
+        return (rows[0], rows[^1]);
+    }
+
+    private static int RowOf(CellBuffer b, int h, string text)
+    {
+        for (var r = 0; r < h; r++)
+            if (RowText(b, r).Contains(text, StringComparison.Ordinal)) return r;
+        throw new Xunit.Sdk.XunitException($"'{text}' not painted:{Environment.NewLine}{Picture(b, h)}");
+    }
+
+    [Fact]
+    public void RenderPanel_GameModeStep_ItemsOnConsecutiveRowsAndCardHeightIsRowsPlusPadding()
+    {
+        string[] items = ["Player vs Player", "Player vs Computer", "Custom Game"];
+        var (b, _, h) = SizedPanel(120, 30, "♚ Chess ♔", "Select game mode:", items);
+        var pic = Picture(b, h);
+
+        var rows = items.Select(i => RowOf(b, h, i)).ToArray();
+        rows[1].ShouldBe(rows[0] + 1, pic);
+        rows[2].ShouldBe(rows[1] + 1, pic);
+        var title = RowOf(b, h, "♚ Chess ♔");
+        RowOf(b, h, "Select game mode:").ShouldBe(title + 1, pic);
+        // one blank row between prompt and items
+        rows[0].ShouldBe(title + 3, pic);
+
+        // border 2 + padding 2 + title 1 + prompt 1 + gap 1 + 3 items
+        var (top, bottom) = CardRows(b, h);
+        (bottom - top + 1).ShouldBe(2 + 2 + 1 + 1 + 1 + 3, pic);
+        (title - top).ShouldBe(2, pic);
+        (bottom - rows[2]).ShouldBe(2, pic);
+    }
+
+    [Fact]
+    public void RenderPanel_NineItemsFitA120x16Viewport()
+    {
+        var items = Enumerable.Range(1, 9).Select(i => $"Item {i}").ToArray();
+        var (b, _, h) = SizedPanel(120, 16, "Title", "Pick one:", items);
+        var pic = Picture(b, h);
+
+        foreach (var it in items) RowOf(b, h, it);
+        var (top, bottom) = CardRows(b, h);
+        top.ShouldBeGreaterThanOrEqualTo(0, pic);
+        bottom.ShouldBeLessThan(h, pic);
+        RowOf(b, h, "Item 9").ShouldBeLessThan(bottom, pic);
+    }
+
+    [Fact]
+    public void RenderPanel_BackAddsExactlyOneRow()
+    {
+        string[] items = ["White", "Black"];
+        var (without, _, h) = SizedPanel(120, 30, "Chess", "Play as:", items);
+        var (with, _, _) = SizedPanel(120, 30, "Chess", "Play as:", items, back: true);
+
+        var a = CardRows(without, h);
+        var c = CardRows(with, h);
+        (c.Bottom - c.Top).ShouldBe(a.Bottom - a.Top + 1, Picture(with, h));
+    }
+
+    [Theory]
+    [InlineData(30, false)]
+    [InlineData(30, true)]
+    [InlineData(21, false)]
+    [InlineData(24, true)]
+    public void RenderPanel_CardIsVerticallyCentred(int h, bool back)
+    {
+        var (b, _, _) = SizedPanel(120, h, "Chess", "Play as:", ["White", "Black"], back);
+        var (top, bottom) = CardRows(b, h);
+        Math.Abs(top - (h - 1 - bottom)).ShouldBeLessThanOrEqualTo(1, Picture(b, h));
+    }
+
     private static MenuModel BuildModel(string title, string prompt, ImmutableArray<string> items)
     {
         var m = new MenuModel();
