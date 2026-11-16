@@ -1,3 +1,5 @@
+using DIR.Lib;
+
 namespace Console.Lib;
 
 /// <summary>
@@ -14,6 +16,14 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
 
     protected IVirtualTerminal Terminal => terminal;
 
+    /// <summary>
+    /// Opt-in. When true, the alternate-screen menu is <see cref="MenuWidget.RenderPanel"/>: a card over whatever
+    /// the host drew first, with no <c>Clear()</c>, keys and mouse routed through <see cref="MenuWidget"/> (a press
+    /// outside the card is consumed, a press on a row returns that row). Normal mode is unchanged.
+    /// Default false: the full-screen rows path.
+    /// </summary>
+    protected virtual bool UsePanel => false;
+
     public async Task<T> ShowAsync(CancellationToken cancellationToken)
     {
         return await ShowAsyncCore(cancellationToken);
@@ -24,6 +34,11 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
     protected async Task<int> ShowMenuAsync(
         string title, string prompt, string[] items, CancellationToken cancellationToken)
     {
+        if (terminal.IsAlternateScreen && UsePanel)
+        {
+            return await ShowMenuPanelAsync(title, prompt, items, cancellationToken);
+        }
+
         if (terminal.IsAlternateScreen)
         {
             return await ShowMenuAlternateAsync(title, prompt, items, cancellationToken);
@@ -53,6 +68,61 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
             {
                 terminal.WriteLine($"{digit + 1}) {items[digit]}");
                 return digit;
+            }
+        }
+
+        return 0;
+    }
+
+    private async Task<int> ShowMenuPanelAsync(
+        string title, string prompt, string[] items, CancellationToken cancellationToken)
+    {
+        var widget = new MenuWidget(terminal);
+        widget.Reset(title, prompt, [.. items]);
+
+        void Draw()
+        {
+            widget.RenderPanel();
+            terminal.Flush();
+        }
+
+        Draw();
+        var (lastW, lastH) = terminal.Size;
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            if (!terminal.HasInput())
+            {
+                var (w, h) = terminal.Size;
+                if (w != lastW || h != lastH)
+                {
+                    (lastW, lastH) = (w, h);
+                    Draw();
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(25), timeProvider, cancellationToken);
+                continue;
+            }
+
+            var input = terminal.TryReadInput();
+
+            if (input.Mouse is { } mouse)
+            {
+                // Acts on the press, as MenuWidget does; a release is ignored.
+                if (widget.HandleMouse(mouse) && widget.IsConfirmed)
+                {
+                    return widget.SelectedIndex;
+                }
+                continue;
+            }
+
+            if (widget.HandleKey(input.Key.ToInputKey))
+            {
+                if (widget.IsConfirmed)
+                {
+                    return widget.SelectedIndex;
+                }
+                Draw();
             }
         }
 

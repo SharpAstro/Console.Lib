@@ -15,6 +15,113 @@ public class MenuTests
             => ShowMenuAsync(title, prompt, items, cancellationToken);
     }
 
+    private sealed class PanelMenu(IVirtualTerminal terminal, string[] items)
+        : MenuBase<int>(terminal, new FakeClock())
+    {
+        protected override bool UsePanel => true;
+        protected override Task<int> ShowAsyncCore(CancellationToken cancellationToken)
+            => ShowMenuAsync("Title", "Pick one:", items, cancellationToken);
+    }
+
+    /// <summary>Time that never advances by itself: a panel test with queued input must never reach a delay.</summary>
+    private sealed class FakeClock : TimeProvider;
+
+    /// <summary>A terminal whose cells land in a <see cref="CellBuffer"/>, so a test can read the screen back.</summary>
+    private sealed class BufferTerminal : IVirtualTerminal
+    {
+        private readonly Queue<ConsoleInputEvent> _inputs;
+        private readonly CellBufferViewport _vp;
+        private readonly int _width, _height;
+
+        public BufferTerminal(Queue<ConsoleInputEvent> inputs, int width, int height)
+        {
+            _inputs = inputs;
+            _width = width;
+            _height = height;
+            Buffer = new CellBuffer { ColorMode = ColorMode.Sgr16 };
+            Buffer.Resize(width, height);
+            _vp = new CellBufferViewport(Buffer, width, height);
+        }
+
+        public CellBuffer Buffer { get; }
+        public int ClearCount { get; private set; }
+        public (int Column, int Row) Offset => (0, 0);
+        public (int Width, int Height) Size => (_width, _height);
+        public void SetCursorPosition(int left, int top) => _vp.SetCursorPosition(left, top);
+        public void Write(string text) => _vp.Write(text);
+        public void WriteLine(string? text = null) => _vp.WriteLine(text);
+        public void Flush() { }
+        public Stream OutputStream => Stream.Null;
+        public TermCell CellSize => new(10, 20);
+        public ColorMode ColorMode => ColorMode.Sgr16;
+        public Task InitAsync() => Task.CompletedTask;
+        public ImageDisplayCapability ImageDisplayCapability => ImageDisplayCapability.NoColor;
+        public bool HasSixelSupport => false;
+        public bool HasColorSupport => false;
+        public bool IsInputRedirected => false;
+        public bool IsOutputRedirected => false;
+        public void EnterAlternateScreen() => IsAlternateScreen = true;
+        public bool IsAlternateScreen { get; private set; }
+        public void Clear() => ClearCount++;
+        public bool HasInput() => _inputs.Count > 0;
+        public ConsoleInputEvent TryReadInput() => _inputs.Dequeue();
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private static string RowText(CellBuffer b, int row)
+        => string.Concat(Enumerable.Range(0, b.Width).Select(x => b.BackAt(x, row).Glyph));
+
+    private static BufferTerminal PanelTerminal(params ConsoleInputEvent[] inputs)
+    {
+        var t = new BufferTerminal(new Queue<ConsoleInputEvent>(inputs), 60, 24);
+        t.EnterAlternateScreen();
+        for (var y = 0; y < 24; y++)
+        {
+            t.SetCursorPosition(0, y);
+            t.Write(new string('.', 60));
+        }
+        return t;
+    }
+
+    private static ConsoleInputEvent Press(int col, int row) =>
+        new(new MouseEvent(0, col * 10 + 5, row * 20 + 5, IsRelease: false), ConsoleKey.None, 0);
+
+    [Fact]
+    public async Task Panel_DownEnter_ReturnsIndex_BackdropSurvives_NoClear()
+    {
+        var t = PanelTerminal(Key(ConsoleKey.DownArrow), Key(ConsoleKey.Enter));
+
+        (await new PanelMenu(t, TestItems).ShowAsync(CancellationToken.None)).ShouldBe(1);
+
+        t.ClearCount.ShouldBe(0);
+        RowText(t.Buffer, 0).ShouldBe(new string('.', 60));
+        RowText(t.Buffer, 23).ShouldBe(new string('.', 60));
+        Enumerable.Range(0, 24).Any(r => RowText(t.Buffer, r).Contains("Beta")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Panel_Digit_ReturnsIndex()
+    {
+        var t = PanelTerminal(Key(ConsoleKey.D3));
+
+        (await new PanelMenu(t, TestItems).ShowAsync(CancellationToken.None)).ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Panel_PressOutsideCardIsConsumed_ThenRowPressReturnsIt()
+    {
+        // The first frame is drawn before input is read, so find the Gamma row from a scratch render.
+        var probe = PanelTerminal();
+        var widget = new MenuWidget(probe);
+        widget.Reset("Title", "Pick one:", [.. TestItems]);
+        widget.RenderPanel();
+        var gamma = Enumerable.Range(0, 24).First(r => RowText(probe.Buffer, r).Contains("Gamma"));
+
+        var t = PanelTerminal(Press(2, 2), Press(30, gamma));
+
+        (await new PanelMenu(t, TestItems).ShowAsync(CancellationToken.None)).ShouldBe(2);
+    }
+
     private static readonly string[] TestItems = ["Alpha", "Beta", "Gamma"];
 
     // --- Non-alternate screen tests (digit shortcuts only) ---
