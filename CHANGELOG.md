@@ -9,6 +9,18 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.27
+
+- The live inspector (`ConsoleDebugInspector`, `IInspectableTerminal`, `VirtualTerminal`'s injected-input queue)
+  now compiles into Release, not only Debug (#86). It is inert: it starts only when the process sets
+  `DIR_INSPECTOR=1` and `DIR_INSPECTOR_TOKEN` (the run-time gate from DIR.Lib#242); with them unset nothing
+  listens, and `DIR_INSPECTOR=1` without a token refuses to start and says why on stderr.
+- Pins DIR.Lib and DIR.Lib.Debug at 11.70.7051, which carries that gate.
+- The `Console.Lib.Inspector` sidecar sends the token (`DIR_INSPECTOR_TOKEN`, or one passed to
+  `InspectorSocketClient.SendAsync`) as a top-level `token` field, and turns the app's refusal into an error
+  that says whether the token was missing or wrong. Docs and comments that said the inspector never ships are
+  corrected; the Debug twin stays.
+
 ## 5.26
 
 - **`CellRules.EmptyRows` no longer counts a declared border's visible Top/Bottom rows as empty (#84).**

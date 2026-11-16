@@ -51,9 +51,10 @@ jobs:
     - name: Test
       run: dotnet test -c $BUILD_CONF --no-build
     # Console.Lib.Debug: the same library packed from a Debug build, at the same stamped version. A
-    # published Console.Lib is Release, so its #if DEBUG types (ConsoleDebugInspector, the debug-inspector
-    # layer) are absent, and a plane never finds the sibling sources, so a Debug build there restored the
-    # Release package and failed to compile. The twin is Debug by definition, whatever BUILD_CONF is, and
+    # published Console.Lib is Release, so any remaining #if DEBUG types are absent from it (the inspector
+    # itself now ships in Release, inert unless DIR_INSPECTOR=1 and DIR_INSPECTOR_TOKEN are set), and a
+    # plane never finds the sibling sources, so a Debug build there restored the Release package and
+    # could fail to compile. The twin is Debug by definition, whatever BUILD_CONF is, and
     # depends on DIR.Lib.Debug rather than DIR.Lib.
     # GeneratePackageOnBuild is off so bin/Debug holds no second copy of the nupkg: the upload's
     # '**/*.nupkg' glob (and the push after it) must see Console.Lib.Debug exactly once, from artifacts/debug-twin.

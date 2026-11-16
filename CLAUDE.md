@@ -61,7 +61,7 @@ The **mdcat** global tool's version is melded to Console.Lib's: CI passes the sa
 
 The same version also stamps the **Console.Lib.Debug** twin: CI packs `src/Console.Lib` a second time with
 `-c Debug -p:DebugTwin=true` (and `-p:GeneratePackageOnBuild=false`, so bin/Debug holds no second nupkg), because
-the Release Console.Lib has no `#if DEBUG` types. Under `DebugTwin` the csproj forces the DIR.Lib package path and
+the Release Console.Lib has no remaining `#if DEBUG` types. (`ConsoleDebugInspector`, `IInspectableTerminal` and the injected-input queue are no longer among them: from 5.27 they compile into Release, inert unless the process sets `DIR_INSPECTOR=1` and `DIR_INSPECTOR_TOKEN`; with them unset nothing listens, and the `Console.Lib.Inspector` sidecar sends `DIR_INSPECTOR_TOKEN` as a top-level `token` field on every request.) Under `DebugTwin` the csproj forces the DIR.Lib package path and
 references DIR.Lib.Debug instead of DIR.Lib; the `DIR.Lib` and `DIR.Lib.Debug` pins in `Directory.Packages.props`
 move together. `tools/debug-twin-check` is a consumer with no ProjectReference that compiles against that package
 only and fails if its restore pulled the plain DIR.Lib

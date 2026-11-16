@@ -7,12 +7,12 @@ using System.Text.Json;
 namespace Console.Lib.Inspector;
 
 /// <summary>
-/// Reads the per-user inspector registry: the folder of descriptor files a DEBUG app writes from DIR.Lib 11.21
+/// Reads the per-user inspector registry: the folder of descriptor files an app with the inspector on writes from DIR.Lib 11.21
 /// on, where it used to answer multicast by default. A file needs no socket, so this works with no network at
 /// all, and it finds an app that binds nothing but loopback (and so never raised a firewall prompt).
 ///
 /// <para>The contract is DIR.Lib's <c>src/DIR.Lib/Diagnostics/inspector-registry.md</c>. This project references
-/// nothing from DIR.Lib (the writer is <c>#if DEBUG</c> and never ships), so the rules are restated here, and
+/// nothing from DIR.Lib (the writer lives in the app's process), so the rules are restated here, and
 /// SdlVulkan.Renderer's sidecar implements the same ones:</para>
 /// <list type="bullet">
 /// <item>Only <c>&lt;pid&gt;-&lt;tcpPort&gt;.json</c> names are read. The writer's <c>.tmp</c> is never looked at.</item>

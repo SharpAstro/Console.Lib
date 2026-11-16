@@ -66,9 +66,13 @@ dotnet run --project src/MdCat -- README.md   # build & run the mdcat CLI in pla
 
 ## Debug builds (`Console.Lib.Debug`)
 
-The published `Console.Lib` is built Release, so the `#if DEBUG` types (`ConsoleDebugInspector` and the rest of
-the debug-inspector layer) are absent from it. `Console.Lib.Debug` is the same library at the same version, built
-Debug, and it depends on `DIR.Lib.Debug`. Reference one or the other by configuration (Visual Studio needs a
+`ConsoleDebugInspector` (the live inspector the `Console.Lib.Inspector` MCP sidecar drives) ships in the Release
+`Console.Lib` too, from 5.27. It is inert: set `DIR_INSPECTOR=1` and `DIR_INSPECTOR_TOKEN=<a secret>` in the app's
+environment to start it, and run the sidecar with the same `DIR_INSPECTOR_TOKEN`, which it sends with every request.
+With them unset nothing listens, and `DIR_INSPECTOR=1` without a token refuses to start.
+
+`Console.Lib.Debug` is the same library at the same version, built Debug, and it depends on `DIR.Lib.Debug`; other
+`#if DEBUG` types are only in it. Reference one or the other by configuration (Visual Studio needs a
 restore after switching):
 
 ```xml
