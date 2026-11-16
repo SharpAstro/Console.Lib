@@ -11,6 +11,14 @@ changed and why.
 
 ## 5.28
 
+- `MenuWidget.RenderPanel()` (#89): the menu as DIR.Lib's `MenuLayout.BuildPanel` card, painted through `CellLayout`
+  over whatever the host drew first, with no clear. Keys and mouse are as `MenuWidget` has them; a press outside the card
+  is consumed. Look is set by `MenuWidget.PanelStyle`.
+- `CellLayout.Paint`: a fill of alpha 0 is transparent and writes no cell, so a scrim of alpha 0 leaves the cells beneath
+  untouched (a cell viewport cannot read cells back, so there is no dimming).
+- `MenuBase<T>` panel mode (#89): override `protected virtual bool UsePanel` to return true and the alternate-screen menu
+  is `RenderPanel` over the host's screen with no `Clear()`, redrawn on resize, a press on a row returns that row. The
+  default and normal mode are unchanged.
 - `ConsoleDebugInspector` and `VirtualTerminal`'s injected-input queue are now trimmed out of a trimmed or NativeAOT
   publish by default (#88), on DIR.Lib's inspector feature switch (`DebugInspectorCore.IsSupported`, DIR.Lib 11.73):
   no second switch or property. An app that wants the inspector in a published build passes
