@@ -779,7 +779,9 @@ public sealed class VirtualTerminal : IVirtualTerminal
     /// had been typed. Thread-safe: the inspector's socket thread enqueues, the app's loop thread drains.
     /// </summary>
     public void Inject(ConsoleInputEvent evt)
-        => (_injected ?? Interlocked.CompareExchange(ref _injected, new(), null) ?? _injected).Enqueue(evt);
+    {
+        if (!DebugInspectorCore.IsSupported) return;
+        (_injected ?? Interlocked.CompareExchange(ref _injected, new(), null) ?? _injected).Enqueue(evt);
     }
 
     /// <summary>Whether more input bytes are waiting: the override stream when a test gave one, else the console.</summary>
