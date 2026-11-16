@@ -57,6 +57,16 @@ public sealed class ConsoleDebugInspectorTests
     private static JsonElement Params(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
     /// <summary>Calls a verb and parses its result, exactly as the transport would.</summary>
+    [Fact]
+    public void Attach_WhenSwitchOff_IsInert()
+    {
+        // DIR.Lib's StartIfOptedIn answers null when the feature switch is off; stand in for that answer.
+        var inspector = ConsoleDebugInspector.AttachWith("Test", new FakeScreen(20, 4), static _ => null);
+
+        inspector.Port.ShouldBe(-1);
+        Should.NotThrow(inspector.Pump);
+    }
+
     private static JsonElement Call(ConsoleDebugInspector inspector, string method, string? paramsJson = null)
     {
         var raw = inspector.Invoke(method, paramsJson is null ? NoParams : Params(paramsJson));

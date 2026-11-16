@@ -1,3 +1,4 @@
+using DIR.Lib.Diagnostics;
 using System.Threading;
 using System.Text;
 
@@ -779,6 +780,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
     /// </summary>
     public void Inject(ConsoleInputEvent evt)
         => (_injected ?? Interlocked.CompareExchange(ref _injected, new(), null) ?? _injected).Enqueue(evt);
+    }
 
     /// <summary>Whether more input bytes are waiting: the override stream when a test gave one, else the console.</summary>
     private bool MoreBytesAvailable() =>
@@ -787,7 +789,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
             : (s_isInputRedirected ? System.Console.In.Peek() != -1 : System.Console.KeyAvailable);
 
     public bool HasInput() =>
-        _injected is { IsEmpty: false } ||
+        (DebugInspectorCore.IsSupported && _injected is { IsEmpty: false }) ||
         _pending is not null ||
         MoreBytesAvailable();
 
@@ -829,7 +831,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
         }
 
         // Injected events come first and never mix with the real stream — see Inject.
-        if (_injected is not null && _injected.TryDequeue(out var synthetic))
+        if (DebugInspectorCore.IsSupported && _injected is not null && _injected.TryDequeue(out var synthetic))
         {
             return synthetic;
         }
