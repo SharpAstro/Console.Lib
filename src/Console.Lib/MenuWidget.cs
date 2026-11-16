@@ -81,11 +81,52 @@ public sealed class MenuWidget(ITerminalViewport viewport, MenuColors? colors = 
 
         var tree = MenuLayout.BuildPanel(_model, _colors, style, CellFloatMeasureContext.Instance, w, h);
         if (CloseMark != DefaultCloseMark) tree = ReplaceCloseMark(tree, CloseMark);
+        tree = CentreCard(tree, MathF.Min(maxW, room), w, style.Border?.Width ?? 0f);
         _arranged = Layout.Engine.Arrange(tree, new Rect<int>(0, 0, w, h), CellMeasureContext.CellAuthored);
         CellLayout.Paint(Viewport, _arranged);
     }
 
     private const string DefaultCloseMark = "×";
+
+    // DIR.Lib's markers ("▶  " / "   ") are internal; both are this wide.
+    private const int MarkerWidth = 3;
+
+    /// <summary>
+    /// Adapts the built panel so its content is centred on the card: the card's column fills the card (DIR.Lib leaves
+    /// it hugging its content, at the left when the card is held at its minimum width), and every item label gets a
+    /// mirror gutter after the text so marker + text + gutter is symmetric, which puts all item texts on one centre
+    /// with the marker in a fixed gutter at their left. The card is widened (up to <paramref name="maxW"/>) to hold the
+    /// symmetric rows plus its padding and border, and re-centred on the surface.
+    /// </summary>
+    private static Layout.Node CentreCard(Layout.Node tree, float maxW, int surfaceW, float border)
+    {
+        if (tree is not Layout.Node.Overlay { Top: Layout.Node.Anchored { Child: Layout.Node.Stack { Children: [Layout.Node.Stack column] } card } anchored } overlay
+            || card.Width.Kind != Layout.SizeKind.Fixed)
+            return tree;
+
+        var widest = 0f;
+        var rows = ImmutableArray.CreateBuilder<Layout.Node>(column.Children.Length);
+        foreach (var child in column.Children)
+        {
+            var node = child;
+            if (node is Layout.Node.Leaf { Hit: HitResult.ListItemHit, Content: Layout.Content.Text it } item
+                && it.Value.Length >= MarkerWidth)
+            {
+                node = item with { Content = it with { Value = it.Value + new string(' ', MarkerWidth) } };
+            }
+            if (node is Layout.Node.Leaf { Content: Layout.Content.Text t })
+                widest = MathF.Max(widest, CellFloatMeasureContext.Instance.MeasureText(t.Value.AsSpan(), t.FontSize).Width);
+            else if (node is Layout.Node.Stack)
+                widest = MathF.Max(widest, card.Width.Value - 2f * border - 2f * card.Padding);
+            rows.Add(node);
+        }
+
+        var wanted = MathF.Ceiling(widest + 2f * card.Padding + 2f * border);
+        var width = MathF.Max(card.Width.Value, MathF.Min(wanted, MathF.Max(maxW, card.Width.Value)));
+        var newColumn = column with { Children = rows.ToImmutable(), Width = Layout.Sizing.Star() };
+        var newCard = card with { Children = [newColumn], Width = Layout.Sizing.Fixed(width) };
+        return overlay with { Top = anchored with { Child = newCard, OffsetAlong = MathF.Floor((surfaceW - width) / 2f) } };
+    }
 
     /// <summary>
     /// The host's "go back" action. When set, <see cref="RenderPanel"/> shows a "&lt; Back" control at the left of a
