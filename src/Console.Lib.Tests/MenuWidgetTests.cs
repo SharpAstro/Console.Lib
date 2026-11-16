@@ -331,6 +331,78 @@ public class MenuWidgetTests
         widget.IsConfirmed.ShouldBeFalse();
     }
 
+    // ---- Console.Lib #96: the card's content is centred on every step ----
+
+    private static (CellBuffer Buffer, int Left, int Right) CentredPanel(string title, string prompt, string[] items, bool back = false, bool close = false)
+    {
+        var (buffer, vp) = Backdrop(120, 30);
+        var widget = new MenuWidget(vp);
+        widget.Reset(title, prompt, [.. items]);
+        if (back) widget.Back = () => { };
+        if (close) widget.Close = () => { };
+        widget.RenderPanel();
+        var top = Enumerable.Range(0, 30).First(r => RowText(buffer, r).Contains('┌'));
+        var line = RowText(buffer, top);
+        return (buffer, line.IndexOf('┌'), line.IndexOf('┐'));
+    }
+
+    private static (int Start, int Len, int Row) TextAt(CellBuffer b, string text)
+    {
+        for (var r = 0; r < 30; r++)
+        {
+            var i = RowText(b, r).IndexOf(text, StringComparison.Ordinal);
+            if (i >= 0) return (i, text.Length, r);
+        }
+        throw new Xunit.Sdk.XunitException($"'{text}' not painted");
+    }
+
+    private static void AssertCentred(CellBuffer b, int left, int right, string text)
+    {
+        var (start, len, _) = TextAt(b, text);
+        var cardCentre = (left + right) / 2.0;
+        var centre = start + (len - 1) / 2.0;
+        Math.Abs(centre - cardCentre).ShouldBeLessThanOrEqualTo(0.5, $"'{text}' centre {centre} vs card centre {cardCentre}");
+        (start - left).ShouldBeGreaterThanOrEqualTo(2, $"'{text}' needs a blank cell inside the left border");
+        (right - (start + len - 1)).ShouldBeGreaterThanOrEqualTo(2, $"'{text}' needs a blank cell inside the right border");
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void RenderPanel_GameModeStep_ContentCentredOnCard(bool back, bool close)
+    {
+        string[] items = ["Player vs Player", "Player vs Computer", "Custom Game"];
+        var (b, l, r) = CentredPanel("♚ Chess ♔", "Select game mode:", items, back, close);
+        AssertCentred(b, l, r, "♚ Chess ♔");
+        AssertCentred(b, l, r, "Select game mode:");
+        foreach (var it in items) AssertCentred(b, l, r, it);
+        var (s, _, row) = TextAt(b, "Player vs Player");
+        RowText(b, row).IndexOf('▶').ShouldBeLessThan(s);
+        RowText(b, row).IndexOf('▶').ShouldBeGreaterThan(l);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void RenderPanel_PlayAsStep_ContentCentredAndHeaderEdges(bool back, bool close)
+    {
+        string[] items = ["White", "Black"];
+        var (b, l, r) = CentredPanel("♚ Chess ♔", "Play as:", items, back, close);
+        AssertCentred(b, l, r, "♚ Chess ♔");
+        AssertCentred(b, l, r, "Play as:");
+        foreach (var it in items) AssertCentred(b, l, r, it);
+        var (bs, _, brow) = TextAt(b, "< Back");
+        (bs - l).ShouldBeGreaterThanOrEqualTo(2);
+        bs.ShouldBeLessThan((l + r) / 2);
+        if (close)
+        {
+            var x = RowText(b, brow).IndexOf('×');
+            x.ShouldBeGreaterThan((l + r) / 2);
+            (r - x).ShouldBeGreaterThanOrEqualTo(2);
+        }
+    }
+
     private static MenuModel BuildModel(string title, string prompt, ImmutableArray<string> items)
     {
         var m = new MenuModel();
