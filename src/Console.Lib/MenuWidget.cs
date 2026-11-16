@@ -114,7 +114,7 @@ public sealed class MenuWidget(ITerminalViewport viewport, MenuColors? colors = 
         Layout.Node.Overlay o => o with { Base = ReplaceCloseMark(o.Base, mark), Top = ReplaceCloseMark(o.Top, mark) },
         Layout.Node.Anchored a => a with { Child = ReplaceCloseMark(a.Child, mark) },
         Layout.Node.Stack s => s with { Children = [.. s.Children.Select(c => ReplaceCloseMark(c, mark))] },
-        Layout.Node.Leaf { Hit: HitResult.ButtonHit { Id: "MenuClose" }, Content: Layout.Content.Text t } l => l with
+        Layout.Node.Leaf { Hit: HitResult.ButtonHit { Action: "MenuClose" }, Content: Layout.Content.Text t } l => l with
         {
             Content = t with { Value = mark },
             Width = Layout.Sizing.Fixed(MathF.Max(l.Width.Value,
