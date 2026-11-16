@@ -202,6 +202,135 @@ public class MenuWidgetTests
         (line.IndexOf('┐') - line.IndexOf('┌') + 1).ShouldBe(30 - 2 * margin);
     }
 
+    private const int PanelW = 60, PanelH = 24;
+
+    private static (CellBuffer Buffer, MenuWidget Widget) Panel(Action<MenuWidget>? configure = null, string? closeMark = null)
+    {
+        var (buffer, vp) = Backdrop(PanelW, PanelH);
+        var widget = closeMark is null ? new MenuWidget(vp) : new MenuWidget(vp) { CloseMark = closeMark };
+        widget.Reset("Title", "Pick:", ThreeItems);
+        configure?.Invoke(widget);
+        widget.RenderPanel();
+        return (buffer, widget);
+    }
+
+    private static (int Col, int Row)? Find(CellBuffer b, string text)
+    {
+        for (var r = 0; r < PanelH; r++)
+        {
+            var i = RowText(b, r).IndexOf(text, StringComparison.Ordinal);
+            if (i >= 0) return (i, r);
+        }
+        return null;
+    }
+
+    private static MouseEvent PressAt(int col, int row) => new(0, col * 10 + 5, row * 20 + 5, IsRelease: false);
+
+    private static int CardHeight(CellBuffer b)
+    {
+        var rows = Enumerable.Range(0, PanelH).Where(r => RowText(b, r).Contains('┌') || RowText(b, r).Contains('└')).ToArray();
+        return rows[^1] - rows[0] + 1;
+    }
+
+    [Fact]
+    public void RenderPanel_NeitherAction_HasNoHeaderRow()
+    {
+        var (buffer, widget) = Panel();
+
+        Find(buffer, "< Back").ShouldBeNull();
+        Find(buffer, "×").ShouldBeNull();
+        widget.Back.ShouldBeNull();
+        widget.Close.ShouldBeNull();
+    }
+
+    [Fact]
+    public void RenderPanel_BackOnly_ShowsBackWithoutClose()
+    {
+        var (none, _) = Panel();
+        var (buffer, _) = Panel(w => w.Back = () => { });
+
+        Find(buffer, "< Back").ShouldNotBeNull();
+        Find(buffer, "×").ShouldBeNull();
+        CardHeight(buffer).ShouldBeGreaterThan(CardHeight(none));
+    }
+
+    [Fact]
+    public void RenderPanel_CloseOnly_ShowsCloseWithoutBack()
+    {
+        var (buffer, _) = Panel(w => w.Close = () => { });
+
+        Find(buffer, "×").ShouldNotBeNull();
+        Find(buffer, "< Back").ShouldBeNull();
+    }
+
+    [Fact]
+    public void RenderPanel_BothActions_ShowsBackLeftOfCloseOnOneRow()
+    {
+        var (buffer, _) = Panel(w => { w.Back = () => { }; w.Close = () => { }; });
+
+        var back = Find(buffer, "< Back").ShouldNotBeNull();
+        var close = Find(buffer, "×").ShouldNotBeNull();
+        close.Row.ShouldBe(back.Row);
+        close.Col.ShouldBeGreaterThan(back.Col);
+    }
+
+    [Fact]
+    public void HandleMouse_PressOnBack_RunsBackOnceAndConfirmsNothing()
+    {
+        var backs = 0;
+        var closes = 0;
+        var (buffer, widget) = Panel(w => { w.Back = () => backs++; w.Close = () => closes++; });
+        var back = Find(buffer, "< Back").ShouldNotBeNull();
+
+        widget.HandleMouse(PressAt(back.Col + 2, back.Row)).ShouldBeTrue();
+
+        backs.ShouldBe(1);
+        closes.ShouldBe(0);
+        widget.IsConfirmed.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void HandleMouse_PressOnCloseMark_RunsCloseOnceAndConfirmsNothing()
+    {
+        var backs = 0;
+        var closes = 0;
+        var (buffer, widget) = Panel(w => { w.Back = () => backs++; w.Close = () => closes++; });
+        var close = Find(buffer, "×").ShouldNotBeNull();
+
+        widget.HandleMouse(PressAt(close.Col, close.Row)).ShouldBeTrue();
+
+        closes.ShouldBe(1);
+        backs.ShouldBe(0);
+        widget.IsConfirmed.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void RenderPanel_CloseMarkX_PaintsXWhereDefaultPaintsMultiplicationSign()
+    {
+        var (def, _) = Panel(w => w.Close = () => { });
+        var (ascii, widget) = Panel(w => w.Close = () => { }, closeMark: "x");
+
+        var defAt = Find(def, "×").ShouldNotBeNull();
+        Find(ascii, "×").ShouldBeNull();
+        Find(ascii, "x").ShouldNotBeNull();
+        var x = Find(ascii, "x").ShouldNotBeNull();
+        x.Row.ShouldBe(defAt.Row);
+        widget.CloseMark.ShouldBe("x");
+    }
+
+    [Fact]
+    public void HandleMouse_PressOnWideCloseMark_RunsClose()
+    {
+        var closes = 0;
+        var (buffer, widget) = Panel(w => w.Close = () => closes++, closeMark: "[x]");
+        var close = Find(buffer, "[x]").ShouldNotBeNull();
+
+        widget.HandleMouse(PressAt(close.Col + 1, close.Row)).ShouldBeTrue();
+
+        closes.ShouldBe(1);
+        widget.IsConfirmed.ShouldBeFalse();
+    }
+
     private static MenuModel BuildModel(string title, string prompt, ImmutableArray<string> items)
     {
         var m = new MenuModel();

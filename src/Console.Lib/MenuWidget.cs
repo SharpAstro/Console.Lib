@@ -80,9 +80,49 @@ public sealed class MenuWidget(ITerminalViewport viewport, MenuColors? colors = 
         style = style with { FontToCard = 1f / maxW };
 
         var tree = MenuLayout.BuildPanel(_model, _colors, style, CellFloatMeasureContext.Instance, w, h);
+        if (CloseMark != DefaultCloseMark) tree = ReplaceCloseMark(tree, CloseMark);
         _arranged = Layout.Engine.Arrange(tree, new Rect<int>(0, 0, w, h), CellMeasureContext.CellAuthored);
         CellLayout.Paint(Viewport, _arranged);
     }
+
+    private const string DefaultCloseMark = "×";
+
+    /// <summary>
+    /// The host's "go back" action. When set, <see cref="RenderPanel"/> shows a "&lt; Back" control at the left of a
+    /// header row; a press on it runs the action and confirms no row. Passes through to <see cref="MenuModel.Back"/>.
+    /// Shown only in <see cref="RenderPanel"/>: <see cref="Render"/>'s tree has no header.
+    /// </summary>
+    public Action? Back { get => _model.Back; set => _model.Back = value; }
+
+    /// <summary>
+    /// The host's "close" action. When set, <see cref="RenderPanel"/> shows a close mark at the right of the header
+    /// row; a press on it runs the action and confirms no row. Passes through to <see cref="MenuModel.Close"/>.
+    /// Shown only in <see cref="RenderPanel"/>: <see cref="Render"/>'s tree has no header.
+    /// </summary>
+    public Action? Close { get => _model.Close; set => _model.Close = value; }
+
+    /// <summary>
+    /// The text of the close control in <see cref="RenderPanel"/>. Defaults to U+00D7, which many terminal fonts lack
+    /// or draw wide; set an ASCII mark such as <c>[x]</c> for those. The control widens to fit it.
+    /// </summary>
+    public string CloseMark { get; init; } = DefaultCloseMark;
+
+    // DIR.Lib's close label is internal, so the mark is swapped in the built tree: the leaf hit as MenuClose gets the
+    // new text and, when the mark needs more room, a wider Fixed width. Hit and OnClick are left as they are.
+    private static Layout.Node ReplaceCloseMark(Layout.Node node, string mark) => node switch
+    {
+        Layout.Node.Overlay o => o with { Base = ReplaceCloseMark(o.Base, mark), Top = ReplaceCloseMark(o.Top, mark) },
+        Layout.Node.Anchored a => a with { Child = ReplaceCloseMark(a.Child, mark) },
+        Layout.Node.Stack s => s with { Children = [.. s.Children.Select(c => ReplaceCloseMark(c, mark))] },
+        Layout.Node.Leaf { Hit: HitResult.ButtonHit { Id: "MenuClose" }, Content: Layout.Content.Text t } l => l with
+        {
+            Content = t with { Value = mark },
+            Width = Layout.Sizing.Fixed(MathF.Max(l.Width.Value,
+                l.Width.Value + CellFloatMeasureContext.Instance.MeasureText(mark.AsSpan(), t.FontSize).Width
+                - CellFloatMeasureContext.Instance.MeasureText(DefaultCloseMark.AsSpan(), t.FontSize).Width)),
+        },
+        _ => node,
+    };
 
     /// <summary>
     /// Routes an <see cref="InputKey"/> (e.g., Up/Down/Enter/D1..D9) to <see cref="MenuModel.HandleKey"/>.
@@ -94,7 +134,8 @@ public sealed class MenuWidget(ITerminalViewport viewport, MenuColors? colors = 
     /// Handles a mouse event: translates to viewport-local cells via <see cref="Widget.HitTest"/>,
     /// then delegates to <see cref="CellLayout.HitTest"/> to fire the matching item's OnClick
     /// (which calls <see cref="MenuModel.ConfirmAt"/>).
-    /// Returns <c>true</c> when a menu item was clicked.
+    /// Returns <c>true</c> when the press landed on a hit region (an item, or the panel's Back or close control,
+    /// whose action runs without confirming a row); <c>false</c> otherwise.
     /// </summary>
     public bool HandleMouse(MouseEvent ev)
     {
