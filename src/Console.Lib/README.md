@@ -809,7 +809,7 @@ public class MyMenu(IVirtualTerminal terminal, TimeProvider timeProvider)
 }
 ```
 
-Override `protected virtual bool UsePanel => true;` (5.28) to show the alternate-screen menu as `MenuWidget.RenderPanel`,
+Override `protected virtual bool UsePanel => true;` (5.29) to show the alternate-screen menu as `MenuWidget.RenderPanel`,
 a card over whatever the host drew first, with no `Clear()`. A press outside the card is consumed; a press on a row
 returns that row. Default is the full-screen rows path.
 
