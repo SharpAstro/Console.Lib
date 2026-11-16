@@ -9,6 +9,15 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.32
+
+`MenuWidget.RenderPanel` (Console.Lib #96): the card's content is centred on every step (centred card column,
+a fixed marker gutter so item texts share one centre), and each row is one terminal line. DIR.Lib sizes rows in
+font units for a pixel surface, which left a blank line under every item and made long menus overflow short
+terminals. Header, title, prompt and items now take one row each, with one blank row between prompt and items and
+one blank row of padding inside the top and bottom border. When the viewport is too short the gap goes first, then
+the padding. The card is sized to those rows and re-centred vertically.
+
 ## 5.31
 
 - `MenuBase<T>.OnIdle()` (#94): a protected virtual hook (empty by default) called on every pass of the wait loop with no

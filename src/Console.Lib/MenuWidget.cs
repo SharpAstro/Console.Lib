@@ -81,7 +81,7 @@ public sealed class MenuWidget(ITerminalViewport viewport, MenuColors? colors = 
 
         var tree = MenuLayout.BuildPanel(_model, _colors, style, CellFloatMeasureContext.Instance, w, h);
         if (CloseMark != DefaultCloseMark) tree = ReplaceCloseMark(tree, CloseMark);
-        tree = CentreCard(tree, MathF.Min(maxW, room), w, style.Border?.Width ?? 0f);
+        tree = CentreCard(tree, MathF.Min(maxW, room), w, h, style.Border?.Width ?? 0f);
         _arranged = Layout.Engine.Arrange(tree, new Rect<int>(0, 0, w, h), CellMeasureContext.CellAuthored);
         CellLayout.Paint(Viewport, _arranged);
     }
@@ -98,17 +98,43 @@ public sealed class MenuWidget(ITerminalViewport viewport, MenuColors? colors = 
     /// with the marker in a fixed gutter at their left. The card is widened (up to <paramref name="maxW"/>) to hold the
     /// symmetric rows plus its padding and border, and re-centred on the surface.
     /// </summary>
-    private static Layout.Node CentreCard(Layout.Node tree, float maxW, int surfaceW, float border)
+    private static Layout.Node CentreCard(Layout.Node tree, float maxW, int surfaceW, int surfaceH, float border)
     {
         if (tree is not Layout.Node.Overlay { Top: Layout.Node.Anchored { Child: Layout.Node.Stack { Children: [Layout.Node.Stack column] } card } anchored } overlay
             || card.Width.Kind != Layout.SizeKind.Fixed)
             return tree;
 
+        // One terminal row per header, title, prompt and item (DIR.Lib sizes them in font units for a pixel surface,
+        // which leaves a blank line under every item). One blank row sits between prompt and items and one blank row
+        // of padding inside the top and bottom border; when the viewport is too short the gap goes first, then the padding.
+        var textRows = column.Children.Count(c => c is Layout.Node.Stack or Layout.Node.Leaf { Content: Layout.Content.Text });
+        var avail = (int)MathF.Max(1f, surfaceH - 2f * border);
+        var gapRows = textRows + 3 <= avail ? 1 : 0;
+        var padRows = textRows + gapRows + 2 <= avail ? 1 : 0;
+        var cardHeight = MathF.Min(surfaceH, textRows + gapRows + 2 * padRows + 2f * border);
+
         var widest = 0f;
+        var last = column.Children.Length - 1;
         var rows = ImmutableArray.CreateBuilder<Layout.Node>(column.Children.Length);
-        foreach (var child in column.Children)
+        for (var i = 0; i <= last; i++)
         {
-            var node = child;
+            var node = column.Children[i];
+            switch (node)
+            {
+                case Layout.Node.Leaf { Content: Layout.Content.Box } spacer:
+                    node = spacer with { Height = Layout.Sizing.Fixed(i == 0 || i == last ? padRows : gapRows) };
+                    break;
+                case Layout.Node.Leaf { Content: Layout.Content.Text } textRow:
+                    node = textRow with { Height = Layout.Sizing.Fixed(1f) };
+                    break;
+                case Layout.Node.Stack header:
+                    node = header with
+                    {
+                        Height = Layout.Sizing.Fixed(1f),
+                        Children = [.. header.Children.Select(c => c is Layout.Node.Leaf l ? l with { Height = Layout.Sizing.Fixed(1f) } : c)],
+                    };
+                    break;
+            }
             if (node is Layout.Node.Leaf { Hit: HitResult.ListItemHit, Content: Layout.Content.Text it } item
                 && it.Value.Length >= MarkerWidth)
             {
@@ -124,8 +150,16 @@ public sealed class MenuWidget(ITerminalViewport viewport, MenuColors? colors = 
         var wanted = MathF.Ceiling(widest + 2f * card.Padding + 2f * border);
         var width = MathF.Max(card.Width.Value, MathF.Min(wanted, MathF.Max(maxW, card.Width.Value)));
         var newColumn = column with { Children = rows.ToImmutable(), Width = Layout.Sizing.Star() };
-        var newCard = card with { Children = [newColumn], Width = Layout.Sizing.Fixed(width) };
-        return overlay with { Top = anchored with { Child = newCard, OffsetAlong = MathF.Floor((surfaceW - width) / 2f) } };
+        var newCard = card with { Children = [newColumn], Width = Layout.Sizing.Fixed(width), Height = Layout.Sizing.Fixed(cardHeight) };
+        return overlay with
+        {
+            Top = anchored with
+            {
+                Child = newCard,
+                OffsetAlong = MathF.Floor((surfaceW - width) / 2f),
+                OffsetAcross = MathF.Floor((surfaceH - cardHeight) / 2f),
+            },
+        };
     }
 
     /// <summary>
