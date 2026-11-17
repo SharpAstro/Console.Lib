@@ -206,6 +206,12 @@ public sealed class MenuWidget(ITerminalViewport viewport, MenuColors? colors = 
     public bool HandleKey(InputKey key) => _model.HandleKey(key);
 
     /// <summary>
+    /// <see cref="HandleKey(InputKey)"/> with the modifiers: Tab and Shift+Tab move <see cref="MenuModel.Focus"/> to the
+    /// panel's Back and close controls and back, and Enter on a focused control runs it (confirming no row).
+    /// </summary>
+    public bool HandleKey(InputKey key, InputModifier modifiers) => _model.HandleKey(key, modifiers);
+
+    /// <summary>
     /// Handles a mouse event: translates to viewport-local cells via <see cref="Widget.HitTest"/>,
     /// then delegates to <see cref="CellLayout.HitTest"/> to fire the matching item's OnClick
     /// (which calls <see cref="MenuModel.ConfirmAt"/>).

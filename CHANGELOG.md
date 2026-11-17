@@ -9,6 +9,14 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.34
+
+Tab and Shift+Tab reach the panel's header controls (additive). Pins DIR.Lib and DIR.Lib.Debug 11.79.7701 (was 11.76.7571), whose `MenuModel.Focus` this builds on. In `MenuBase`'s panel mode the
+keys now go to `MenuWidget.HandleKey(InputKey, InputModifier)` with their modifiers, so Tab moves the keyboard to
+"< Back" and the close mark and Shift+Tab moves it back; arrows stay on the rows, as in dialog/whiptail. Enter on a
+focused control returns `MenuChoice.OfBack` / `OfClose`, exactly as a press on it does. A step with no header control
+leaves Tab alone. No footer hint is drawn.
+
 ## 5.33
 
 Backspace returns Back in `MenuBase.ShowMenuAsync` (Console.Lib #98, additive). In panel, alternate and line modes a step whose actions include `MenuActions.Back` now treats Backspace as Back; without Back it is ignored and never closes. Esc is unchanged.
