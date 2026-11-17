@@ -72,6 +72,7 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
     /// Shows a step that may also have Back and/or close, and says which was taken. In panel mode
     /// (<see cref="UsePanel"/>) the header shows the controls for <paramref name="actions"/>; a press on one returns it.
     /// In every mode Esc returns Back when the step has it, else Close when it has it, else is ignored.
+    /// Backspace returns Back when the step has it, else is ignored; it never closes.
     /// With <see cref="MenuActions.None"/> this is the row-only menu.
     /// </summary>
     protected async Task<MenuChoice> ShowMenuAsync(
@@ -107,6 +108,12 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
 
             var input = terminal.TryReadInput();
 
+            if (input.Key == ConsoleKey.Backspace && BackspaceChoice(actions) is { } bs)
+            {
+                terminal.WriteLine();
+                return bs;
+            }
+
             if (input.Key == ConsoleKey.Escape && EscChoice(actions) is { } esc)
             {
                 terminal.WriteLine();
@@ -129,6 +136,10 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
         actions.HasFlag(MenuActions.Back) ? MenuChoice.OfBack
         : actions.HasFlag(MenuActions.Close) ? MenuChoice.OfClose
         : null;
+
+    /// <summary>Backspace: Back if the step has it, else nothing. It never closes.</summary>
+    private static MenuChoice? BackspaceChoice(MenuActions actions) =>
+        actions.HasFlag(MenuActions.Back) ? MenuChoice.OfBack : null;
 
     private async Task<MenuChoice> ShowMenuPanelAsync(
         string title, string prompt, string[] items, MenuActions actions, CancellationToken cancellationToken)
@@ -174,6 +185,12 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
                     if (header is { } h) return h;
                     if (widget.IsConfirmed) return MenuChoice.Row(widget.SelectedIndex);
                 }
+                continue;
+            }
+
+            if (input.Key == ConsoleKey.Backspace)
+            {
+                if (BackspaceChoice(actions) is { } bs) return bs;
                 continue;
             }
 
@@ -249,6 +266,9 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
                     return MenuChoice.Row(selected);
                 case ConsoleKey.Escape:
                     if (EscChoice(actions) is { } esc) return esc;
+                    break;
+                case ConsoleKey.Backspace:
+                    if (BackspaceChoice(actions) is { } bs) return bs;
                     break;
                 default:
                     var digit = input.Key - ConsoleKey.D1;

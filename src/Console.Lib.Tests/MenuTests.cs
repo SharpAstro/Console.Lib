@@ -271,6 +271,62 @@ public class MenuTests
     }
 
     [Fact]
+    public async Task Panel_BackspaceWithBack_ReturnsBack()
+    {
+        var t = PanelTerminal(Key(ConsoleKey.Backspace));
+        (await new ActionMenu(t, MenuActions.Back, true).ShowAsync(Deadline())).IsBack.ShouldBeTrue();
+
+        var u = PanelTerminal(Key(ConsoleKey.Backspace));
+        (await new ActionMenu(u, Both, true).ShowAsync(Deadline())).IsBack.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Panel_BackspaceWithCloseOnlyOrNone_IsIgnored_ThenDigitReturnsRow()
+    {
+        var a = PanelTerminal(Key(ConsoleKey.Backspace), Key(ConsoleKey.D2));
+        (await new ActionMenu(a, MenuActions.Close, true).ShowAsync(Deadline())).ShouldBe(MenuChoice.Row(1));
+
+        var b = PanelTerminal(Key(ConsoleKey.Backspace), Key(ConsoleKey.D3));
+        (await new ActionMenu(b, MenuActions.None, true).ShowAsync(Deadline())).ShouldBe(MenuChoice.Row(2));
+    }
+
+    [Fact]
+    public async Task Alternate_Backspace_MapsBackElseIgnored()
+    {
+        var a = new FakeTerminal(new Queue<ConsoleInputEvent>([Key(ConsoleKey.Backspace)]));
+        a.EnterAlternateScreen();
+        (await new ActionMenu(a, MenuActions.Back, false).ShowAsync(Deadline())).IsBack.ShouldBeTrue();
+
+        var b = new FakeTerminal(new Queue<ConsoleInputEvent>([Key(ConsoleKey.Backspace)]));
+        b.EnterAlternateScreen();
+        (await new ActionMenu(b, Both, false).ShowAsync(Deadline())).IsBack.ShouldBeTrue();
+
+        var c = new FakeTerminal(new Queue<ConsoleInputEvent>([Key(ConsoleKey.Backspace), Key(ConsoleKey.D3)]));
+        c.EnterAlternateScreen();
+        (await new ActionMenu(c, MenuActions.Close, false).ShowAsync(Deadline())).ShouldBe(MenuChoice.Row(2));
+
+        var d = new FakeTerminal(new Queue<ConsoleInputEvent>([Key(ConsoleKey.Backspace), Key(ConsoleKey.D1)]));
+        d.EnterAlternateScreen();
+        (await new ActionMenu(d, MenuActions.None, false).ShowAsync(Deadline())).ShouldBe(MenuChoice.Row(0));
+    }
+
+    [Fact]
+    public async Task Normal_Backspace_MapsBackElseIgnored()
+    {
+        var a = new FakeTerminal(new Queue<ConsoleInputEvent>([Key(ConsoleKey.Backspace)]));
+        (await new ActionMenu(a, MenuActions.Back, false).ShowAsync(Deadline())).IsBack.ShouldBeTrue();
+
+        var b = new FakeTerminal(new Queue<ConsoleInputEvent>([Key(ConsoleKey.Backspace)]));
+        (await new ActionMenu(b, Both, false).ShowAsync(Deadline())).IsBack.ShouldBeTrue();
+
+        var c = new FakeTerminal(new Queue<ConsoleInputEvent>([Key(ConsoleKey.Backspace), Key(ConsoleKey.D2)]));
+        (await new ActionMenu(c, MenuActions.Close, false).ShowAsync(Deadline())).ShouldBe(MenuChoice.Row(1));
+
+        var d = new FakeTerminal(new Queue<ConsoleInputEvent>([Key(ConsoleKey.Backspace), Key(ConsoleKey.D1)]));
+        (await new ActionMenu(d, MenuActions.None, false).ShowAsync(Deadline())).ShouldBe(MenuChoice.Row(0));
+    }
+
+    [Fact]
     public async Task IntOverload_StillReturnsRowIndex_AndIgnoresEsc()
     {
         var t = PanelTerminal(Key(ConsoleKey.Escape), Key(ConsoleKey.D2));

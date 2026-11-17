@@ -9,6 +9,10 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.33
+
+Backspace returns Back in `MenuBase.ShowMenuAsync` (Console.Lib #98, additive). In panel, alternate and line modes a step whose actions include `MenuActions.Back` now treats Backspace as Back; without Back it is ignored and never closes. Esc is unchanged.
+
 ## 5.32
 
 `MenuWidget.RenderPanel` (Console.Lib #96): the card's content is centred on every step (centred card column,
