@@ -73,6 +73,8 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
     /// (<see cref="UsePanel"/>) the header shows the controls for <paramref name="actions"/>; a press on one returns it.
     /// In every mode Esc returns Back when the step has it, else Close when it has it, else is ignored.
     /// Backspace returns Back when the step has it, else is ignored; it never closes.
+    /// In panel mode Tab and Shift+Tab move the keyboard to the header controls and back (arrows stay on the rows),
+    /// and Enter on a focused control returns it, as a press on it does.
     /// With <see cref="MenuActions.None"/> this is the row-only menu.
     /// </summary>
     protected async Task<MenuChoice> ShowMenuAsync(
@@ -200,8 +202,12 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
                 continue;
             }
 
-            if (widget.HandleKey(input.Key.ToInputKey))
+            // With the modifiers: Tab / Shift+Tab move focus to the header's Back and close controls (they are Tab
+            // stops, never rows), and Enter on one runs it, which sets header just as a press on it does.
+            var (key, mods) = input.ToInput;
+            if (widget.HandleKey(key, mods))
             {
+                if (header is { } taken) return taken;
                 if (widget.IsConfirmed)
                 {
                     return MenuChoice.Row(widget.SelectedIndex);

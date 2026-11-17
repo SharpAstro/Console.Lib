@@ -290,6 +290,39 @@ public class MenuTests
         (await new ActionMenu(b, MenuActions.None, true).ShowAsync(Deadline())).ShouldBe(MenuChoice.Row(2));
     }
 
+    // Tab and Shift+Tab reach the header controls (DIR.Lib MenuModel.Focus); arrows stay on the rows.
+
+    private static ConsoleInputEvent ShiftTab => new(null, ConsoleKey.Tab, ConsoleModifiers.Shift);
+
+    [Fact]
+    public async Task Panel_TabThenEnter_ReturnsBack()
+    {
+        var t = PanelTerminal(Key(ConsoleKey.Tab), Key(ConsoleKey.Enter));
+        (await new ActionMenu(t, Both, true).ShowAsync(Deadline())).IsBack.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Panel_ShiftTabThenEnter_ReturnsClose()
+    {
+        var t = PanelTerminal(ShiftTab, Key(ConsoleKey.Enter));
+        (await new ActionMenu(t, Both, true).ShowAsync(Deadline())).IsClose.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Panel_TabThenArrowReturnsToTheRows()
+    {
+        // Down from a focused control goes back to the rows and moves there, so Enter confirms row 1, not Back.
+        var t = PanelTerminal(Key(ConsoleKey.Tab), Key(ConsoleKey.DownArrow), Key(ConsoleKey.Enter));
+        (await new ActionMenu(t, Both, true).ShowAsync(Deadline())).ShouldBe(MenuChoice.Row(1));
+    }
+
+    [Fact]
+    public async Task Panel_TabWithNoHeaderControl_IsIgnored_ThenEnterReturnsRow()
+    {
+        var t = PanelTerminal(Key(ConsoleKey.Tab), Key(ConsoleKey.Enter));
+        (await new ActionMenu(t, MenuActions.None, true).ShowAsync(Deadline())).ShouldBe(MenuChoice.Row(0));
+    }
+
     [Fact]
     public async Task Alternate_Backspace_MapsBackElseIgnored()
     {
