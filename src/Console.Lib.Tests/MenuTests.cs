@@ -418,6 +418,60 @@ public class MenuTests
         MouseClickOnItem(),
     ];
 
+    // Records the screen each time the card is about to change size (the key list opening or closing), which is the
+    // moment the host must put the board back: the screen still shows the card as it was.
+    private sealed class HelpMenu(BufferTerminal terminal, MenuActions actions) : MenuBase<MenuChoice>(terminal, new FakeClock())
+    {
+        public List<string[]> Screens { get; } = [];
+        protected override bool UsePanel => true;
+        protected override void RedrawBackdrop()
+            => Screens.Add([.. Enumerable.Range(0, terminal.Buffer.Height).Select(r => RowText(terminal.Buffer, r))]);
+        protected override Task<MenuChoice> ShowAsyncCore(CancellationToken cancellationToken)
+            => ShowMenuAsync("Title", "Pick one:", ["Alpha", "Beta", "Gamma"], actions, cancellationToken);
+    }
+
+    [Fact]
+    public async Task Panel_F1ShowsTheKeyList_AndEscClosesItWithoutGoingBack()
+    {
+        // F1 opens the list; Down is swallowed by it; Esc closes the list (it does NOT take Back); 2 then picks Beta.
+        var t = PanelTerminal(Key(ConsoleKey.F1), Key(ConsoleKey.DownArrow), Key(ConsoleKey.Escape), Key(ConsoleKey.D2));
+        var menu = new HelpMenu(t, MenuActions.Back);
+
+        var choice = await menu.ShowAsync(Deadline());
+
+        choice.IsBack.ShouldBeFalse();
+        choice.Index.ShouldBe(1);
+        menu.Screens.Count.ShouldBe(2, "the board goes back once as the list opens and once as it closes");
+
+        var list = menu.Screens[1];
+        list.ShouldContain(r => r.Contains("Keys"));
+        list.ShouldContain(r => r.Contains("F1 or Esc to return"));
+        list.ShouldContain(r => r.Contains("Esc, Backspace") && r.Contains("Go back a step"));
+        list.ShouldContain(r => r.Contains("Tab, Shift+Tab") && r.Contains("Reach Back"));
+        list.ShouldNotContain(r => r.Contains("Alpha"), "the rows are not shown under the list");
+
+        // The descriptions line up in one column.
+        var starts = new[] { "Move the selection", "Go back a step", "Reach Back" }
+            .Select(d => list.Single(r => r.Contains(d)).IndexOf(d)).Distinct().ToArray();
+        starts.Length.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Panel_F1Twice_ReturnsToTheRows()
+    {
+        var t = PanelTerminal(Key(ConsoleKey.F1), Key(ConsoleKey.F1), Key(ConsoleKey.DownArrow), Key(ConsoleKey.Enter));
+        (await new HelpMenu(t, MenuActions.None).ShowAsync(Deadline())).Index.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Panel_KeyList_NamesEscAsCloseWhenTheStepCanOnlyClose()
+    {
+        var t = PanelTerminal(Key(ConsoleKey.F1), Key(ConsoleKey.F1), Key(ConsoleKey.D1));
+        var menu = new HelpMenu(t, MenuActions.Close);
+        (await menu.ShowAsync(Deadline())).Index.ShouldBe(0);
+        menu.Screens[1].ShouldContain(r => r.Contains("Esc") && r.Contains("Close") && !r.Contains("Backspace"));
+    }
+
     private static ConsoleInputEvent Key(ConsoleKey key) => new(null, key, 0);
 
     private static ConsoleInputEvent Mouse(int y) =>
