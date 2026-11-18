@@ -446,12 +446,12 @@ public class MenuTests
         var list = menu.Screens[1];
         list.ShouldContain(r => r.Contains("Keys"));
         list.ShouldContain(r => r.Contains("F1 or Esc to return"));
-        list.ShouldContain(r => r.Contains("Esc, Backspace") && r.Contains("Go back a step"));
-        list.ShouldContain(r => r.Contains("Tab, Shift+Tab") && r.Contains("Reach Back"));
+        list.ShouldContain(r => r.Contains("Esc, Backspace") && r.Contains("Go back"));
+        list.ShouldContain(r => r.Contains("Tab, Shift+Tab") && r.Contains("To Back"));
         list.ShouldNotContain(r => r.Contains("Alpha"), "the rows are not shown under the list");
 
         // The descriptions line up in one column.
-        var starts = new[] { "Move the selection", "Go back a step", "Reach Back" }
+        var starts = new[] { "Move", "Go back", "To Back" }
             .Select(d => list.Single(r => r.Contains(d)).IndexOf(d)).Distinct().ToArray();
         starts.Length.ShouldBe(1);
     }

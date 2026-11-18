@@ -9,6 +9,16 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.35
+
+F1 shows the menu's keys in `MenuBase`'s panel mode (additive). Pins DIR.Lib and DIR.Lib.Debug 11.81.7751 (was
+11.79.7701), whose `MenuModel.ShowingHelp` this builds on. F1 turns the card into the key list, F1 or Esc returns to the
+rows, and Esc there closes only the list, never going back a step. The list ends with what Esc and Backspace do in this
+step ("Esc, Backspace: Go back" when Back is offered, "Esc: Close" when Esc closes). `MenuWidget` passes `ShowingHelp`
+and `HostHelp` through. New `protected virtual void RedrawBackdrop()`: called when the list opens or closes and when the
+terminal is resized while a menu is up, so a subclass drawing a picture behind the card (a board) can repaint what the
+card no longer covers. **Fix:** a resize while the menu was up never redrew what was behind it.
+
 ## 5.34
 
 Tab and Shift+Tab reach the panel's header controls (additive). Pins DIR.Lib and DIR.Lib.Debug 11.79.7701 (was 11.76.7571), whose `MenuModel.Focus` this builds on. In `MenuBase`'s panel mode the
