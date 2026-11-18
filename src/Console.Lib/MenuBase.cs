@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using DIR.Lib;
 
 namespace Console.Lib;
@@ -56,6 +57,13 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
     /// stays responsive while a menu is up. Keep it short: it delays the next input check. Empty by default.
     /// </summary>
     protected virtual void OnIdle() { }
+
+    /// <summary>
+    /// Puts back what the panel's card was drawn over, in panel mode (<see cref="UsePanel"/>), before the card is drawn
+    /// again at a different size or place: opening or closing the key list (F1) resizes it, a terminal resize moves it,
+    /// and the card cannot restore the cells it no longer covers. The default does nothing, which suits a host with nothing behind the card.
+    /// </summary>
+    protected virtual void RedrawBackdrop() { }
 
     public async Task<T> ShowAsync(CancellationToken cancellationToken)
     {
@@ -139,6 +147,15 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
         : actions.HasFlag(MenuActions.Close) ? MenuChoice.OfClose
         : null;
 
+    /// <summary>The key list's lines for the keys this loop handles itself: Esc and Backspace, as the step's actions set them.</summary>
+    private static ImmutableArray<MenuHelpLine> HostHelp(MenuActions actions) =>
+        (EscChoice(actions), BackspaceChoice(actions)) switch
+        {
+            ({ IsBack: true }, { IsBack: true }) => [new("Esc, Backspace", "Go back a step")],
+            ({ } esc, null) => [new("Esc", esc.IsBack ? "Go back a step" : "Close")],
+            _ => [],
+        };
+
     /// <summary>Backspace: Back if the step has it, else nothing. It never closes.</summary>
     private static MenuChoice? BackspaceChoice(MenuActions actions) =>
         actions.HasFlag(MenuActions.Back) ? MenuChoice.OfBack : null;
@@ -150,6 +167,7 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
         MenuChoice? header = null;
         if (actions.HasFlag(MenuActions.Back)) widget.Back = () => header = MenuChoice.OfBack;
         if (actions.HasFlag(MenuActions.Close)) widget.Close = () => header = MenuChoice.OfClose;
+        widget.HostHelp = HostHelp(actions);
         widget.Reset(title, prompt, [.. items]);
 
         void Draw()
@@ -169,6 +187,8 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
                 if (w != lastW || h != lastH)
                 {
                     (lastW, lastH) = (w, h);
+                    // The card moves and resizes with the grid, and cannot restore what it no longer covers.
+                    RedrawBackdrop();
                     Draw();
                 }
 
@@ -186,6 +206,21 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
                 {
                     if (header is { } h) return h;
                     if (widget.IsConfirmed) return MenuChoice.Row(widget.SelectedIndex);
+                }
+                continue;
+            }
+
+            // F1 opens the key list, and while it is open every key goes to it (F1 and Esc close it, the rest are
+            // swallowed), ahead of the Esc and Backspace below: Esc closes the list here, it does not go back.
+            if (input.Key == ConsoleKey.F1 || widget.ShowingHelp)
+            {
+                var (helpKey, helpMods) = input.ToInput;
+                var wasShowing = widget.ShowingHelp;
+                widget.HandleKey(helpKey, helpMods);
+                if (widget.ShowingHelp != wasShowing)
+                {
+                    RedrawBackdrop();
+                    Draw();
                 }
                 continue;
             }

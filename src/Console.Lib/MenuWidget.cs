@@ -176,6 +176,12 @@ public sealed class MenuWidget(ITerminalViewport viewport, MenuColors? colors = 
     /// </summary>
     public Action? Close { get => _model.Close; set => _model.Close = value; }
 
+    /// <summary>Whether the card shows the key list (F1) in place of the rows. See <see cref="MenuModel.ShowingHelp"/>.</summary>
+    public bool ShowingHelp => _model.ShowingHelp;
+
+    /// <summary>Keys the host handles itself (Esc, Backspace), listed in the key list after the menu's own. See <see cref="MenuModel.HostHelp"/>.</summary>
+    public ImmutableArray<MenuHelpLine> HostHelp { get => _model.HostHelp; set => _model.HostHelp = value; }
+
     /// <summary>
     /// The text of the close control in <see cref="RenderPanel"/>. Defaults to U+00D7, which many terminal fonts lack
     /// or draw wide; set an ASCII mark such as <c>[x]</c> for those. The control widens to fit it.
