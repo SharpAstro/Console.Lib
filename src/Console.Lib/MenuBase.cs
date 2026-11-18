@@ -151,8 +151,8 @@ public abstract class MenuBase<T>(IVirtualTerminal terminal, TimeProvider timePr
     private static ImmutableArray<MenuHelpLine> HostHelp(MenuActions actions) =>
         (EscChoice(actions), BackspaceChoice(actions)) switch
         {
-            ({ IsBack: true }, { IsBack: true }) => [new("Esc, Backspace", "Go back a step")],
-            ({ } esc, null) => [new("Esc", esc.IsBack ? "Go back a step" : "Close")],
+            ({ IsBack: true }, { IsBack: true }) => [new("Esc, Backspace", "Go back")],
+            ({ } esc, null) => [new("Esc", esc.IsBack ? "Go back" : "Close")],
             _ => [],
         };
 
