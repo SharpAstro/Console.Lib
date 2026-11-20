@@ -22,7 +22,7 @@ The cell half of two DIR.Lib releases. Pins DIR.Lib and DIR.Lib.Debug 11.90.8582
 - **Twelve icon kinds had no glyph and drew as `?`**: the kinds DIR.Lib 11.88 and 11.89 added (a toast's Info, Warning,
   Error and Success, Close, Pin and PinFilled, OpenInPage, and the four compare modes). Each now has a character that
   Cascadia Mono, Cascadia Code, Consolas, Lucida Console and Courier New all carry, read from the fonts' character
-  maps. Success shares Check's tick.
+  maps. Success is the exception: it shares Check's tick, U+2713, which only the two Cascadia faces carry (#103).
 
 Not in this release: the cell LOOK of DIR.Lib 11.89's segmented control and icon toggle, and of 11.88's toast (tint,
 edge, Close cross), which 11.88 and 11.89 asked of this repo. They arrange and paint in cells as any node does; nobody
