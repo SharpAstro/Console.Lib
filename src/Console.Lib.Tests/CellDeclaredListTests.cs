@@ -14,7 +14,7 @@ public class CellDeclaredListTests
 {
     private static readonly RGBAColor32 Focus = new(200, 40, 40, 255);
 
-    private sealed class Widget(string id, int rows, int viewportRows = 0)
+    private sealed class Widget(string id, int rows, int viewportRows = 0, int disabledFrom = -1, int disabledTo = -1)
     {
         public string Id { get; } = id;
 
@@ -34,6 +34,10 @@ public class CellDeclaredListTests
                     .Clickable(new HitResult.ListItemHit(Id, index))
                     .Activatable(_ => Activated.Add(index))
                     .BgFocus(Focus);
+                if (i >= disabledFrom && i <= disabledTo)
+                {
+                    nodes[i] = nodes[i].Disabled("not now");
+                }
             }
 
             var list = Layout.Builder.VStack(nodes);
@@ -183,5 +187,60 @@ public class CellDeclaredListTests
         host.Frame(list); // the host repaints each frame, and row 4 now has a region
         host.Key(InputKey.Enter).ShouldBeTrue();
         list.Activated.ShouldBe([4]);
+    }
+
+    // DIR.Lib 11.90's rule in cells. A scrolled stack lays out only the rows within a viewport's extent of its
+    // viewport, so a run of disabled rows taller than that holds no row the cursor can take, and the rows after it
+    // are not in the frame: Down was refused as if the list had ended. The surface now scrolls the farthest row it
+    // holds that way into view and says the list moved, so the key is taken and the next press continues.
+    [Fact]
+    public void ADeclaredListScrolledByAViewportGetsPastARunOfDisabledRowsTallerThanIt()
+    {
+        var host = new Host();
+        var list = new Widget("a", 14, viewportRows: 2, disabledFrom: 2, disabledTo: 8);
+        list.Cursor.Open("a", 1);
+        host.Frame(list);
+
+        var presses = 0;
+        while (list.Cursor.Index != 9 && presses < 10)
+        {
+            host.Key(InputKey.Down).ShouldBeTrue($"press {presses + 1} is taken: the list goes on");
+            host.Frame(list);
+            presses++;
+        }
+
+        list.Cursor.Index.ShouldBe(9, "the first row after the seven disabled ones");
+
+        // And back up across the same run.
+        presses = 0;
+        while (list.Cursor.Index != 1 && presses < 10)
+        {
+            host.Key(InputKey.Up).ShouldBeTrue($"press {presses + 1} up is taken");
+            host.Frame(list);
+            presses++;
+        }
+
+        list.Cursor.Index.ShouldBe(1);
+    }
+
+    [Fact]
+    public void AtTheRealEndOfAScrolledListTheArrowIsStillRefused()
+    {
+        // Rows 3 to 5 are disabled and the list ends with them: the presses that bring them into view are taken,
+        // and once they are in view there is nothing further.
+        var host = new Host();
+        var list = new Widget("a", 6, viewportRows: 2, disabledFrom: 3, disabledTo: 5);
+        list.Cursor.Open("a", 2);
+        host.Frame(list);
+
+        var taken = 0;
+        while (taken < 8 && host.Key(InputKey.Down))
+        {
+            host.Frame(list);
+            taken++;
+        }
+
+        taken.ShouldBeLessThan(8, "the scroll reaches the end and the key is then refused, not taken for ever");
+        list.Cursor.Index.ShouldBe(2, "no row after 2 can take the cursor");
     }
 }
