@@ -70,6 +70,22 @@ public class CellInputRouterTests
     private static Layout.Node Field(TextInputState state)
         => Layout.Builder.TextInput(state, 1f).RowH(1).WStar();
 
+    // Console.Lib #52: the surface answers for the frame it declared, here as in HitTest and GetRegisteredTextInputs.
+    [Fact]
+    public void CaretIndexAtAnswersOnlyForTheFrameTheFieldWasDeclaredIn()
+    {
+        var host = new Host();
+        var field = new TextInputState { Text = "abcdef", CursorPos = 0 };
+        host.Frame(Layout.Builder.VStack(Field(field)));
+        var hit = new HitResult.TextInputHit(field, default);
+        host.Surface.CaretIndexAt(hit, 2f).ShouldBe(2, "column 2 of a field that starts at column 0");
+
+        // The window has moved on to a frame this surface has not declared: where the field was is no answer.
+        host.Surface.Ui.FrameId++;
+
+        host.Surface.CaretIndexAt(hit, 2f).ShouldBe(field.Text.Length);
+    }
+
     [Fact]
     public void ACtrlShortcutFiresWhileAFieldIsFocused_AndABareKeyIsTypedIntoIt()
     {
@@ -190,6 +206,51 @@ public class CellInputRouterTests
         var tree = Layout.Builder.VStack(
             Layout.Builder.VStack(rows).WithScroll(scroll).H(Layout.Sizing.Fixed(viewportRows)).WStar());
         return (tree, scroll, activated);
+    }
+
+    // Console.Lib #52: what a Scroll clips is not painted, asserted on the cells themselves.
+    [Fact]
+    public void RowsAScrollClipsAreNotPaintedIntoTheCells()
+    {
+        var host = new Host();
+        var (tree, _, _) = ScrolledList(5, 3);
+
+        host.Frame(tree);
+
+        for (var row = 0; row < 3; row++)
+        {
+            host.Buffer.BackAt(0, row).Glyph.ShouldBe('r', $"row {row} is inside the three row viewport");
+            host.Buffer.BackAt(4, row).Glyph.ShouldBe((char)('0' + row));
+        }
+
+        for (var row = 3; row < host.Height; row++)
+        {
+            for (var x = 0; x < host.Width; x++)
+            {
+                host.Buffer.BackAt(x, row).Glyph.ShouldBe(' ', $"cell ({x}, {row}) is below the viewport: rows 3 and 4 are clipped");
+            }
+        }
+    }
+
+    // Console.Lib #52: a disabled group that a Scroll clips away still disables its rows for the keyboard.
+    [Fact]
+    public void EnterOnARowClippedUnderAClippedDisabledGroupDoesNotActivateIt()
+    {
+        var host = new Host();
+        var activated = new List<int>();
+        var scroll = new ListScrollController { Mode = ScrollBarMode.None };
+        Layout.Node Row(int i) => Layout.Builder.Text($"row {i}", 1f).RowH(1).WStar()
+            .Clickable(new HitResult.ListItemHit("rows", i))
+            .Activatable(_ => activated.Add(i));
+        var locked = Layout.Builder.VStack(Row(2), Row(3)) with { DisabledReason = "locked" };
+        var tree = Layout.Builder.VStack(
+            Layout.Builder.VStack(Row(0), Row(1), locked).WithScroll(scroll).H(Layout.Sizing.Fixed(2)).WStar());
+        host.Surface.ListCursor.Open("rows", 2);
+        host.Frame(tree);
+
+        host.Key(InputKey.Enter);
+
+        activated.ShouldBeEmpty("row 2 is under a disabled group, and the group being scrolled out of view does not enable it");
     }
 
     [Fact]

@@ -21,6 +21,10 @@ public static class CellWireframe
     private const byte OpaqueFrom = 0xC0;
 
     /// <summary>Paints <paramref name="arranged"/> to <paramref name="viewport"/> as <see cref="CellLayout.Paint(ITerminalViewport, ImmutableArray{Layout.ArrangedNode{int}}, Action{Layout.Content.Fill, Rect{int}})"/> does, and returns what it recorded.</summary>
+    // The older of the two overloads wins a bare null third argument, as it did before the buffer overload existed
+    // (5.19): without the priority, Record(viewport, arranged, null) is ambiguous between a null drawFill and a null
+    // buffer (CS0121), and both mean the same call.
+    [System.Runtime.CompilerServices.OverloadResolutionPriority(1)]
     public static WireframeFrame Record(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
         Action<Layout.Content.Fill, Rect<int>>? drawFill = null, bool reverse = false)
         => Record(viewport, arranged, buffer: null, drawFill, reverse);
@@ -82,6 +86,10 @@ public static class CellWireframe
         => Wireframe.Check(frame, (options ?? new WireframeOptions()) with { Tolerance = tolerance });
 
     /// <summary>Like <see cref="Record(ITerminalViewport, ImmutableArray{Layout.ArrangedNode{int}}, Action{Layout.Content.Fill, Rect{int}}, bool)"/>, but keeps the cell facts the cell rules need.</summary>
+    // The older of the two overloads wins a bare null third argument, as it did before the buffer overload existed
+    // (5.19): without the priority, Record(viewport, arranged, null) is ambiguous between a null drawFill and a null
+    // buffer (CS0121), and both mean the same call.
+    [System.Runtime.CompilerServices.OverloadResolutionPriority(1)]
     public static CellWireframeFrame RecordCells(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged,
         Action<Layout.Content.Fill, Rect<int>>? drawFill = null, bool reverse = false)
         => RecordCells(viewport, arranged, buffer: null, drawFill, reverse);
@@ -98,7 +106,7 @@ public static class CellWireframe
 
     /// <summary>DIR.Lib's rules plus the cell rules, reported side by side.</summary>
     public static CellWireframeResult CheckCells(CellWireframeFrame frame, CellWireframeOptions? options = null)
-        => new(Check(frame.Frame, options?.Pixel, options?.Tolerance ?? 0f),CellRules.Judge(frame, options?.Rules ?? CellWireframeRules.All));
+        => new(Check(frame.Frame, options?.Pixel, options?.Tolerance ?? 0f), CellRules.Judge(frame, options?.Rules ?? CellWireframeRules.All));
 
     /// <summary>One message for both kinds of finding.</summary>
     public static string Describe(CellWireframeResult result)

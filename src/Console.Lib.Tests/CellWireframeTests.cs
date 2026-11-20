@@ -220,6 +220,35 @@ public class CellWireframeTests
         CellRules(result).ShouldContain(CellWireframeRules.EmptyRows, CellWireframe.Describe(result));
     }
 
+    // Console.Lib #68: a bare null third argument compiles, and means "no drawFill, no buffer" as it did before the
+    // buffer overloads were added. Without the overload priority on the older overloads this is CS0121.
+    [Fact]
+    public void ABareNullThirdArgumentStillBindsToTheOverloadWithoutABuffer()
+    {
+        var label = new Layout.Node.Leaf(new Layout.Content.Text("Home", 12f)) { Height = Layout.Sizing.Fixed(16), Width = Layout.Sizing.Star() };
+        var arranged = Layout.Engine.Arrange(new Layout.Node.Stack([label]), new Rect<int>(0, 0, Width, Height), CellMeasureContext.PixelAuthored);
+        var buffer = new CellBuffer { ColorMode = ColorMode.TrueColor };
+        buffer.Resize(Width, Height);
+        var viewport = new CellBufferViewport(buffer, Width, Height, ColorMode.TrueColor);
+
+        CellWireframe.Record(viewport, arranged, null).ShouldNotBeNull();
+        CellWireframe.RecordCells(viewport, arranged, null).ShouldNotBeNull();
+    }
+
+    // Console.Lib #72: the test below cannot tell a floored padding from a rounded one (16 units is one row either
+    // way). Here it can: 24 units of padding are 1 row a side floored and 2 rounded, so a 4 row bar round one row of
+    // text has one row its padding does not explain, and a rounding branch would hide it.
+    [Fact]
+    public void PixelAuthoredPaddingIsFlooredToWholeRows_SoARowItDoesNotCoverIsStillAnEmptyRow()
+    {
+        var label = new Layout.Node.Leaf(new Layout.Content.Text("Home", 12f)) { Height = Layout.Sizing.Fixed(16), Width = Layout.Sizing.Star() };
+        var bar = new Layout.Node.Stack([label]) { Background = Paint, PaddingY = 24f, Height = Layout.Sizing.Fixed(64), Width = Layout.Sizing.Star() };
+        var arranged = Layout.Engine.Arrange(new Layout.Node.Stack([bar]), new Rect<int>(0, 0, Width, Height), CellMeasureContext.PixelAuthored);
+        var result = CellWireframe.CheckCells(RecordCells(arranged));
+
+        CellRules(result).ShouldContain(CellWireframeRules.EmptyRows, CellWireframe.Describe(result));
+    }
+
     [Fact]
     public void PixelAuthoredBarWhoseExtraRowsAreItsPaddingIsNotEmptyRows()
     {

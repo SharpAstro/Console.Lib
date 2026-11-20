@@ -155,19 +155,50 @@ public class CellLayoutSubCellFillTests
             .RowH(8)
             .Bg(page);
 
-        var buffer = Paint(new Layout.Node.Stack([row]), 20, 1);
+        // 21 cells with a 2 cell gap leave 9.5 cells a side, so both inner edges fall in the middle of a cell and
+        // each is a half block against the page: at 20 cells the edges sit on cell boundaries and no glyph is
+        // painted, which is why that width could not tell the fix from the code before it (#63).
+        var buffer = Paint(new Layout.Node.Stack([row]), 21, 1);
 
-        var gapCells = 0;
-        for (var x = 0; x < 20; x++)
+        var leftEdge = buffer.BackAt(9, 0);
+        leftEdge.Glyph.ShouldBe('▌');
+        leftEdge.Style.Foreground.ShouldBe(a, "the left child's last half cell");
+        leftEdge.Style.Background.ShouldBe(page, "against the page, not against its sibling");
+
+        var gap = buffer.BackAt(10, 0);
+        gap.Glyph.ShouldBe(' ');
+        gap.Style.Background.ShouldBe(page, "the gap cell shows what is under it");
+
+        var rightEdge = buffer.BackAt(11, 0);
+        rightEdge.Glyph.ShouldBe('▌');
+        rightEdge.Style.Foreground.ShouldBe(page, "the page fills the left half of the right child's first cell");
+        rightEdge.Style.Background.ShouldBe(b);
+    }
+
+    [Fact]
+    public void AFillThatStartsAndEndsInsideOneCell_KeepsAnEdgeGlyph()
+    {
+        // A fill from 5.6 to 5.9 cells: it starts and ends inside cell 5, the branch where lead and trail are one cell.
+        var meter = Layout.Builder.HStack(
+                Layout.Builder.Spacer().WStar(5.6f).HStar(),
+                Layout.Builder.Spacer().WStar(0.3f).HStar().Bg(FillColor),
+                Layout.Builder.Spacer().WStar(9.1f).HStar())
+            .RowH(8)
+            .WFixed(120)
+            .Bg(Track);
+
+        var buffer = Paint(new Layout.Node.Stack([meter]), 15, 1);
+
+        var cell = buffer.BackAt(5, 0);
+        cell.Glyph.ShouldBe('▋');
+        cell.Style.Foreground.ShouldBe(Track, "the track covers the cell up to where the fill starts");
+        cell.Style.Background.ShouldBe(FillColor);
+        for (var x = 0; x < 15; x++)
         {
-            var cell = buffer.BackAt(x, 0);
-            if (cell.Style.Background == page && cell.Glyph == ' ')
-            {
-                gapCells++;
-            }
+            if (x == 5) continue;
+            buffer.BackAt(x, 0).Glyph.ShouldBe(' ', $"column {x} holds no edge");
+            buffer.BackAt(x, 0).Style.Background.ShouldBe(Track, $"column {x} is track");
         }
-
-        gapCells.ShouldBeGreaterThan(0, "the gap shows the page colour");
     }
 
     [Fact]
@@ -185,6 +216,36 @@ public class CellLayoutSubCellFillTests
         var edge = buffer.BackAt(0, 0);
         edge.Glyph.ShouldNotBe(' ');
         edge.Style.Foreground.ShouldBe(FillColor);
+    }
+
+    // The Scroll clip of PaintFill (#63): a fill wider than the scroll area that holds it stops at the area's edge.
+    [Fact]
+    public void AFillWiderThanItsScrollArea_StopsAtTheAreasEdge()
+    {
+        var page = new RGBAColor32(0x05, 0x05, 0x05, 0xff);
+        // A 30 cell meter, filled to 15.5 cells, inside a scroll area 5 cells wide.
+        var meter = Layout.Builder.HStack(
+                Layout.Builder.Spacer().WStar(15.5f).HStar().Bg(FillColor),
+                Layout.Builder.Spacer().WStar(14.5f).HStar())
+            .RowH(8)
+            .WFixed(240);
+        var scroll = new ListScrollController { Mode = ScrollBarMode.None };
+        var area = Layout.Builder.VStack(meter).WithScroll(scroll).WFixed(40).H(Layout.Sizing.Fixed(8));
+        var row = Layout.Builder.HStack(area, Layout.Builder.Spacer().WStar().HStar()).RowH(8).Bg(page);
+
+        var buffer = Paint(new Layout.Node.Stack([row]), 20, 1);
+
+        for (var x = 0; x < 5; x++)
+        {
+            buffer.BackAt(x, 0).Style.Background.ShouldBe(FillColor, $"column {x} is inside the scroll area and the fill");
+        }
+
+        for (var x = 5; x < 20; x++)
+        {
+            var cell = buffer.BackAt(x, 0);
+            cell.Glyph.ShouldBe(' ', $"column {x} is outside the scroll area: no edge glyph of the clipped fill");
+            cell.Style.Background.ShouldBe(page, $"column {x} is outside the scroll area");
+        }
     }
 
     [Fact]

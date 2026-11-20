@@ -9,6 +9,46 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.36
+
+The points Console.Lib's reviews left for later, worked through (issues #52 to #72 titled "Follow-up of"). Six of them
+were covering defects, fixed here. Pins DIR.Lib and DIR.Lib.Debug 11.86.8251 (was 11.81.7751). Additive.
+
+- **Fix: Enter could activate a disabled row.** A row under a disabled group that a `Scroll` had scrolled out of view
+  was noted enabled, because the group's disabled state was read only for nodes on screen. The arrows could reach it and
+  Enter ran its handler. `CellInputSurface` now reads a disabled node whether or not it is on screen (#52).
+- **Fix: a popover scrolled out of view did not close on Escape.** `CellInputSurface` noted an open popover as painted
+  only when its content claimed the pointer, so one a `Scroll` clipped away was missing from the router's Escape walk.
+  It is noted where it is met, as on the pixel surface. A clipped popover claims nothing and a later node is not
+  mistaken for its content; both are now tested. Since 5.16, Escape closes an open popover through the router, which
+  that entry did not say: a cell host that handled Escape itself for a popover no longer needs to (#59).
+- **Fix: `ColorMode.None` wrote a pen escape.** The first run of every cell-buffer `Flush` carried `ESC[27m` (reverse
+  video off), because `PenEscape` added the attribute whatever the mode. It writes nothing under `None` now. What is
+  left there is the cursor move that places each run; `CLAUDE.md` said "all escape sequences" and now says which (#56).
+- **Fix: the terminal title was written to the process console, not the terminal's stream.** `VirtualTerminal.Title`
+  wrote its OSC 2 with `System.Console.Write` while the pop on dispose went to the terminal's own writer. Both go to the
+  same stream now, and a writer handed to the terminal counts as that terminal, so the setter and the pop are tested
+  through a real `VirtualTerminal` (#54).
+- **Fix: a sink that fails twice lost the first failure.** When a `Flush` threw and closing the synchronized-output
+  bracket threw too (a closed pipe fails every write), the second exception replaced the first. The first is kept. A
+  test also pins that the next `Flush` opens its own bracket (#56).
+- **Fix: `Record(viewport, arranged, null)` did not compile.** Since the buffer overloads of `CellWireframe.Record` and
+  `RecordCells` (5.19), a bare `null` third argument was ambiguous between a null `drawFill` and a null buffer (CS0121).
+  The older overloads carry `OverloadResolutionPriority`, so the call binds as it did before (#68).
+- **`EnterAlternateScreen` places the caret again.** It hid the cursor without forgetting that it was parked, so its
+  own `Flush` only showed the cursor where the alternate buffer had it (#56).
+- **`CaretIndexAt` answers only for the frame the field was declared in**, like `HitTest` and
+  `GetRegisteredTextInputs` beside it (#52).
+- **The bell has a cell glyph.** `IconKind.Bell` (DIR.Lib 11.83) is the eighth note, U+266A: U+237E BELL SYMBOL is in
+  none of Cascadia Mono, Cascadia Code, Consolas, Lucida Console or Courier New, and the note is in all of them.
+- **No delegate per painted node.** `CellLayout.Paint` built a closure for every node to hand `ExactStarSpan` a fill
+  lookup; the focus cursor is passed down instead (#63).
+- **Tests that pin what they claim.** The gapped pair of filled Star siblings is painted at 21 cells, where both inner
+  edges fall inside a cell, and each of the three cells is asserted; a fill that starts and ends inside one cell reaches
+  that branch; a fill wider than its scroll area stops at the area's edge (it fails with the clip removed) (#63). A
+  24 unit padding tells the floored padding from a rounded one (it fails with `Round`) (#72). Rows a `Scroll` clips are
+  asserted absent from the cells (#52).
+
 ## 5.35
 
 F1 shows the menu's keys in `MenuBase`'s panel mode (additive). Pins DIR.Lib and DIR.Lib.Debug 11.81.7751 (was

@@ -142,7 +142,7 @@ public sealed class FlushCaretTests
     }
 
     [Fact]
-    public void ColorModeNoneWritesNoSyncEscapes()
+    public void ColorModeNoneWritesNoSyncOrCaretEscapes()
     {
         var (terminal, output) = Create(sync: true, ColorMode.None);
         terminal.Write("X");
@@ -154,6 +154,13 @@ public sealed class FlushCaretTests
         bytes.ShouldNotContain("\e[?2026");
         bytes.ShouldNotContain("\e[?25");
         bytes.ShouldNotContain(" q");
+        // Not "no escapes at all": the cell buffer's sink still places each run with a cursor move, and that is
+        // the only kind of escape left.
+        bytes.Contains(VirtualTerminal.MoveEscape(0, 0), StringComparison.Ordinal).ShouldBeTrue("the first run is placed with a cursor move");
+        var withoutMoves = System.Text.RegularExpressions.Regex.Replace(bytes, @"\x1b\[\d+;\d+H", "");
+        string.Join(",", System.Text.RegularExpressions.Regex.Matches(withoutMoves, @"\x1b[^A-Za-z]*[A-Za-z]").Select(m => m.Value.Replace("\u001b", "ESC")).Distinct())
+            .ShouldBe("", "with the moves taken out, no escape is left");
+        withoutMoves.Contains('X').ShouldBeTrue();
     }
 
     [Theory]
@@ -185,6 +192,69 @@ public sealed class FlushCaretTests
         var bytes = output.ToString();
         bytes.ShouldStartWith(SyncOn);
         bytes.ShouldEndWith(SyncOff);
+    }
+
+    [Fact]
+    public void TheFlushAfterAThrowingOneOpensItsOwnSyncBracket()
+    {
+        var output = new ThrowOnceWriter("X");
+        var terminal = new VirtualTerminal(output, 40, 10, ColorMode.TrueColor, true);
+        terminal.EnableCellBuffer();
+        terminal.Write("X");
+        Should.Throw<IOException>(() => terminal.Flush());
+        output.GetStringBuilder().Clear();
+
+        terminal.Write("Y");
+        terminal.Flush();
+
+        var bytes = output.ToString();
+        bytes.ShouldStartWith(SyncOn);
+        bytes.ShouldEndWith(SyncOff);
+    }
+
+    [Fact]
+    public void ASinkThatAlsoFailsTheBracketCloseStillReportsTheFirstFailure()
+    {
+        // A closed pipe fails every write after the first failure, the bracket's close among them.
+        var output = new ThrowFromWriter("X");
+        var terminal = new VirtualTerminal(output, 40, 10, ColorMode.TrueColor, true);
+        terminal.EnableCellBuffer();
+        terminal.Write("X");
+
+        Should.Throw<IOException>(() => terminal.Flush()).Message.ShouldBe("closed pipe, write 1");
+    }
+
+    [Fact]
+    public void EnteringTheAlternateScreenPlacesTheCaretAgain()
+    {
+        var output = new StringWriter();
+        var terminal = new VirtualTerminal(output, 40, 10, ColorMode.TrueColor, new MemoryStream());
+        terminal.EnableCellBuffer();
+        terminal.SetCaret(5, 3, CaretStyle.BlinkingBar);
+        terminal.Flush();
+        Take(output);
+
+        terminal.EnterAlternateScreen(); // ends with a Flush of its own, which brings the caret back
+
+        Take(output).ShouldEndWith(VirtualTerminal.MoveEscape(5, 3) + Show, Case.Sensitive,
+            "the alternate buffer is another screen, so the cursor is placed again, not only shown");
+    }
+
+    /// <summary>Records everything, and from the first write containing a trigger on, fails every write (a closed pipe).</summary>
+    private sealed class ThrowFromWriter(string trigger) : StringWriter
+    {
+        private int _failures;
+
+        private void Check(string text)
+        {
+            if (_failures == 0 && !text.Contains(trigger, StringComparison.Ordinal)) return;
+            throw new IOException($"closed pipe, write {++_failures}");
+        }
+
+        public override void Write(char value) { Check(value.ToString()); base.Write(value); }
+        public override void Write(string? value) { Check(value ?? ""); base.Write(value); }
+        public override void Write(char[] buffer, int index, int count) { Check(new string(buffer, index, count)); base.Write(buffer, index, count); }
+        public override void Write(ReadOnlySpan<char> buffer) { Check(new string(buffer)); base.Write(buffer); }
     }
 
     /// <summary>Records everything and throws once, on the first write containing a trigger (a closed pipe).</summary>

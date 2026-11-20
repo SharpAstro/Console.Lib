@@ -46,8 +46,8 @@ public interface ITerminalViewport
     /// title stack, and disposing the terminal pops it, so the previous title comes back on exit. Control
     /// characters are stripped. Two edge cases: <c>null</c> is ignored (it does not reset the title; the pop on
     /// dispose does), and a title that is empty after stripping (for example <c>""</c> or only control
-    /// characters) is a real title, so it sets an empty window title. Default no-op, so surfaces without a title (test fakes, capture buffers)
-    /// ignore it.
+    /// characters) is a real title, so it sets an empty window title. Default no-op, so surfaces without a title
+    /// (test fakes, capture buffers) ignore it.
     /// </summary>
     string? Title { set { } }
 

@@ -242,7 +242,6 @@ public static class CellLayout
             var nodeFilled = false;
             var nodePainted = false;
             var focusCursor = declared.Count > 0 ? declared.Peek().Cursor : surfaceCursor;
-            Func<Layout.Node, RGBAColor32?> fillOf = n => ResolveFill(n, focusCursor);
             var nodeFill = node.FocusBackground is { } focus && focusCursor is not null && focusCursor.IsOn(node.Hit)
                 ? focus
                 : node.HoverBackground is { } hover && pointer is { } at && at.X >= rect.X && at.X < rect.X + rect.Width && at.Y >= rect.Y && at.Y < rect.Y + rect.Height
@@ -252,7 +251,7 @@ public static class CellLayout
             if (nodeFill is { Alpha: > 0 } bg)
             {
                 recorder?.Fill(rect, bg);
-                nodePainted = PaintFill(viewport, arranged, index, pixel, rect, bg, mode, under, rounded, reverse, fillOf, scrolls.Count > 0 ? scrolls.Peek().Clip : null);
+                nodePainted = PaintFill(viewport, arranged, index, pixel, rect, bg, mode, under, rounded, reverse, focusCursor, scrolls.Count > 0 ? scrolls.Peek().Clip : null);
                 nodeFilled = true;
                 backgrounds.Push((arrangedNode.Depth, bg));
                 under = bg;
@@ -297,7 +296,7 @@ public static class CellLayout
                     break;
                 case Layout.Content.Box box when box.Color.Alpha > 0:
                     recorder?.Fill(rect, box.Color);
-                    recorder?.BoxFill(PaintFill(viewport, arranged, index, pixel, rect, box.Color, mode, under, rounded, reverse, fillOf, scrolls.Count > 0 ? scrolls.Peek().Clip : null),
+                    recorder?.BoxFill(PaintFill(viewport, arranged, index, pixel, rect, box.Color, mode, under, rounded, reverse, focusCursor, scrolls.Count > 0 ? scrolls.Peek().Clip : null),
                         IsThinFill(arranged, index, pixel, rect));
                     break;
                 case Layout.Content.Icon icon:
@@ -504,6 +503,12 @@ public static class CellLayout
             // cell's pen like every other mark here. Dingbats is covered by the monospace faces a
             // terminal ships with, which is this file's test for a glyph.
             Layout.IconKind.Check => "✓",
+            // Bell (DIR.Lib 11.83, the notifications bell) is the eighth note, U+266A. The shapes that draw a
+            // bell fail this file's test for a glyph: U+237E BELL SYMBOL is in none of Cascadia Mono, Cascadia
+            // Code, Consolas, Lucida Console or Courier New (checked 2026-11-20; only a symbol fallback face has
+            // it), and U+1F514 is an emoji that takes its own colour. The note is in every one of those faces
+            // and says "a sound for you", which is what the bell is for.
+            Layout.IconKind.Bell => "♪",
             // A kind with no glyph yet shows as a visible placeholder rather than an empty cell, the cell
             // counterpart of the pixel painter drawing nothing for an unhandled kind.
             _ => "?",
@@ -811,8 +816,10 @@ public static class CellLayout
     /// The exact span in cells of a plain Star child of a horizontal stack: its start is the parent's start plus
     /// the exact widths of the siblings before it (so adjacent filled siblings tile with no gap), its width its
     /// share of what the fixed and auto siblings leave. Null when the node is not one or it is not derivable.
+    /// It walks the parent's children each time it is asked, so a row of n filled Star siblings costs n squared a
+    /// paint. Rows are a handful of nodes; if one is ever not, the fix is one walk per parent, kept for its children.
     /// </summary>
-    private static StarSpan? ExactStarSpan(ImmutableArray<Layout.ArrangedNode<int>> arranged, int index, Func<Layout.Node, RGBAColor32?> fillOf)
+    private static StarSpan? ExactStarSpan(ImmutableArray<Layout.ArrangedNode<int>> arranged, int index, ListCursor? focusCursor)
     {
         var self = arranged[index];
         if (!IsPlainStar(self.Node))
@@ -899,9 +906,9 @@ public static class CellLayout
         // A neighbour only shares the boundary cell when it touches: a Stack gap between them is cells of what is
         // under, so the gap cell must not take the neighbour's colour.
         RGBAColor32? next = selfK + 1 < kids.Count && IsPlainStar(kids[selfK + 1].Node)
-            && kids[selfK + 1].Bounds.X <= kids[selfK].Bounds.Right ? fillOf(kids[selfK + 1].Node) : null;
+            && kids[selfK + 1].Bounds.X <= kids[selfK].Bounds.Right ? ResolveFill(kids[selfK + 1].Node, focusCursor) : null;
         var prevFilled = selfK > 0 && IsPlainStar(kids[selfK - 1].Node)
-            && kids[selfK].Bounds.X <= kids[selfK - 1].Bounds.Right && fillOf(kids[selfK - 1].Node) is not null;
+            && kids[selfK].Bounds.X <= kids[selfK - 1].Bounds.Right && ResolveFill(kids[selfK - 1].Node, focusCursor) is not null;
         return new StarSpan(start, end, next, prevFilled);
     }
 
@@ -918,13 +925,13 @@ public static class CellLayout
     /// </summary>
     private static bool PaintFill(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged, int index,
         bool pixel, Rect<int> rect, RGBAColor32 color, ColorMode mode, RGBAColor32 under, bool rounded, bool reverse,
-        Func<Layout.Node, RGBAColor32?> fillOf, Rect<int>? clip = null)
+        ListCursor? focusCursor, Rect<int>? clip = null)
     {
         var half = IsThinFill(arranged, index, pixel, rect);
         StarSpan? exact = null;
         if (pixel)
         {
-            exact = ExactStarSpan(arranged, index, fillOf);
+            exact = ExactStarSpan(arranged, index, focusCursor);
         }
 
         if (!half && exact is null)

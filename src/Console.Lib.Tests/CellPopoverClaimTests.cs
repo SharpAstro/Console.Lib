@@ -186,4 +186,51 @@ public class CellPopoverClaimTests
         b.Index.ShouldBe(2, "the press opened b at row 1 and Down stepped it once");
         a.IsOpen.ShouldBeFalse();
     }
+
+    // Console.Lib #59: an open popover that a Scroll clips away entirely. It has no content to claim, so a later
+    // node is not mistaken for that content, and it is still an open popover of the frame, so Escape closes it
+    // through the router as it does on the pixel surface.
+    [Fact]
+    public void APopoverAScrollClipsAwayClaimsNothing_AndStillClosesOnEscape()
+    {
+        var buffer = new CellBuffer { ColorMode = ColorMode.TrueColor };
+        buffer.Resize(Rig.Width, Rig.Height);
+        var viewport = new CellBufferViewport(buffer, Rig.Width, Rig.Height);
+        var surface = new CellInputSurface(new WindowUiSettings());
+        var router = CellInputRouter.Create(surface, new BackgroundTaskTracker(), () => { });
+        var popover = new PopoverState();
+        popover.Open();
+        var below = 0;
+
+        // Two rows show; the popover is the fifth child and its anchor is at row 6, so all of it is under the clip.
+        var rows = new Layout.Node[5];
+        for (var i = 0; i < 4; i++)
+        {
+            rows[i] = Layout.Builder.Text($"row {i}", 1f).RowH(1).WStar();
+        }
+
+        var menu = Layout.Builder.Text("menu", 1f).RowH(1).WFixed(8).Clickable(new HitResult.ButtonHit("menu"), _ => { });
+        rows[4] = Layout.Builder.Popover(new RectF32(0, 6, 12, 1), Layout.Builder.VStack(menu).Pad(1, 0), popover).RowH(1).WStar();
+        var scroll = new ListScrollController { Mode = ScrollBarMode.None };
+        var tree = Layout.Builder.VStack(
+            Layout.Builder.VStack(rows).WithScroll(scroll).H(Layout.Sizing.Fixed(2)).WStar(),
+            Layout.Builder.Text("below", 1f).RowH(1).WStar().Clickable(new HitResult.ButtonHit("below"), _ => below++));
+        var arranged = Layout.Engine.Arrange(tree, new Rect<int>(0, 0, Rig.Width, Rig.Height), CellMeasureContext.CellAuthored);
+        CellLayout.Paint(viewport, arranged, surface);
+
+        var painted = new List<ClickableRegion>();
+        surface.CollectPaintedRegions(painted);
+        painted.Any(r => r.Result is HitResult.ButtonHit { Action: "menu" }).ShouldBeFalse("the popover's content is clipped away");
+        // The scroll area registers a chrome region of its own with no handler; a popover's scrim and its content's
+        // claim both carry one, and neither is on screen.
+        painted.Any(r => r.Result is HitResult.ChromeHit && r.OnClick is not null)
+            .ShouldBeFalse("no scrim and no content claim is on screen, so none is registered");
+
+        router.Handle(new InputEvent.MouseDown(1, 2, MouseButton.Left, InputModifier.None, 1));
+        below.ShouldBe(1, "the node after the list takes its own press");
+        popover.IsOpen.ShouldBeTrue("nothing on screen dismissed it");
+
+        router.Handle(new InputEvent.KeyDown(InputKey.Escape, InputModifier.None)).ShouldBeTrue();
+        popover.IsOpen.ShouldBeFalse("an open popover the frame declared closes on Escape, on screen or not");
+    }
 }

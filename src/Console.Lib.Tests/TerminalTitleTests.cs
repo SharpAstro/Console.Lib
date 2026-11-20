@@ -79,6 +79,51 @@ public sealed class TerminalTitleTests
         emptyLast.ShouldBe("");
     }
 
+    // The setter and the dispose-side pop through a real VirtualTerminal that writes to a recorded stream (#54).
+    // A writer handed in is that instance's terminal, so the title is not suppressed there even though the test
+    // process's own stdout is redirected. The other half of the suppression, a real console that is redirected,
+    // has no writer to record and stays covered only by TitleTransition's own tests.
+    private static (VirtualTerminal Terminal, StringWriter Output) Recorded(ColorMode mode = ColorMode.TrueColor)
+    {
+        var output = new StringWriter();
+        return (new VirtualTerminal(output, 40, 10, mode), output);
+    }
+
+    [Fact]
+    public async Task SettingATitleWritesToTheTerminalsOwnStream_AndDisposePopsIt()
+    {
+        var (terminal, output) = Recorded();
+
+        terminal.Title = "Hello";
+        output.ToString().ShouldBe(Push + "\e]2;Hello\e\\");
+
+        await terminal.DisposeAsync();
+        output.ToString().ShouldBe(Push + "\e]2;Hello\e\\" + Pop, "the pop follows the push on the same stream");
+    }
+
+    [Fact]
+    public async Task ATerminalThatSetNoTitlePopsNoneOnDispose()
+    {
+        var (terminal, output) = Recorded();
+
+        await terminal.DisposeAsync();
+
+        output.ToString().ShouldNotContain(Pop);
+    }
+
+    [Fact]
+    public async Task UnderColorModeNoneATitleIsNotWritten_AndSoNotPopped()
+    {
+        var (terminal, output) = Recorded(ColorMode.None);
+
+        terminal.Title = "Hello";
+        await terminal.DisposeAsync();
+
+        output.ToString().ShouldNotContain("\e]2;");
+        output.ToString().ShouldNotContain(Push);
+        output.ToString().ShouldNotContain(Pop);
+    }
+
     [Fact]
     public void TerminalViewport_ForwardsTitleToItsParent()
     {

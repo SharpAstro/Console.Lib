@@ -234,6 +234,9 @@ public sealed class VirtualTerminal : IVirtualTerminal
         Out.Write("\e[?1049h"); // Enter alternate buffer
         Out.Write(HideCursorEscape); // Hide cursor
         _caretShown = false;
+        // The alternate buffer is another screen: wherever the cursor was parked, it is not known to be there now,
+        // so the next Flush with a caret places it again instead of only showing it.
+        _cursorAtCaret = false;
         Out.Write("\e[?1000h"); // VT200 mouse tracking (basic button press/release and wheel)
         Out.Write("\e[?1002h"); // Button-motion tracking (drag reports while a button is held)
         _anyMotionEnabled = MouseTracking == MouseTracking.AnyMotion;
@@ -519,11 +522,14 @@ public sealed class VirtualTerminal : IVirtualTerminal
     {
         set
         {
+            // A writer handed in is the terminal for this instance, whatever the process's own stdout is, so only
+            // the real console counts as redirected. The escape goes where every other byte goes (Out): the pop
+            // on dispose is written there, and a push written elsewhere would leave the two on different streams.
             var (escape, last, pushed) = TitleTransition(value, _lastTitle, _titlePushed,
-                IsOutputRedirected || ColorMode == ColorMode.None);
+                (_outOverride is null && IsOutputRedirected) || ColorMode == ColorMode.None);
             _lastTitle = last;
             _titlePushed = pushed;
-            if (escape.Length > 0) System.Console.Write(escape);
+            if (escape.Length > 0) Out.Write(escape);
         }
     }
 
@@ -558,6 +564,10 @@ public sealed class VirtualTerminal : IVirtualTerminal
     /// </summary>
     internal static string PenEscape(VtStyle style, ColorMode mode, bool reverse, bool mustStateReverse)
     {
+        // ColorMode.None is a plain-text capture: no pen escape at all, and the reverse-video attribute is one. Until
+        // 5.36 the first run of every Flush carried ESC[27m there, because the attribute was added whatever the mode.
+        if (mode == ColorMode.None) return "";
+
         var attribute = mustStateReverse
             ? reverse ? VtStyle.ReverseOn : VtStyle.ReverseOff
             : "";
@@ -661,8 +671,17 @@ public sealed class VirtualTerminal : IVirtualTerminal
             }
             catch
             {
-                // Keep the 2026 bracket balanced if the sink throws (closed pipe).
-                CloseFrame();
+                // Keep the 2026 bracket balanced if the sink throws (closed pipe). The close is a write to that
+                // same sink and may throw too; the exception that says what happened is the first, so it is the
+                // one rethrown. CloseFrame clears its flag before it writes, so the next Flush opens a new bracket.
+                try
+                {
+                    CloseFrame();
+                }
+                catch (Exception closing) when (closing is IOException or ObjectDisposedException)
+                {
+                }
+
                 throw;
             }
         }
