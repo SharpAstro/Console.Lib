@@ -9,6 +9,25 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.37
+
+The cell half of two DIR.Lib releases. Pins DIR.Lib and DIR.Lib.Debug 11.90.8582 (was 11.86.8251). Additive.
+
+- **Fix: the arrows could not get past a run of disabled rows taller than a scrolled list's viewport.** A scrolled
+  stack lays out only the rows near its viewport, so such a run holds no row the cursor can take and the rows after it
+  are not in the frame: Down was refused as if the list had ended. `CellInputSurface.RevealListEdge` (DIR.Lib 11.90's
+  `IPixelWidget.RevealListEdge`) scrolls the farthest row it holds that way into view and answers whether the list
+  moved; DIR.Lib's router asks it for a declared list and `MoveListCursor` asks it for the surface's own. At the real
+  end of a list the key is still refused.
+- **Twelve icon kinds had no glyph and drew as `?`**: the kinds DIR.Lib 11.88 and 11.89 added (a toast's Info, Warning,
+  Error and Success, Close, Pin and PinFilled, OpenInPage, and the four compare modes). Each now has a character that
+  Cascadia Mono, Cascadia Code, Consolas, Lucida Console and Courier New all carry, read from the fonts' character
+  maps. Success shares Check's tick.
+
+Not in this release: the cell LOOK of DIR.Lib 11.89's segmented control and icon toggle, and of 11.88's toast (tint,
+edge, Close cross), which 11.88 and 11.89 asked of this repo. They arrange and paint in cells as any node does; nobody
+has looked at them there yet.
+
 ## 5.36
 
 The points Console.Lib's reviews left for later, worked through (issues #52 to #72 titled "Follow-up of"). Six of them

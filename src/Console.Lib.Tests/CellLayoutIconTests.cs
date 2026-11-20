@@ -27,6 +27,19 @@ public class CellLayoutIconTests
     [InlineData(Layout.IconKind.ThemeLight, '\u25CB')]
     [InlineData(Layout.IconKind.ThemeSystem, '\u25D0')]
     [InlineData(Layout.IconKind.ThemeDark, '\u25CF')]
+    // DIR.Lib 11.88 and 11.89's kinds, each a character all five terminal faces carry.
+    [InlineData(Layout.IconKind.Info, 'i')]
+    [InlineData(Layout.IconKind.Warning, '!')]
+    [InlineData(Layout.IconKind.Error, '\u203C')]
+    [InlineData(Layout.IconKind.Success, '\u2713')]
+    [InlineData(Layout.IconKind.Close, '\u00D7')]
+    [InlineData(Layout.IconKind.Pin, '\u25CA')]
+    [InlineData(Layout.IconKind.PinFilled, '\u2666')]
+    [InlineData(Layout.IconKind.OpenInPage, '\u2192')]
+    [InlineData(Layout.IconKind.CompareSideBySide, '\u2551')]
+    [InlineData(Layout.IconKind.CompareOverlay, '\u2592')]
+    [InlineData(Layout.IconKind.CompareSlider, '\u2194')]
+    [InlineData(Layout.IconKind.CompareChanges, '\u2260')]
     public void AnIconBecomesItsGlyph_CentredInTheArrangedRect(Layout.IconKind kind, char expected)
     {
         var buffer = new CellBuffer { ColorMode = ColorMode.Sgr16 };

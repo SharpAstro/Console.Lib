@@ -118,6 +118,7 @@ has the pixel-surface `PixelMenuWidget<TSurface>`. Console.Lib supplies the **ce
   registers the tree's click regions, fields, shortcuts, list rows and `Scroll` viewports in cells (as float units), and
   the `InputRouter` it builds routes keys, Tab, focus, clicks and the wheel with no host routing. A list that declares
   its cursor (`Node.ListOf(cursor, listId)`, DIR.Lib 11.61) is stepped, activated and revealed by DIR.Lib's router itself
+  (and since DIR.Lib 11.90 asked, through `CellInputSurface.RevealListEdge`, to scroll on when no laid-out row can take the cursor)
   (its `DeclaredList.Active` rule, not a copy here); the surface only answers `CollectClippedListRows` and `RevealListRow`,
   and `CellLayout.Paint` resolves `FocusBackground` against the nearest enclosing declared cursor, so two widgets' lists in
   one tree need no per-page glue. `CellInputSurface.ListCursor` (`HandleListKey`) remains the path for a tree that declares nothing. A painted declared modal (`Builder.Modal`) is recorded by the same walk through `Ui.NoteModalPainted` (5.24), its card taken from an Anchored Top's child, so a cell host needs no call for modal routing.

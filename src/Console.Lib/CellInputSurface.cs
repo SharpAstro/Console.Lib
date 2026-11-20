@@ -385,6 +385,53 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
         RevealListCursor(cursor);
     }
 
+    /// <summary>
+    /// Called when an arrow could not step <paramref name="cursor"/>: no row of the last paint can take it that way.
+    /// A scrolled stack lays out only the rows near its viewport, so a run of disabled rows taller than that holds
+    /// nothing to step to although the list goes on. Scrolls the farthest row of the cursor's list this surface
+    /// holds in that direction into view and answers whether the list moved: moved, the next paint lays out the rows
+    /// after it and the next press continues; not moved is the end of the list. The cell half of
+    /// <c>PixelWidgetBase.RevealListEdge</c> (DIR.Lib 11.90), by the same rule.
+    /// </summary>
+    public bool RevealListEdge(ListCursor cursor, int delta)
+    {
+        ArgumentNullException.ThrowIfNull(cursor);
+        if (delta == 0 || !Current)
+        {
+            return false;
+        }
+
+        // Painted or clipped, enabled or not: the farthest row beyond the cursor is where the laid-out part ends.
+        ScrolledRow? edge = null;
+        foreach (var row in _scrolledRows)
+        {
+            if (!cursor.Owns(row.Hit))
+            {
+                continue;
+            }
+
+            var index = row.Hit.Index;
+            if (cursor.Index >= 0 && (delta > 0 ? index <= cursor.Index : index >= cursor.Index))
+            {
+                continue;
+            }
+
+            if (edge is not { } best || (delta > 0 ? index > best.Hit.Index : index < best.Hit.Index))
+            {
+                edge = row;
+            }
+        }
+
+        if (edge is not { } farthest)
+        {
+            return false;
+        }
+
+        var before = farthest.Scroll.Offset;
+        farthest.Scroll.RevealExtent(farthest.Start, farthest.End);
+        return farthest.Scroll.Offset != before;
+    }
+
     private void RevealListCursor() => RevealListCursor(ListCursor);
 
     private void RevealListCursor(ListCursor cursor)
@@ -429,7 +476,9 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
 
         if (!ListCursor.Step(delta, _rows))
         {
-            return false;
+            // No row the paint laid out can take the cursor that way. That is the end of the list only when the
+            // list cannot scroll further towards the key (see RevealListEdge).
+            return RevealListEdge(ListCursor, delta);
         }
 
         RevealListCursor();

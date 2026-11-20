@@ -500,15 +500,45 @@ public static class CellLayout
             Layout.IconKind.IBeam => "⌶",
             // Check (DIR.Lib 11.1) is the plain CHECK MARK, U+2713, not the heavy U+2714 and never the
             // emoji U+2705: a terminal draws an emoji in its own colour, and the tick has to take the
-            // cell's pen like every other mark here. Dingbats is covered by the monospace faces a
-            // terminal ships with, which is this file's test for a glyph.
-            Layout.IconKind.Check => "✓",
+            // cell's pen like every other mark here. (This said Dingbats is covered by the monospace faces a
+            // terminal ships with. It is not: U+2713 is in Cascadia Mono and Cascadia Code and in none of
+            // Consolas, Lucida Console or Courier New, read from the fonts 2026-11-21, so a terminal on one of
+            // those draws it from a fallback face. The other marks here that the five faces do not all carry
+            // are listed with it in #103.)
+            // Success (DIR.Lib 11.88, a toast's severity) is the same tick in the same arm, so the two cannot
+            // drift apart.
+            Layout.IconKind.Check or Layout.IconKind.Success => "✓",
             // Bell (DIR.Lib 11.83, the notifications bell) is the eighth note, U+266A. The shapes that draw a
             // bell fail this file's test for a glyph: U+237E BELL SYMBOL is in none of Cascadia Mono, Cascadia
             // Code, Consolas, Lucida Console or Courier New (checked 2026-11-20; only a symbol fallback face has
             // it), and U+1F514 is an emoji that takes its own colour. The note is in every one of those faces
             // and says "a sound for you", which is what the bell is for.
             Layout.IconKind.Bell => "♪",
+            // The eleven other kinds DIR.Lib 11.88 and 11.89 drew from its SVG set: a toast's severities and its
+            // Close, the pin toggle, OpenInPage and the four compare modes. Each is a character that Cascadia
+            // Mono, Cascadia Code, Consolas, Lucida Console and Courier New ALL carry (read from the fonts'
+            // character maps, 2026-11-21). DIR.Lib's own IconGlyphs offers U+2717, U+2B06, U+2197, U+2750 and
+            // U+21C4 for five of them, which none of the five faces has, and U+2016, which Consolas alone has.
+            //
+            // The severities rise as marks do: i, !, and the doubled mark for an error.
+            Layout.IconKind.Info => "i",
+            Layout.IconKind.Warning => "!",
+            Layout.IconKind.Error => "\u203C",
+            // Close is Latin-1's multiplication sign: a cross on the mathematical axis, as Minus is a bar on it.
+            Layout.IconKind.Close => "\u00D7",
+            // The pin is a toggle, so what has to cross is off and on: the lozenge and the filled diamond, an
+            // empty and a full form of one shape that all five faces carry (the white and black diamonds of
+            // Geometric Shapes are in Cascadia alone).
+            Layout.IconKind.Pin => "\u25CA",
+            Layout.IconKind.PinFilled => "\u2666",
+            // "Goes to": the rightwards arrow. The north-east arrow that says "leaves here" is in none of the five.
+            Layout.IconKind.OpenInPage => "\u2192",
+            // The compare modes: two panes and their divider, one picture through another (the medium shade), a
+            // handle dragged left and right, and "what differs".
+            Layout.IconKind.CompareSideBySide => "\u2551",
+            Layout.IconKind.CompareOverlay => "\u2592",
+            Layout.IconKind.CompareSlider => "\u2194",
+            Layout.IconKind.CompareChanges => "\u2260",
             // A kind with no glyph yet shows as a visible placeholder rather than an empty cell, the cell
             // counterpart of the pixel painter drawing nothing for an unhandled kind.
             _ => "?",
