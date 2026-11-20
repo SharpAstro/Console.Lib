@@ -14,7 +14,8 @@ public class CellDeclaredListTests
 {
     private static readonly RGBAColor32 Focus = new(200, 40, 40, 255);
 
-    private sealed class Widget(string id, int rows, int viewportRows = 0, int disabledFrom = -1, int disabledTo = -1)
+    private sealed class Widget(string id, int rows, int viewportRows = 0, int disabledFrom = -1, int disabledTo = -1,
+        bool declared = true)
     {
         public string Id { get; } = id;
 
@@ -46,7 +47,8 @@ public class CellDeclaredListTests
                 list = list.WithScroll(Scroll).H(Layout.Sizing.Fixed(viewportRows)).WStar();
             }
 
-            return Layout.Builder.VStack(list).ListOf(Cursor, Id);
+            // Undeclared, the rows are the surface's own cursor's (CellInputSurface.ListCursor), not this widget's.
+            return declared ? Layout.Builder.VStack(list).ListOf(Cursor, Id) : Layout.Builder.VStack(list);
         }
     }
 
@@ -240,7 +242,30 @@ public class CellDeclaredListTests
             taken++;
         }
 
+        taken.ShouldBeGreaterThan(0, "the presses that bring the disabled rows into view are taken");
         taken.ShouldBeLessThan(8, "the scroll reaches the end and the key is then refused, not taken for ever");
         list.Cursor.Index.ShouldBe(2, "no row after 2 can take the cursor");
+        list.Scroll.Offset.ShouldBe(4f, "the last two of the six rows are in view when the key is refused");
+    }
+
+    // The same run through the surface's own cursor, on a tree that declares no list: MoveListCursor asks
+    // RevealListEdge itself there, with no router in between (pilot's review of #104: nothing reached that line).
+    [Fact]
+    public void TheSurfacesOwnCursorGetsPastTheSameRunOnATreeThatDeclaresNoList()
+    {
+        var host = new Host();
+        var list = new Widget("a", 14, viewportRows: 2, disabledFrom: 2, disabledTo: 8, declared: false);
+        host.Surface.ListCursor.Open("a", 1);
+        host.Frame(list);
+
+        var steps = 0;
+        while (host.Surface.ListCursor.Index != 9 && steps < 10)
+        {
+            host.Surface.MoveListCursor(1).ShouldBeTrue($"step {steps + 1} is taken: the list goes on");
+            host.Frame(list);
+            steps++;
+        }
+
+        host.Surface.ListCursor.Index.ShouldBe(9, "the first row after the seven disabled ones");
     }
 }
