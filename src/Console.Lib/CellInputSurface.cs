@@ -100,6 +100,10 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
                 openPopover = node.Popover;
                 pendingContentDepth = -1;
                 claimed = false;
+                // An open popover of this frame, whether or not a Scroll leaves any of it on screen: the router
+                // walks the painted popovers for Escape, as DIR.Lib's pixel surface notes every open one it meets.
+                // The claim below notes it again when the content is on screen, which only moves it to the top.
+                Ui.NotePopoverPainted(node.Popover);
             }
 
             if (closedPopoverDepth >= 0)
@@ -123,6 +127,14 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
                         // this depth is not it.
                         pendingContentDepth = -1;
                         claimed = true;
+                    }
+
+                    // A disabled node disables what it holds whether or not it is on screen. The same note is made
+                    // further down for a node that is, which this branch never reaches: without it a row under a
+                    // disabled group scrolled out of view was noted enabled, and Enter activated it.
+                    if (node.IsDisabled && disabledDepth < 0)
+                    {
+                        disabledDepth = depth;
                     }
 
                     // Off screen: nothing registered, so it cannot answer a press, but a list row is still a
@@ -277,7 +289,9 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
     public int CaretIndexAt(HitResult.TextInputHit hit, float pointerX)
     {
         var state = hit.Input;
-        if (!_fieldRects.TryGetValue(state, out var rect))
+        // Like HitTest and GetRegisteredTextInputs, this answers only for the frame it was declared in: a field's
+        // rect from an earlier frame says where the field was, not where it is.
+        if (!Current || !_fieldRects.TryGetValue(state, out var rect))
         {
             return state.Text.Length;
         }
