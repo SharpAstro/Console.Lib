@@ -263,15 +263,16 @@ public static class CellLayout
             var nodeFilled = false;
             var nodePainted = false;
             var focusCursor = declared.Count > 0 ? declared.Peek().Cursor : surfaceCursor;
-            var focusBackgroundLit = node.FocusBackground is not null && focusCursor is not null && focusCursor.IsOn(node.Hit);
-            var ringFill = focusBackgroundLit ? null : RingFill(node, under, focusCursor, disabledDepth >= 0);
-            var nodeFill = focusBackgroundLit
-                ? node.FocusBackground
-                : ringFill is { } ringed
-                    ? ringed
-                    : node.HoverBackground is { } hover && pointer is { } at && at.X >= rect.X && at.X < rect.X + rect.Width && at.Y >= rect.Y && at.Y < rect.Y + rect.Height
-                        ? hover
-                        : node.Background;
+            // One focus decision (FocusedFill) for this node and for what its Star siblings read of it (ResolveFill):
+            // the cursor, the fill beneath the node (what its parent left) and whether an ancestor is disabled.
+            var fillContext = new FillContext(focusCursor, under, disabledDepth >= 0 && disabledDepth < arrangedNode.Depth);
+            var focused = FocusedFill(node, fillContext);
+            var ringFill = focused is { Ring: true } r ? r.Fill : (RGBAColor32?)null;
+            var nodeFill = focused is { } f
+                ? f.Fill
+                : node.HoverBackground is { } hover && pointer is { } at && at.X >= rect.X && at.X < rect.X + rect.Width && at.Y >= rect.Y && at.Y < rect.Y + rect.Height
+                    ? hover
+                    : node.Background;
             if (ringFill is { } litFill)
             {
                 lit.Push((arrangedNode.Depth, litFill, OwnFill(node) is { Alpha: > 0 } own ? own : under));
@@ -280,7 +281,7 @@ public static class CellLayout
             if (nodeFill is { Alpha: > 0 } bg)
             {
                 recorder?.Fill(rect, bg);
-                nodePainted = PaintFill(viewport, arranged, index, pixel, rect, bg, mode, under, rounded, reverse, focusCursor, scrolls.Count > 0 ? scrolls.Peek().Clip : null);
+                nodePainted = PaintFill(viewport, arranged, index, pixel, rect, bg, mode, under, rounded, reverse, fillContext, scrolls.Count > 0 ? scrolls.Peek().Clip : null);
                 nodeFilled = true;
                 backgrounds.Push((arrangedNode.Depth, bg));
                 under = bg;
@@ -326,7 +327,7 @@ public static class CellLayout
                     break;
                 case Layout.Content.Box box when box.Color.Alpha > 0:
                     recorder?.Fill(rect, box.Color);
-                    recorder?.BoxFill(PaintFill(viewport, arranged, index, pixel, rect, box.Color, mode, under, rounded, reverse, focusCursor, scrolls.Count > 0 ? scrolls.Peek().Clip : null),
+                    recorder?.BoxFill(PaintFill(viewport, arranged, index, pixel, rect, box.Color, mode, under, rounded, reverse, fillContext, scrolls.Count > 0 ? scrolls.Peek().Clip : null),
                         IsThinFill(arranged, index, pixel, rect));
                     break;
                 case Layout.Content.Icon icon:
@@ -862,10 +863,27 @@ public static class CellLayout
     private static RGBAColor32? OwnFill(Layout.Node n) => n.Background is { } bg ? bg
         : n is Layout.Node.Leaf { Content: Layout.Content.Box { Color.Alpha: > 0 } box } ? box.Color : null;
 
-    // What Paint itself would fill the node with: its FocusBackground when the cursor is on it, else its own fill.
-    private static RGBAColor32? ResolveFill(Layout.Node n, ListCursor? cursor)
-        => n.FocusBackground is { } focus && cursor is not null && cursor.IsOn(n.Hit) ? focus
-            : RingFill(n, null, cursor, false) ?? OwnFill(n);
+    // What Paint decides about focus for a node, from what the walk knows at it: the declared (or surface) cursor,
+    // the fill beneath the node, and whether an ancestor is disabled. Siblings share all three, so a Star neighbour
+    // asking about a sibling passes its own context and gets the same answer Paint gives when it reaches that sibling.
+    private readonly record struct FillContext(ListCursor? Cursor, RGBAColor32 Under, bool AncestorDisabled);
+
+    // The fill focus gives the node, or null when focus does not touch it: FocusBackground while the cursor is on
+    // its hit (it wins over the ring), else the ring's cell fill (RingFill). Ring says which, so Paint re-inks a label
+    // only under a ring. Paint and ResolveFill both read this one decision.
+    private static (RGBAColor32 Fill, bool Ring)? FocusedFill(Layout.Node n, FillContext context)
+    {
+        if (n.FocusBackground is { } focus && context.Cursor is not null && context.Cursor.IsOn(n.Hit))
+        {
+            return (focus, false);
+        }
+
+        return RingFill(n, context.Under, context.Cursor, context.AncestorDisabled) is { } ring ? (ring, true) : null;
+    }
+
+    // What Paint itself would fill the node with: its focused fill (FocusedFill), else its own fill.
+    private static RGBAColor32? ResolveFill(Layout.Node n, FillContext context)
+        => FocusedFill(n, context)?.Fill ?? OwnFill(n);
 
     // How a cell surface shows Node.FocusRing. A pixel surface strokes the ring outside the edge, and a cell surface
     // has no room out there, so the node's own cells carry it: the ring colour becomes the node's fill while the
@@ -922,7 +940,7 @@ public static class CellLayout
     /// It walks the parent's children each time it is asked, so a row of n filled Star siblings costs n squared a
     /// paint. Rows are a handful of nodes; if one is ever not, the fix is one walk per parent, kept for its children.
     /// </summary>
-    private static StarSpan? ExactStarSpan(ImmutableArray<Layout.ArrangedNode<int>> arranged, int index, ListCursor? focusCursor)
+    private static StarSpan? ExactStarSpan(ImmutableArray<Layout.ArrangedNode<int>> arranged, int index, FillContext context)
     {
         var self = arranged[index];
         if (!IsPlainStar(self.Node))
@@ -1009,9 +1027,9 @@ public static class CellLayout
         // A neighbour only shares the boundary cell when it touches: a Stack gap between them is cells of what is
         // under, so the gap cell must not take the neighbour's colour.
         RGBAColor32? next = selfK + 1 < kids.Count && IsPlainStar(kids[selfK + 1].Node)
-            && kids[selfK + 1].Bounds.X <= kids[selfK].Bounds.Right ? ResolveFill(kids[selfK + 1].Node, focusCursor) : null;
+            && kids[selfK + 1].Bounds.X <= kids[selfK].Bounds.Right ? ResolveFill(kids[selfK + 1].Node, context) : null;
         var prevFilled = selfK > 0 && IsPlainStar(kids[selfK - 1].Node)
-            && kids[selfK].Bounds.X <= kids[selfK - 1].Bounds.Right && ResolveFill(kids[selfK - 1].Node, focusCursor) is not null;
+            && kids[selfK].Bounds.X <= kids[selfK - 1].Bounds.Right && ResolveFill(kids[selfK - 1].Node, context) is not null;
         return new StarSpan(start, end, next, prevFilled);
     }
 
@@ -1028,13 +1046,13 @@ public static class CellLayout
     /// </summary>
     private static bool PaintFill(ITerminalViewport viewport, ImmutableArray<Layout.ArrangedNode<int>> arranged, int index,
         bool pixel, Rect<int> rect, RGBAColor32 color, ColorMode mode, RGBAColor32 under, bool rounded, bool reverse,
-        ListCursor? focusCursor, Rect<int>? clip = null)
+        FillContext context, Rect<int>? clip = null)
     {
         var half = IsThinFill(arranged, index, pixel, rect);
         StarSpan? exact = null;
         if (pixel)
         {
-            exact = ExactStarSpan(arranged, index, focusCursor);
+            exact = ExactStarSpan(arranged, index, context);
         }
 
         if (!half && exact is null)
