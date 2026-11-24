@@ -13,7 +13,7 @@ namespace Console.Lib.Tests;
 public class CellLayoutFocusRingTests
 {
     private const int Width = 40;
-    private const int Rows = 3;
+    private const int Rows = 8;
 
     private static readonly UiTheme Dark = new()
     {
@@ -245,8 +245,9 @@ public class CellLayoutFocusRingTests
                 foreach (var (name, make) in cases)
                 {
                     var b = Paint(make(), on);
-                    var label = Enumerable.Range(0, Width).Select(c => b.BackAt(c, 1)).FirstOrDefault(c => char.IsLetter((char)c.Glyph));
-                    text.AppendLine($"[{theme.Item1} {name} {state}] label bg={label.Style.Background} fg={label.Style.Foreground}");
+                    var label = Cells(b).FirstOrDefault(c => char.IsLetter((char)c.Glyph));
+                    static string Hex(RGBAColor32 c) => $"#{c.Red:X2}{c.Green:X2}{c.Blue:X2}";
+                    text.AppendLine($"[{theme.Item1} {name} {state}] label bg={Hex(label.Style.Background)} fg={Hex(label.Style.Foreground)}");
                     text.AppendLine(Dump(b).TrimEnd());
                 }
             }
