@@ -220,6 +220,41 @@ public class CellLayoutFocusRingTests
         LabelShouldBeLegible(on);
     }
 
+    // A look-at capture, written only when PILOT_TEST_CAPTURE names a file (outside the repo); otherwise a no-op.
+    [Fact]
+    public void CaptureFocusedAndUnfocusedControls()
+    {
+        if (Environment.GetEnvironmentVariable("PILOT_TEST_CAPTURE") is not { Length: > 0 } path)
+        {
+            return;
+        }
+
+        var text = new System.Text.StringBuilder();
+        foreach (var theme in new[] { ("dark", Dark), ("light", Light) })
+        {
+            foreach (var on in new int?[] { null, 0 })
+            {
+                var state = on is null ? "unfocused" : "focused";
+                var cases = new (string, Func<Layout.Node>)[]
+                {
+                    ("Standard", () => Btn(theme.Item2, Layout.ButtonKind.Standard)),
+                    ("Accent", () => Btn(theme.Item2, Layout.ButtonKind.Accent)),
+                    ("Chip", () => Layout.Builder.Chip("Filter", false, _ => { }, theme.Item2, hit: Row(0))),
+                    ("SplitButton", () => Layout.Builder.SplitButton("Run", false, _ => { }, () => { }, theme.Item2, hit: Row(0), detailsHit: Row(1))),
+                };
+                foreach (var (name, make) in cases)
+                {
+                    var b = Paint(make(), on);
+                    var label = Enumerable.Range(0, Width).Select(c => b.BackAt(c, 1)).FirstOrDefault(c => char.IsLetter((char)c.Glyph));
+                    text.AppendLine($"[{theme.Item1} {name} {state}] label bg={label.Style.Background} fg={label.Style.Foreground}");
+                    text.AppendLine(Dump(b).TrimEnd());
+                }
+            }
+        }
+
+        File.WriteAllText(path, text.ToString());
+    }
+
     [Fact]
     public void TheWireframeRecordsTheFocusedFillItSeesForFocusBackground()
     {
