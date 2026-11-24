@@ -13,7 +13,7 @@ namespace Console.Lib.Tests;
 public class CellLayoutFocusRingTests
 {
     private const int Width = 40;
-    private const int Rows = 8;
+    private const int Rows = 32;
 
     private static readonly UiTheme Dark = new()
     {
@@ -102,6 +102,23 @@ public class CellLayoutFocusRingTests
         }
 
         return string.Join('\n', rows);
+    }
+
+    // Plain measure maps the theme's 28-unit button height to 28 rows, so a capture drops the rows that repeat the one above.
+    private static string Compact(string dump)
+    {
+        var kept = new List<string>();
+        foreach (var line in dump.Split('
+'))
+        {
+            if (kept.Count == 0 || line != kept[^1])
+            {
+                kept.Add(line.TrimEnd());
+            }
+        }
+
+        return string.Join('
+', kept);
     }
 
     private static void LabelShouldBeLegible(CellBuffer b)
@@ -248,7 +265,7 @@ public class CellLayoutFocusRingTests
                     var label = Cells(b).FirstOrDefault(c => char.IsLetter((char)c.Glyph));
                     static string Hex(RGBAColor32 c) => $"#{c.Red:X2}{c.Green:X2}{c.Blue:X2}";
                     text.AppendLine($"[{theme.Item1} {name} {state}] label bg={Hex(label.Style.Background)} fg={Hex(label.Style.Foreground)}");
-                    text.AppendLine(Dump(b).TrimEnd());
+                    text.AppendLine(Compact(Dump(b)));
                 }
             }
         }
