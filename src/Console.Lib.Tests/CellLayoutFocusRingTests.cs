@@ -59,7 +59,7 @@ public class CellLayoutFocusRingTests
         var buffer = new CellBuffer { ColorMode = ColorMode.TrueColor };
         buffer.Resize(Width, Rows);
         var viewport = new CellBufferViewport(buffer, Width, Rows, ColorMode.TrueColor);
-        var arranged = Layout.Engine.Arrange(tree, new Rect<int>(0, 0, Width, Rows), CellMeasureContext.PixelAuthored);
+        var arranged = Layout.Engine.Arrange(tree, new Rect<int>(0, 0, Width, Rows), new CellMeasureContext());
         var surface = new CellInputSurface(new WindowUiSettings());
         CellLayout.Paint(viewport, arranged, surface);
 
