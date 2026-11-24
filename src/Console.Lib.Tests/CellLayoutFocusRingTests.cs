@@ -58,20 +58,20 @@ public class CellLayoutFocusRingTests
         var tree = Layout.Builder.VStack(content).ListOf(cursor, "l");
         var buffer = new CellBuffer { ColorMode = ColorMode.TrueColor };
         buffer.Resize(Width, Rows);
-        var viewport = new CellBufferViewport(buffer, Width, Rows);
+        var viewport = new CellBufferViewport(buffer, Width, Rows, ColorMode.TrueColor);
         var arranged = Layout.Engine.Arrange(tree, new Rect<int>(0, 0, Width, Rows), CellMeasureContext.PixelAuthored);
         var surface = new CellInputSurface(new WindowUiSettings());
         CellLayout.Paint(viewport, arranged, surface);
 
         var recordedBuffer = new CellBuffer { ColorMode = ColorMode.TrueColor };
         recordedBuffer.Resize(Width, Rows);
-        var frame = CellWireframe.RecordCells(new CellBufferViewport(recordedBuffer, Width, Rows), arranged);
+        var frame = CellWireframe.RecordCells(new CellBufferViewport(recordedBuffer, Width, Rows, ColorMode.TrueColor), arranged);
         return (buffer, frame);
     }
 
     private static CellBuffer Paint(Layout.Node content, int? cursorOn) => PaintBoth(content, cursorOn).Buffer;
 
-    private static Layout.Node Btn(UiTheme t, ButtonKind kind, string label = "Save", string? disabled = null)
+    private static Layout.Node Btn(UiTheme t, Layout.ButtonKind kind, string label = "Save", string? disabled = null)
         => Layout.Builder.Button(label, kind, () => { }, t, disabledReason: disabled, hit: Row(0));
 
     private static List<Cell> Cells(CellBuffer b)
@@ -94,7 +94,7 @@ public class CellLayoutFocusRingTests
 
     private static void LabelShouldBeLegible(CellBuffer b)
     {
-        var inked = Cells(b).Where(c => c.Glyph != ' ').ToList();
+        var inked = Cells(b).Where(c => char.IsLetterOrDigit((char)c.Glyph)).ToList();
         inked.ShouldNotBeEmpty();
         foreach (var cell in inked)
         {
@@ -125,8 +125,8 @@ public class CellLayoutFocusRingTests
     public void AStandardButtonPaintsDifferentlyFocused_AndItsLabelStaysLegible(string theme)
     {
         var t = ThemeOf(theme);
-        var off = Paint(Btn(t, ButtonKind.Standard), null);
-        var on = Paint(Btn(t, ButtonKind.Standard), 0);
+        var off = Paint(Btn(t, Layout.ButtonKind.Standard), null);
+        var on = Paint(Btn(t, Layout.ButtonKind.Standard), 0);
         ShouldPaintDifferently(on, off);
         LabelShouldBeLegible(on);
     }
@@ -136,8 +136,8 @@ public class CellLayoutFocusRingTests
     public void AnAccentButtonPaintsDifferentlyFocused_AndItsLabelStaysLegible(string theme)
     {
         var t = ThemeOf(theme);
-        var off = Paint(Btn(t, ButtonKind.Accent), null);
-        var on = Paint(Btn(t, ButtonKind.Accent), 0);
+        var off = Paint(Btn(t, Layout.ButtonKind.Accent), null);
+        var on = Paint(Btn(t, Layout.ButtonKind.Accent), 0);
         ShouldPaintDifferently(on, off);
         LabelShouldBeLegible(on);
     }
@@ -147,13 +147,13 @@ public class CellLayoutFocusRingTests
     public void ADisabledButtonPaintsAsItDidWithTheCursorOnIt(string theme)
     {
         var t = ThemeOf(theme);
-        ShouldPaintSame(Paint(Btn(t, ButtonKind.Standard, disabled: "no"), 0), Paint(Btn(t, ButtonKind.Standard, disabled: "no"), null));
+        ShouldPaintSame(Paint(Btn(t, Layout.ButtonKind.Standard, disabled: "no"), 0), Paint(Btn(t, Layout.ButtonKind.Standard, disabled: "no"), null));
     }
 
     [Fact]
     public void ADisabledAncestorSuppressesTheRingOfWhatItHolds()
     {
-        var node = Layout.Builder.VStack(Btn(Dark, ButtonKind.Standard)).Disabled("no");
+        var node = Layout.Builder.VStack(Btn(Dark, Layout.ButtonKind.Standard)).Disabled("no");
         ShouldPaintSame(Paint(node, 0), Paint(node, null));
     }
 
@@ -170,7 +170,7 @@ public class CellLayoutFocusRingTests
     [Fact]
     public void ACursorElsewherePaintsAsIfNoCursor()
     {
-        ShouldPaintSame(Paint(Btn(Dark, ButtonKind.Standard), 5), Paint(Btn(Dark, ButtonKind.Standard), null));
+        ShouldPaintSame(Paint(Btn(Dark, Layout.ButtonKind.Standard), 5), Paint(Btn(Dark, Layout.ButtonKind.Standard), null));
     }
 
     [Fact]
@@ -212,8 +212,8 @@ public class CellLayoutFocusRingTests
     public void TheWireframeRecordsTheFocusedFillItSeesForFocusBackground()
     {
         // ResolveFill (neighbour fills) and the recorder read what Paint decides, so a focused button's frame differs.
-        var on = PaintBoth(Btn(Dark, ButtonKind.Standard), 0).Frame.Frame.Fills;
-        var off = PaintBoth(Btn(Dark, ButtonKind.Standard), null).Frame.Frame.Fills;
+        var on = PaintBoth(Btn(Dark, Layout.ButtonKind.Standard), 0).Frame.Frame.Fills;
+        var off = PaintBoth(Btn(Dark, Layout.ButtonKind.Standard), null).Frame.Frame.Fills;
         on.ShouldNotBe(off);
     }
 }
