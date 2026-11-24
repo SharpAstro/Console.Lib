@@ -108,8 +108,7 @@ public class CellLayoutFocusRingTests
     private static string Compact(string dump)
     {
         var kept = new List<string>();
-        foreach (var line in dump.Split('
-'))
+        foreach (var line in dump.Split('\n'))
         {
             if (kept.Count == 0 || line != kept[^1])
             {
@@ -117,8 +116,7 @@ public class CellLayoutFocusRingTests
             }
         }
 
-        return string.Join('
-', kept);
+        return string.Join('\n', kept);
     }
 
     private static void LabelShouldBeLegible(CellBuffer b)
