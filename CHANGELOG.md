@@ -12,7 +12,9 @@ changed and why.
 ## 5.38
 
 - **DIR.Lib pin moves from 11.90.8582 to 11.98.9901** (`DIR.Lib` and `DIR.Lib.Debug` in lockstep). 11.98 adds
-  `Node.FocusRing` and moves Button, Chip, SplitButton and ToggleTile focus onto it.
+  `Node.FocusRing` and moves Button, Chip, SplitButton and ToggleTile focus onto it. No cell snapshot changed with
+  11.91 to 11.98: the repo keeps no snapshot baselines (its cell tests assert cells in code), and the pin commit
+  touched no test file; the existing cell suites passed on 11.98 unchanged.
 - **Fix: themed controls showed no focus in a terminal (#107).** `CellLayout.Paint` now draws `Node.FocusRing`. A pixel
   surface strokes the ring outside the node's edge; a cell surface has no room out there, so the ring is drawn inside
   the node's own cells: while the declared (or surface) list cursor is on the node's hit, **the ring colour becomes the
