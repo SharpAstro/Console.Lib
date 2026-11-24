@@ -185,6 +185,12 @@ public static class CellLayout
         var pixel = IsPixelAuthored(arranged);
         var borderCells = new BorderCells();
 
+        // The nodes lit by their FocusRing (see RingFill), keyed by depth like the backgrounds: text beneath one
+        // keeps WCAG-AA ink against the fill the ring made.
+        var lit = new Stack<(int Depth, RGBAColor32 Fill, RGBAColor32 Own)>();
+        // Depth of the nearest enclosing disabled node, -1 for none: a disabled subtree never shows a ring.
+        var disabledDepth = -1;
+
         for (var index = 0; index < arranged.Length; index++)
         {
             var arrangedNode = arranged[index];
@@ -221,6 +227,21 @@ public static class CellLayout
                 declared.Pop();
             }
 
+            while (lit.Count > 0 && lit.Peek().Depth >= arrangedNode.Depth)
+            {
+                lit.Pop();
+            }
+
+            if (disabledDepth >= 0 && arrangedNode.Depth <= disabledDepth)
+            {
+                disabledDepth = -1;
+            }
+
+            if (node.IsDisabled && disabledDepth < 0)
+            {
+                disabledDepth = arrangedNode.Depth;
+            }
+
             if (node.DeclaredList is { } list)
             {
                 declared.Push((arrangedNode.Depth, list.Cursor));
@@ -242,11 +263,19 @@ public static class CellLayout
             var nodeFilled = false;
             var nodePainted = false;
             var focusCursor = declared.Count > 0 ? declared.Peek().Cursor : surfaceCursor;
-            var nodeFill = node.FocusBackground is { } focus && focusCursor is not null && focusCursor.IsOn(node.Hit)
-                ? focus
-                : node.HoverBackground is { } hover && pointer is { } at && at.X >= rect.X && at.X < rect.X + rect.Width && at.Y >= rect.Y && at.Y < rect.Y + rect.Height
-                    ? hover
-                    : node.Background;
+            var focusBackgroundLit = node.FocusBackground is not null && focusCursor is not null && focusCursor.IsOn(node.Hit);
+            var ringFill = focusBackgroundLit ? null : RingFill(node, under, focusCursor, disabledDepth >= 0);
+            var nodeFill = focusBackgroundLit
+                ? node.FocusBackground
+                : ringFill is { } ringed
+                    ? ringed
+                    : node.HoverBackground is { } hover && pointer is { } at && at.X >= rect.X && at.X < rect.X + rect.Width && at.Y >= rect.Y && at.Y < rect.Y + rect.Height
+                        ? hover
+                        : node.Background;
+            if (ringFill is { } litFill)
+            {
+                lit.Push((arrangedNode.Depth, litFill, OwnFill(node) is { Alpha: > 0 } own ? own : under));
+            }
             // A fill of alpha 0 is transparent: it writes no cell and records no fill, so what is beneath stays.
             if (nodeFill is { Alpha: > 0 } bg)
             {
@@ -292,7 +321,8 @@ public static class CellLayout
             switch (leaf.Content)
             {
                 case Layout.Content.Text text:
-                    DrawText(viewport, rect, text, mode, under, links.Count > 0 ? links.Peek().Url : null, reverse, recorder);
+                    DrawText(viewport, rect, text, mode, under, links.Count > 0 ? links.Peek().Url : null, reverse, recorder,
+                        lit.Count > 0 ? LegibleInk(text.Color, lit.Peek().Fill, lit.Peek().Own) : null);
                     break;
                 case Layout.Content.Box box when box.Color.Alpha > 0:
                     recorder?.Fill(rect, box.Color);
@@ -834,7 +864,50 @@ public static class CellLayout
 
     // What Paint itself would fill the node with: its FocusBackground when the cursor is on it, else its own fill.
     private static RGBAColor32? ResolveFill(Layout.Node n, ListCursor? cursor)
-        => n.FocusBackground is { } focus && cursor is not null && cursor.IsOn(n.Hit) ? focus : OwnFill(n);
+        => n.FocusBackground is { } focus && cursor is not null && cursor.IsOn(n.Hit) ? focus
+            : RingFill(n, null, cursor, false) ?? OwnFill(n);
+
+    // How a cell surface shows Node.FocusRing. A pixel surface strokes the ring outside the edge, and a cell surface
+    // has no room out there, so the node's own cells carry it: the ring colour becomes the node's fill while the
+    // cursor is on its hit. A node already filled in (nearly) the ring's colour -- an Accent button under the default
+    // UiPalette.Focus, which IS Accent -- would not change, so it reverses instead: the fill becomes whichever of
+    // black and white contrasts most with it, and the label is re-inked (LegibleInk). Null when the node shows no
+    // ring: disabled (itself or an ancestor, the pixel painter's rule), a transparent colour or zero width, or the
+    // cursor elsewhere. FocusBackground is checked by the caller first and wins.
+    private const float RingDistinct = 1.5f;
+    private const float AaText = 4.5f;
+
+    private static RGBAColor32? RingFill(Layout.Node n, RGBAColor32? under, ListCursor? cursor, bool disabled)
+    {
+        if (disabled || n.IsDisabled || n.FocusRing is not { Color.Alpha: > 0, Width: > 0f } ring
+            || cursor is null || n.Hit is null || !cursor.IsOn(n.Hit))
+        {
+            return null;
+        }
+
+        var own = OwnFill(n) is { Alpha: > 0 } f ? f : under;
+        if (own is not { } ground || RGBAColor32.ContrastRatio(ring.Color, ground) >= RingDistinct)
+        {
+            return new RGBAColor32(ring.Color.Red, ring.Color.Green, ring.Color.Blue, 255);
+        }
+
+        return MoreLegible(ground, new RGBAColor32(255, 255, 255, 255), new RGBAColor32(0, 0, 0, 255));
+    }
+
+    private static RGBAColor32 MoreLegible(RGBAColor32 against, RGBAColor32 a, RGBAColor32 b)
+        => RGBAColor32.ContrastRatio(a, against) >= RGBAColor32.ContrastRatio(b, against) ? a : b;
+
+    // The label's own ink when it reads on the lit fill, else the best of the node's own fill, white and black.
+    private static RGBAColor32 LegibleInk(RGBAColor32 ink, RGBAColor32 fill, RGBAColor32 own)
+    {
+        if (RGBAColor32.ContrastRatio(ink, fill) >= AaText)
+        {
+            return ink;
+        }
+
+        var best = MoreLegible(fill, own, new RGBAColor32(255, 255, 255, 255));
+        return MoreLegible(fill, best, new RGBAColor32(0, 0, 0, 255));
+    }
 
     private static bool IsPlainStar(Layout.Node n)
     {
@@ -1209,7 +1282,7 @@ public static class CellLayout
     /// as part of the link draws a hyperlink stretching across gaps the reader cannot see any text in.
     /// </param>
     private static void DrawText(ITerminalViewport viewport, Rect<int> rect, Layout.Content.Text text, ColorMode mode,
-        RGBAColor32 under, string? link = null, bool reverse = false, CellWireframe.Recorder? recorder = null)
+        RGBAColor32 under, string? link = null, bool reverse = false, CellWireframe.Recorder? recorder = null, RGBAColor32? ink = null)
     {
         var (vw, vh) = viewport.Size;
         if (rect.Width <= 0 || rect.Height <= 0)
@@ -1275,6 +1348,6 @@ public static class CellLayout
 
         viewport.SetCursorPosition(startCol, row);
         var attribute = reverse ? VtStyle.ReverseOn : "";
-        viewport.Write($"{open}{new VtStyle(text.Color, under).Apply(mode)}{attribute}{s}{VtStyle.Reset}{close}");
+        viewport.Write($"{open}{new VtStyle(ink ?? text.Color, under).Apply(mode)}{attribute}{s}{VtStyle.Reset}{close}");
     }
 }
