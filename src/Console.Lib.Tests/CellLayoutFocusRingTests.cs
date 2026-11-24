@@ -92,10 +92,22 @@ public class CellLayoutFocusRingTests
 
     private static void ShouldPaintDifferently(CellBuffer a, CellBuffer b) => Cells(a).ShouldNotBe(Cells(b));
 
+    // The glyphs of the buffer, a row a line: what a failure message shows of a paint.
+    private static string Dump(CellBuffer b)
+    {
+        var rows = new List<string>();
+        for (var r = 0; r < Rows; r++)
+        {
+            rows.Add(string.Concat(Enumerable.Range(0, Width).Select(c => b.BackAt(c, r).Glyph)));
+        }
+
+        return string.Join('\n', rows);
+    }
+
     private static void LabelShouldBeLegible(CellBuffer b)
     {
         var inked = Cells(b).Where(c => char.IsLetterOrDigit((char)c.Glyph)).ToList();
-        inked.ShouldNotBeEmpty();
+        inked.ShouldNotBeEmpty(Dump(b));
         foreach (var cell in inked)
         {
             RGBAColor32.ContrastRatio(cell.Style.Foreground, cell.Style.Background).ShouldBeGreaterThanOrEqualTo(4.5f,
@@ -192,7 +204,7 @@ public class CellLayoutFocusRingTests
 
         var mainChanged = Changed(off, main);
         var detailsChanged = Changed(off, details);
-        mainChanged.ShouldNotBeEmpty();
+        mainChanged.ShouldNotBeEmpty(Dump(main));
         detailsChanged.ShouldNotBeEmpty();
         mainChanged.Intersect(detailsChanged).ShouldBeEmpty("the halves do not share a cell");
         LabelShouldBeLegible(main);
