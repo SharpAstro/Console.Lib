@@ -9,6 +9,12 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.38
+
+- **DIR.Lib pin moves from 11.90.8582 to 11.98.9901** (`DIR.Lib` and `DIR.Lib.Debug` in lockstep). 11.98 adds
+  `Node.FocusRing` and moves Button, Chip, SplitButton and ToggleTile focus onto it; the cell painter draws it in
+  the next change of this release.
+
 ## 5.37
 
 The cell half of two DIR.Lib releases. Pins DIR.Lib and DIR.Lib.Debug 11.90.8582 (was 11.86.8251). Additive.
