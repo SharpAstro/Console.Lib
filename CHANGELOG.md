@@ -12,8 +12,17 @@ changed and why.
 ## 5.38
 
 - **DIR.Lib pin moves from 11.90.8582 to 11.98.9901** (`DIR.Lib` and `DIR.Lib.Debug` in lockstep). 11.98 adds
-  `Node.FocusRing` and moves Button, Chip, SplitButton and ToggleTile focus onto it; the cell painter draws it in
-  the next change of this release.
+  `Node.FocusRing` and moves Button, Chip, SplitButton and ToggleTile focus onto it.
+- **Fix: themed controls showed no focus in a terminal (#107).** `CellLayout.Paint` now draws `Node.FocusRing`. A pixel
+  surface strokes the ring outside the node's edge; a cell surface has no room out there, so the ring is drawn inside
+  the node's own cells: while the declared (or surface) list cursor is on the node's hit, **the ring colour becomes the
+  node's fill**, as `FocusBackground` does. A node already filled in the ring's colour (an Accent button under the
+  default `UiPalette.Focus`, which is Accent) would not change, so it **reverses** instead: the fill becomes whichever
+  of black and white contrasts most. Text under a lit node keeps WCAG-AA (4.5:1) ink: its own colour when that reads,
+  else the best of the node's own fill, white and black. Nothing is drawn for a disabled node (or one under a disabled
+  ancestor, the pixel painter's rule), a ring with alpha 0 or width 0, or a cursor elsewhere; `FocusBackground` wins
+  when both are set. `ResolveFill`, sub-cell fills and the cell wireframe read the same decision. Chip, SplitButton
+  (each half lights alone) and ToggleTile are covered along with Button.
 
 ## 5.37
 
