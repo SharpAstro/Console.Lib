@@ -13,7 +13,7 @@ namespace Console.Lib.Tests;
 public class CellLayoutFocusRingTests
 {
     private const int Width = 40;
-    private const int Rows = 3;
+    private const int Rows = 8;
 
     private static readonly UiTheme Dark = new()
     {
