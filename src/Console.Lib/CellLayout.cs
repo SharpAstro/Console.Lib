@@ -1368,7 +1368,7 @@ public static class CellLayout
         var attribute = reverse ? VtStyle.ReverseOn : "";
         // Weight is honoured, Face is NOT: a terminal has one face, so Mono paints as Ui. Bold goes after the colour
         // and before the glyphs, and the trailing Reset ends it with the run; ColorMode.None writes no escape.
-        if (text.Weight == TextWeight.Bold && mode != ColorMode.None)
+        if (text.Weight == Layout.TextWeight.Bold && mode != ColorMode.None)
         {
             attribute += "\e[1m";
         }
