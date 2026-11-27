@@ -341,6 +341,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
         private readonly VirtualTerminal _owner;
         private VtStyle? _pen;
         private bool _reverse;
+        private bool _bold;
         private ColorMode _mode = ColorMode.Sgr16;
         private string? _link;
         private bool _linkKnown;
@@ -380,10 +381,12 @@ public sealed class VirtualTerminal : IVirtualTerminal
             _owner.Out.Write(MoveEscape(column, row));
         }
 
-        public void SetPen(VtStyle style, bool reverse)
+        public void SetPen(VtStyle style, bool reverse) => SetPen(style, reverse, false);
+
+        public void SetPen(VtStyle style, bool reverse, bool bold)
         {
             // Only re-state the pen when it actually differs: the whole point is to emit less.
-            if (_pen == style && _reverse == reverse) return;
+            if (_pen == style && _reverse == reverse && _bold == bold) return;
 
             // Reverse has to be stated in BOTH directions. Turning it on without ever turning it off leaves
             // the terminal inverted for every run after it, because Apply emits colours and no attribute
@@ -392,11 +395,17 @@ public sealed class VirtualTerminal : IVirtualTerminal
             // on white. Emitted only on a CHANGE, so a screen with no reverse cells is byte-identical, and
             // also after Invalidate, when the terminal's attribute state is unknown rather than merely stale.
             _owner.OpenFrame();
-            var mustStateReverse = _pen is null || _reverse != reverse;
+            var wasUnknown = _pen is null;
+            var mustStateReverse = wasUnknown || _reverse != reverse;
             _pen = style;
             _reverse = reverse;
 
-            _owner.Out.Write(PenEscape(style, _mode, reverse, mustStateReverse));
+            // Bold is stated in both directions for the same reason reverse is: Apply emits colours and no
+            // attribute reset, so a bold run left on would embolden every run after it.
+            var mustStateBold = wasUnknown || _bold != bold;
+            _bold = bold;
+
+            _owner.Out.Write(PenEscape(style, _mode, reverse, mustStateReverse, bold, mustStateBold));
         }
 
         /// <summary>
@@ -562,7 +571,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
     /// attribute when <paramref name="mustStateReverse"/> says the terminal's current attribute cannot be
     /// relied on. Pulled out of the sink so the both-directions rule is assertable without a console.
     /// </summary>
-    internal static string PenEscape(VtStyle style, ColorMode mode, bool reverse, bool mustStateReverse)
+    internal static string PenEscape(VtStyle style, ColorMode mode, bool reverse, bool mustStateReverse, bool bold = false, bool mustStateBold = false)
     {
         // ColorMode.None is a plain-text capture: no pen escape at all, and the reverse-video attribute is one. Until
         // 5.36 the first run of every Flush carried ESC[27m there, because the attribute was added whatever the mode.
@@ -571,7 +580,8 @@ public sealed class VirtualTerminal : IVirtualTerminal
         var attribute = mustStateReverse
             ? reverse ? VtStyle.ReverseOn : VtStyle.ReverseOff
             : "";
-        return $"{style.Apply(mode)}{attribute}";
+        var weight = mustStateBold ? bold ? "\e[1m" : "\e[22m" : "";
+        return $"{style.Apply(mode)}{attribute}{weight}";
     }
 
     public void Clear()
