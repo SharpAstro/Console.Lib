@@ -570,6 +570,8 @@ public static class CellLayout
             Layout.IconKind.CompareOverlay => "\u2592",
             Layout.IconKind.CompareSlider => "\u2194",
             Layout.IconKind.CompareChanges => "\u2260",
+            // A cell surface has no motion clock, so the turning arc is a still one: it says "working", not how fast.
+            Layout.IconKind.Spinner => "\u25dc",
             // A kind with no glyph yet shows as a visible placeholder rather than an empty cell, the cell
             // counterpart of the pixel painter drawing nothing for an unhandled kind.
             _ => "?",
