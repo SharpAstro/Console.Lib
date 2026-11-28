@@ -67,8 +67,17 @@ public sealed class CellInputSurface(WindowUiSettings ui) : IPixelWidget
         ModalClaim? modalClaim = null;
         var modalCardDepth = -1;
 
-        foreach (var an in arranged)
+        var hidden = CellLayout.HiddenByReveal(arranged, Pointer);
+
+        for (var index = 0; index < arranged.Length; index++)
         {
+            // Hidden by a hover reveal: nothing registered (region, field, shortcut, list row), room kept.
+            if (hidden is not null && hidden[index])
+            {
+                continue;
+            }
+
+            var an = arranged[index];
             var node = an.Node;
             var depth = an.Depth;
             var full = an.Bounds;
