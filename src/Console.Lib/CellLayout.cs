@@ -700,7 +700,9 @@ public static class CellLayout
     /// A node resolves against the row scope pushed BEFORE its own, so a revealed button with a Hit of its own still
     /// answers to its row; a hidden subtree is stepped over until the walk returns to its depth. Returns null when
     /// nothing is hidden, so the common tree costs one pass and no array. The one copy of the rule: Paint, Declare,
-    /// HitTest and the wireframe recorder all ask here.
+    /// HitTest and the wireframe recorder all ask here. The pointer test is a plain point-in-rect, like the cell
+    /// HoverBackground: DIR.Lib's open-popover pointer claim (HoverMayAnswer) is not applied, so a pointer over an open
+    /// popover can reveal a button of the row underneath.
     /// </summary>
     internal static bool[]? HiddenByReveal(ImmutableArray<Layout.ArrangedNode<int>> arranged, (float X, float Y)? pointer)
     {

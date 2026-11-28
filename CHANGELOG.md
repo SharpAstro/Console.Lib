@@ -19,6 +19,7 @@ changed and why.
   registered (regions, fields, shortcuts, list rows), and its room is kept, so nothing moves. One resolver,
   `CellLayout.HiddenByReveal`, serves `Paint`, `CellInputSurface.Declare` (its `Pointer`), `HitTest` (the asked cell is the
   pointer) and the wireframe recorder.
+- **`IconKind.Spinner`** (DIR.Lib 11.105) paints as a still U+25DC `◜` arc glyph in `CellLayout`.
 - **Tree-row ellipsis checked.** A long name in an Ellipsis `Node.Wrap` beside a trailing note ends in U+2026 at the cut,
   the note is painted whole, and `CellWireframe.CheckCells` reports nothing; pinned in `CellLayoutRowRevealTests`.
 

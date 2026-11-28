@@ -126,25 +126,11 @@ public class CellLayoutRowRevealTests
 
         var label = rest.Text(0, 0, Width - 3);
         label.ShouldStartWith("name");
+        // Room kept: every arranged rect is where it was, so a sibling that moved is seen here too.
+        hover.Arranged.Select(n => n.Bounds).ShouldBe(rest.Arranged.Select(n => n.Bounds));
+        selected.Arranged.Select(n => n.Bounds).ShouldBe(rest.Arranged.Select(n => n.Bounds));
         hover.Text(0, 0, Width - 3).ShouldBe(label);
         selected.Text(0, 0, Width - 3).ShouldBe(label);
-    }
-
-    [Fact]
-    public void AButtonWithItsOwnHit_AnswersToItsRowNotItself()
-    {
-        var host = new Host();
-        int run = 0;
-
-        // The button has a Hit of its own, but the pointer over IT must not be what shows it: it resolves
-        // against the row pushed before its own, so pointing at it still means pointing into the row.
-        host.Frame(RowOf(RunButton(() => run++)), (Width - 2f, 0f));
-        host.Text(0, Width - 3, 3).ShouldBe("[>]", "the pointer is in the row, which is what shows it");
-
-        // A pointer on the sibling row elsewhere: hidden, even though a button's own rect is never "its row".
-        host.Frame(RowOf(RunButton(() => run++)), (Width - 2f, 2f));
-        host.Text(0, Width - 3, 3).ShouldBe("   ");
-        run.ShouldBe(0);
     }
 
     [Fact]

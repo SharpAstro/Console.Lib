@@ -410,7 +410,7 @@ public sealed class VirtualTerminal : IVirtualTerminal
 
         /// <summary>
         /// States the hyperlink for the run about to be written, emitting only on a change — the same
-        /// "emit less" rule <see cref="SetPen"/> follows, and it matters more here: a list where every row
+        /// "emit less" rule <see cref="SetPen(VtStyle, bool, bool)"/> follows, and it matters more here: a list where every row
         /// is a link would otherwise pay an open and a close per row per frame.
         /// <para>
         /// The id is what makes a DIFFED link hold together; see <see cref="Osc8.Open(string, string)"/>.
