@@ -9,6 +9,20 @@ this file disagrees with. Bump it there and add the entry here, in the same comm
 Breaking changes carry their migration steps in [MIGRATION.md](MIGRATION.md); this file says what
 changed and why.
 
+## 5.39
+
+- **DIR.Lib 11.105.** The cell painter takes DIR330's additions. `Content.Text.Weight`: a `Bold` text leaf is drawn in SGR
+  bold, modelled by `CellBuffer` as a pen attribute beside Reverse; `Face` is ignored on purpose (a terminal has one face).
+- **Row hover-reveal and selection on the cell surface.** `Node.RevealsOnRowHover` / `Node.IsSelected` follow DIR.Lib's own
+  rule: a revealed node is shown only while the pointer is inside its nearest enclosing row (a node with a Hit, a
+  HoverBackground or IsSelected), or always when that row is selected. Hidden means not painted, not recorded and not
+  registered (regions, fields, shortcuts, list rows), and its room is kept, so nothing moves. One resolver,
+  `CellLayout.HiddenByReveal`, serves `Paint`, `CellInputSurface.Declare` (its `Pointer`), `HitTest` (the asked cell is the
+  pointer) and the wireframe recorder.
+- **`IconKind.Spinner`** (DIR.Lib 11.105) paints as a still U+25DC `◜` arc glyph in `CellLayout`.
+- **Tree-row ellipsis checked.** A long name in an Ellipsis `Node.Wrap` beside a trailing note ends in U+2026 at the cut,
+  the note is painted whole, and `CellWireframe.CheckCells` reports nothing; pinned in `CellLayoutRowRevealTests`.
+
 ## 5.38
 
 - **DIR.Lib pin moves from 11.90.8582 to 11.98.9901** (`DIR.Lib` and `DIR.Lib.Debug` in lockstep). 11.98 adds

@@ -22,6 +22,7 @@ public class CellBufferTests
     {
         public readonly List<(int Column, int Row)> Moves = [];
         public readonly List<(VtStyle Style, bool Reverse)> Pens = [];
+        public readonly List<bool> Bolds = [];
         public readonly StringBuilder Text = new();
 
         /// <summary>Each emitted run paired with the link in force for it — what a hyperlink test asserts on,
@@ -31,7 +32,8 @@ public class CellBufferTests
         private string? _link;
 
         public void MoveTo(int column, int row) => Moves.Add((column, row));
-        public void SetPen(VtStyle style, bool reverse) => Pens.Add((style, reverse));
+        public void SetPen(VtStyle style, bool reverse) => SetPen(style, reverse, false);
+        public void SetPen(VtStyle style, bool reverse, bool bold) { Pens.Add((style, reverse)); Bolds.Add(bold); }
         public void SetLink(string? url) => _link = url;
 
         public void Write(ReadOnlySpan<char> run)
@@ -213,7 +215,7 @@ public class CellBufferTests
     {
         var buf = Sized(6, 1);
         buf.MoveTo(0, 0);
-        buf.Write("\e[1mbold");   // bold is not something VtStyle emits
+        buf.Write("\e[4munder");   // underline is not something VtStyle emits (bold now is)
 
         buf.BackAt(0, 0).Kind.ShouldBe(CellKind.Opaque,
             "a pen we only mostly understand would show up as a MISSING repaint");
@@ -224,7 +226,7 @@ public class CellBufferTests
     {
         var buf = Sized(8, 1);
         buf.MoveTo(0, 0);
-        buf.Write($"\e[1mx{VtStyle.Reset}y");
+        buf.Write($"\e[4mx{VtStyle.Reset}y");
 
         buf.BackAt(0, 0).Kind.ShouldBe(CellKind.Opaque);
         buf.BackAt(1, 0).Kind.ShouldBe(CellKind.Text, "after a reset the pen is known");
@@ -424,5 +426,32 @@ public class CellBufferTests
 
         buf.FrontRowText(0).ShouldBe(" Move History   ");
         buf.FrontRowText(1).ShouldBe("White to move   ");
+    }
+
+    [Fact]
+    public void Sgr1And22_SetAndClearBold_And0Resets_WithoutMakingTheCellOpaque()
+    {
+        var buf = Sized(6, 1);
+        buf.Write("\e[1mA\e[22mB\e[1mC\e[0mD");
+
+        buf.BackAt(0, 0).Bold.ShouldBeTrue();
+        buf.BackAt(1, 0).Bold.ShouldBeFalse();
+        buf.BackAt(2, 0).Bold.ShouldBeTrue();
+        buf.BackAt(3, 0).Bold.ShouldBeFalse();
+        for (var c = 0; c < 4; c++) buf.BackAt(c, 0).Kind.ShouldBe(CellKind.Text);
+    }
+
+    [Fact]
+    public void AnUnchangedBoldCell_IsNotReEmitted_AndFlushStatesBold()
+    {
+        var buf = Sized(4, 1);
+        buf.Write("\e[1mAB\e[22mCD");
+        var sink = new RecordingSink();
+        buf.Flush(sink).ShouldBe(4);
+        sink.Bolds.ShouldBe([true, false], "one pen per run, bold stated for each");
+
+        buf.MoveTo(0, 0);
+        buf.Write("\e[1mAB\e[22mCD");
+        buf.Flush(new RecordingSink()).ShouldBe(0);
     }
 }

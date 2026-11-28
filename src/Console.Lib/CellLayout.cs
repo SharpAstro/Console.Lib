@@ -184,6 +184,7 @@ public static class CellLayout
 
         var pixel = IsPixelAuthored(arranged);
         var borderCells = new BorderCells();
+        var hidden = HiddenByReveal(arranged, pointer);
 
         // The nodes lit by their FocusRing (see RingFill), keyed by depth like the backgrounds: text beneath one
         // keeps WCAG-AA ink against the fill the ring made.
@@ -196,6 +197,13 @@ public static class CellLayout
             var arrangedNode = arranged[index];
             var node = arrangedNode.Node;
             var rect = arrangedNode.Bounds;
+
+            // A hover-revealed node that is hidden this frame (and what it holds): not painted, not recorded.
+            // Its room is kept, because arrangement is unchanged.
+            if (hidden is not null && hidden[index])
+            {
+                continue;
+            }
 
             while (scrolls.Count > 0 && scrolls.Peek().Depth >= arrangedNode.Depth)
             {
@@ -570,6 +578,8 @@ public static class CellLayout
             Layout.IconKind.CompareOverlay => "\u2592",
             Layout.IconKind.CompareSlider => "\u2194",
             Layout.IconKind.CompareChanges => "\u2260",
+            // A cell surface has no motion clock, so the turning arc is a still one: it says "working", not how fast.
+            Layout.IconKind.Spinner => "\u25dc",
             // A kind with no glyph yet shows as a visible placeholder rather than an empty cell, the cell
             // counterpart of the pixel painter drawing nothing for an unhandled kind.
             _ => "?",
@@ -683,15 +693,81 @@ public static class CellLayout
     internal static int VisibleOffset(int cursor, int maxChars) => Math.Max(0, cursor - maxChars + 1);
 
     /// <summary>
+    /// Which arranged nodes a hover reveal hides for <paramref name="pointer"/> (cells; null is no pointer), by DIR.Lib's
+    /// own rule (PixelWidgetBase's row scopes): a node with <see cref="Layout.Node.RevealsOnRowHover"/> is shown only
+    /// while the pointer is inside its row -- the nearest ENCLOSING ancestor with a Hit, a HoverBackground or
+    /// <see cref="Layout.Node.IsSelected"/> (its own rect when there is none) -- or always while that row is selected.
+    /// A node resolves against the row scope pushed BEFORE its own, so a revealed button with a Hit of its own still
+    /// answers to its row; a hidden subtree is stepped over until the walk returns to its depth. Returns null when
+    /// nothing is hidden, so the common tree costs one pass and no array. The one copy of the rule: Paint, Declare,
+    /// HitTest and the wireframe recorder all ask here. The pointer test is a plain point-in-rect, like the cell
+    /// HoverBackground: DIR.Lib's open-popover pointer claim (HoverMayAnswer) is not applied, so a pointer over an open
+    /// popover can reveal a button of the row underneath.
+    /// </summary>
+    internal static bool[]? HiddenByReveal(ImmutableArray<Layout.ArrangedNode<int>> arranged, (float X, float Y)? pointer)
+    {
+        bool[]? hidden = null;
+        var rows = new Stack<(int Depth, Rect<int> Rect, bool Selected)>();
+        var hiddenDepth = -1;
+        for (var i = 0; i < arranged.Length; i++)
+        {
+            var (node, rect) = (arranged[i].Node, arranged[i].Bounds);
+            var depth = arranged[i].Depth;
+            while (rows.Count > 0 && rows.Peek().Depth >= depth)
+            {
+                rows.Pop();
+            }
+
+            if (hiddenDepth >= 0)
+            {
+                if (depth > hiddenDepth)
+                {
+                    hidden![i] = true;
+                    continue;
+                }
+
+                hiddenDepth = -1;
+            }
+
+            if (node.RevealsOnRowHover)
+            {
+                var (rowRect, selected) = rows.Count > 0 ? (rows.Peek().Rect, rows.Peek().Selected) : (rect, false);
+                var inside = pointer is { } at && at.X >= rowRect.X && at.X < rowRect.X + rowRect.Width
+                    && at.Y >= rowRect.Y && at.Y < rowRect.Y + rowRect.Height;
+                if (!inside && !selected)
+                {
+                    hidden ??= new bool[arranged.Length];
+                    hidden[i] = true;
+                    hiddenDepth = depth;
+                    continue;
+                }
+            }
+
+            if (node.Hit is not null || node.HoverBackground is not null || node.IsSelected)
+            {
+                rows.Push((depth, rect, node.IsSelected));
+            }
+        }
+
+        return hidden;
+    }
+
+    /// <summary>
     /// Reverse-order (top-most wins) hit test in cell coordinates: invokes the matched leaf's
     /// <see cref="Layout.Content.OnClick"/> and returns its <see cref="Layout.Content.Hit"/>, or null.
     /// </summary>
     public static HitResult? HitTest(ImmutableArray<Layout.ArrangedNode<int>> arranged, int column, int row,
         InputModifier modifiers = InputModifier.None)
     {
+        var hidden = HiddenByReveal(arranged, (column, row));
         for (var i = arranged.Length - 1; i >= 0; i--)
         {
             var (node, rect) = arranged[i];
+            if (hidden is not null && hidden[i])
+            {
+                continue;
+            }
+
             if (HitOf(node) is { } hit && rect.Contains(column, row))
             {
                 node.OnClick?.Invoke(modifiers);
@@ -1366,6 +1442,12 @@ public static class CellLayout
 
         viewport.SetCursorPosition(startCol, row);
         var attribute = reverse ? VtStyle.ReverseOn : "";
+        // Weight is honoured, Face is NOT: a terminal has one face, so Mono paints as Ui. Bold goes after the colour
+        // and before the glyphs, and the trailing Reset ends it with the run; ColorMode.None writes no escape.
+        if (text.Weight == Layout.TextWeight.Bold && mode != ColorMode.None)
+        {
+            attribute += "\e[1m";
+        }
         viewport.Write($"{open}{new VtStyle(ink ?? text.Color, under).Apply(mode)}{attribute}{s}{VtStyle.Reset}{close}");
     }
 }

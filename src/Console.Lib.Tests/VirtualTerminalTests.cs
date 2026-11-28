@@ -179,6 +179,25 @@ public sealed class VirtualTerminalTests
         escape[style.Apply(ColorMode.Sgr16).Length..].ShouldBe(expectedSuffix);
     }
 
+    /// <summary>Bold is stated in both directions like Reverse: on, off, nothing when unchanged, nothing without colour.</summary>
+    [Theory]
+    [InlineData(ColorMode.Sgr16, true, true, "[1m")]
+    [InlineData(ColorMode.Sgr16, false, true, "[22m")]
+    [InlineData(ColorMode.Sgr16, true, false, "")]
+    [InlineData(ColorMode.Sgr16, false, false, "")]
+    public void PenEscape_StatesBoldInBothDirections(ColorMode mode, bool bold, bool mustState, string expectedSuffix)
+    {
+        var style = new VtStyle(SgrColor.White, SgrColor.Black);
+        var escape = VirtualTerminal.PenEscape(style, mode, false, false, bold, mustState);
+
+        escape.ShouldStartWith(style.Apply(mode));
+        escape[style.Apply(mode).Length..].ShouldBe(expectedSuffix);
+    }
+
+    [Fact]
+    public void PenEscape_BoldIsEmptyUnderColorModeNone()
+        => VirtualTerminal.PenEscape(new VtStyle(SgrColor.White, SgrColor.Black), ColorMode.None, false, false, true, true).ShouldBe("");
+
     [Theory]
     // The full point of the byte-map fix: every printable ASCII byte that a
     // terminal might send should round-trip through ByteToConsoleKey →

@@ -54,6 +54,9 @@ public enum CellKind : byte
 /// </param>
 public readonly record struct Cell(char Glyph, VtStyle Style, bool Reverse, CellKind Kind, string? Link = null)
 {
+    /// <summary>Bold (<c>ESC[1m</c>), a pen attribute beside <see cref="Reverse"/>. An init property so the positional constructor is unchanged.</summary>
+    public bool Bold { get; init; }
+
     public static readonly Cell Blank = new(' ', default, false, CellKind.Text);
 }
 
@@ -68,6 +71,12 @@ public interface ICellSink
 
     /// <summary>Select the pen for subsequent <see cref="Write"/> calls.</summary>
     void SetPen(VtStyle style, bool reverse);
+
+    /// <summary>
+    /// <see cref="SetPen(VtStyle, bool)"/> plus bold. A default body so an existing sink keeps compiling (it just
+    /// never sees bold); <see cref="CellBuffer.Flush"/> always calls this overload.
+    /// </summary>
+    void SetPen(VtStyle style, bool reverse, bool bold) => SetPen(style, reverse);
 
     /// <summary>
     /// Select the OSC 8 hyperlink for subsequent <see cref="Write"/> calls; null closes the open one.
@@ -117,6 +126,7 @@ public sealed class CellBuffer
 
     private VtStyle _pen;
     private bool _reverse;
+    private bool _bold;
 
     /// <summary>The OSC 8 target currently open, or null. See <see cref="Cell.Link"/>.</summary>
     private string? _link;
@@ -152,6 +162,7 @@ public sealed class CellBuffer
         _row = 0;
         _pen = default;
         _reverse = false;
+        _bold = false;
         _link = null;
         _penUnmodellable = false;
     }
@@ -229,12 +240,11 @@ public sealed class CellBuffer
     /// </summary>
     public Action<int, int, string, VtStyle, bool>? WriteObserver { get; set; }
 
-    private readonly List<(int Column, int Row, char Glyph, VtStyle Pen, bool Reverse)> _observed = [];
+    private readonly List<(int Column, int Row, char Glyph, VtStyle Pen, bool Reverse, bool Bold)> _observed = [];
 
     private void ReportRuns()
     {
-        var observer = WriteObserver;
-        if (observer is null || _observed.Count == 0)
+        if ((WriteObserver is null && WriteObserverWithBold is null) || _observed.Count == 0)
         {
             return;
         }
@@ -244,9 +254,9 @@ public sealed class CellBuffer
         var next = start.Column;
         foreach (var c in _observed)
         {
-            if (c.Row != start.Row || c.Column != next || c.Pen != start.Pen || c.Reverse != start.Reverse)
+            if (c.Row != start.Row || c.Column != next || c.Pen != start.Pen || c.Reverse != start.Reverse || c.Bold != start.Bold)
             {
-                observer(start.Column, start.Row, sb.ToString(), start.Pen, start.Reverse);
+                Report(start, sb.ToString());
                 sb.Clear();
                 start = c;
             }
@@ -255,7 +265,19 @@ public sealed class CellBuffer
             next = c.Column + 1;
         }
 
-        observer(start.Column, start.Row, sb.ToString(), start.Pen, start.Reverse);
+        Report(start, sb.ToString());
+    }
+
+    /// <summary>
+    /// <see cref="WriteObserver"/> with the bold attribute as a trailing argument; runs also break where bold changes.
+    /// Kept beside it so the existing observer's signature does not change.
+    /// </summary>
+    public Action<int, int, string, VtStyle, bool, bool>? WriteObserverWithBold { get; set; }
+
+    private void Report((int Column, int Row, char Glyph, VtStyle Pen, bool Reverse, bool Bold) start, string text)
+    {
+        WriteObserver?.Invoke(start.Column, start.Row, text, start.Pen, start.Reverse);
+        WriteObserverWithBold?.Invoke(start.Column, start.Row, text, start.Pen, start.Reverse, start.Bold);
     }
 
     private void WriteCore(ReadOnlySpan<char> text)
@@ -278,8 +300,8 @@ public sealed class CellBuffer
             if (_column >= _width) { _column = 0; _row++; if (_row >= _height) return; }
 
             _back[_row * _width + _column] = new Cell(
-                ch, _pen, _reverse, _penUnmodellable ? CellKind.Opaque : CellKind.Text, _link);
-            if (WriteObserver is not null) _observed.Add((_column, _row, ch, _pen, _reverse));
+                ch, _pen, _reverse, _penUnmodellable ? CellKind.Opaque : CellKind.Text, _link) { Bold = _bold };
+            if (WriteObserver is not null || WriteObserverWithBold is not null) _observed.Add((_column, _row, ch, _pen, _reverse, _bold));
             _column++;
         }
     }
@@ -339,6 +361,7 @@ public sealed class CellBuffer
                 // Start a run: same pen, same link, contiguous, all dirty, no image in the way.
                 var pen = back.Style;
                 var reverse = back.Reverse;
+                var bold = back.Bold;
                 var link = back.Link;
                 var start = c;
                 run.Clear();
@@ -349,7 +372,7 @@ public sealed class CellBuffer
                     var cell = _back[j];
                     if (cell.Kind == CellKind.Image) break;
                     if (!IsDirty(cell, _front[j])) break;
-                    if (cell.Style != pen || cell.Reverse != reverse) break;
+                    if (cell.Style != pen || cell.Reverse != reverse || cell.Bold != bold) break;
 
                     // A link boundary breaks the run for the same reason a pen change does: the sink can
                     // only state one target for the glyphs it is about to write.
@@ -365,7 +388,7 @@ public sealed class CellBuffer
                 }
 
                 sink.MoveTo(start, r);
-                sink.SetPen(pen, reverse);
+                sink.SetPen(pen, reverse, bold);
                 sink.SetLink(link);
                 foreach (var chunk in run.GetChunks())
                 {
@@ -536,6 +559,8 @@ public sealed class CellBuffer
             switch (codes[i])
             {
                 case 0: ResetPen(); break;
+                case 1: _bold = true; break;
+                case 22: _bold = false; break;
                 case 7: _reverse = true; break;
                 case 27: _reverse = false; break;
 
@@ -571,6 +596,7 @@ public sealed class CellBuffer
     {
         _pen = default;
         _reverse = false;
+        _bold = false;
         // A reset is something we DO understand, so it also clears the unmodellable state: whatever we
         // could not parse, the pen is now known again.
         _penUnmodellable = false;
