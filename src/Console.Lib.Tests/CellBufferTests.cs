@@ -215,7 +215,7 @@ public class CellBufferTests
     {
         var buf = Sized(6, 1);
         buf.MoveTo(0, 0);
-        buf.Write("\e[1mbold");   // bold is not something VtStyle emits
+        buf.Write("\e[4munder");   // underline is not something VtStyle emits (bold now is)
 
         buf.BackAt(0, 0).Kind.ShouldBe(CellKind.Opaque,
             "a pen we only mostly understand would show up as a MISSING repaint");
@@ -226,7 +226,7 @@ public class CellBufferTests
     {
         var buf = Sized(8, 1);
         buf.MoveTo(0, 0);
-        buf.Write($"\e[1mx{VtStyle.Reset}y");
+        buf.Write($"\e[4mx{VtStyle.Reset}y");
 
         buf.BackAt(0, 0).Kind.ShouldBe(CellKind.Opaque);
         buf.BackAt(1, 0).Kind.ShouldBe(CellKind.Text, "after a reset the pen is known");
